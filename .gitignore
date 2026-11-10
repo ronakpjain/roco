@@ -8,3 +8,7 @@
 *.bak
 *.kicad_sch-bak
 *.kicad_pcb-bak
+
+# CPU build artifacts and fetched ISA tests
+cpu/build/
+cpu/third_party/

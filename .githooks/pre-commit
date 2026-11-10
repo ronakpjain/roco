@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Pre-commit checks for the roco repository.
+#
+# Staged SystemVerilog sources under cpu/ must be verible-formatted and
+# syntactically valid. The hook is intentionally fast: full lint and
+# simulation live in `make -C cpu check`.
+
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+mapfile -t files < <(
+  git diff --cached --name-only --diff-filter=ACM |
+    grep -E '^cpu/.*\.(sv|svh)$' || true
+)
+
+if [ "${#files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+if ! command -v verible-verilog-format >/dev/null 2>&1; then
+  echo "pre-commit: verible-verilog-format not found, skipping format check" >&2
+  exit 0
+fi
+
+format_status=0
+for file in "${files[@]}"; do
+  if ! verible-verilog-format \
+    --flagfile=cpu/.verible-verilog-format \
+    --verify \
+    "$file"; then
+    format_status=1
+  fi
+done
+if [ "$format_status" -ne 0 ]; then
+  echo "" >&2
+  echo "pre-commit: formatting violations in staged SystemVerilog." >&2
+  echo "Run: make -C cpu format" >&2
+  exit 1
+fi
+
+if ! verible-verilog-syntax --error_limit=20 "${files[@]}"; then
+  echo "pre-commit: syntax errors in staged SystemVerilog." >&2
+  exit 1
+fi
+
+exit 0

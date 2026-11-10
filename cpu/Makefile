@@ -24,6 +24,8 @@ RISCV ?= $(shell command -v riscv64-elf-gcc >/dev/null 2>&1 && echo riscv64-elf 
 FORMAT_FLAGS := --flagfile=.verible-verilog-format
 
 RTL_SV := $(shell find $(RTL_DIR) -name '*.sv')
+# The board top contains the ECP5 PLL primitive, which simulation does not model.
+SIM_RTL := $(filter-out $(RTL_DIR)/roco_top.sv,$(RTL_SV))
 RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
@@ -97,7 +99,7 @@ test-sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp
 
 $(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/sdram_model.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
-		sim/tb_soc.sv sim/sdram_model.sv $(RTL_SV)
+		sim/tb_soc.sv sim/sdram_model.sv $(SIM_RTL)
 
 test-soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/basic.hex
@@ -108,7 +110,7 @@ test-isa-soc: $(BUILD_DIR)/tb_soc.vvp
 
 $(BUILD_DIR)/tb_soc_boot.vvp: $(RTL_SV) sim/tb_soc_boot.sv sim/sdram_model.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
-		sim/tb_soc_boot.sv sim/sdram_model.sv $(RTL_SV)
+		sim/tb_soc_boot.sv sim/sdram_model.sv $(SIM_RTL)
 
 test-boot: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello.packet.hex

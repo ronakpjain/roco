@@ -1,0 +1,414 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "ef101b1b-a66a-4e4c-96ba-9861f8531672")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 114.3 127)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "21384aa0-a665-47f7-a9f9-5e8d9c3dbc0c")
+		(property "Sheetname" "Configuration and JTAG"
+			(at 114.3 125.73 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_configuration.kicad_sch"
+			(at 114.3 153.67 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "11")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 25.4 127)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "47621302-d095-4d0e-b5d1-90bf4ad63cb7")
+		(property "Sheetname" "I/O Bank 8"
+			(at 25.4 125.73 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank8.kicad_sch"
+			(at 25.4 153.67 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "10")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 25.4 88.9)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "6d00d509-9522-4110-8350-8920a84af2cd")
+		(property "Sheetname" "I/O Bank 3"
+			(at 25.4 87.63 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank3.kicad_sch"
+			(at 25.4 115.57 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "7")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 25.4 38.1)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "72f782e0-8708-4d70-b1f3-63434465d88c")
+		(property "Sheetname" "I/O Bank 0"
+			(at 25.4 36.83 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank0.kicad_sch"
+			(at 25.4 64.77 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 114.3 38.1)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "89f9cf42-f244-44e1-82e6-a14ae44cefe1")
+		(property "Sheetname" "I/O Bank 1"
+			(at 114.3 36.83 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank1.kicad_sch"
+			(at 114.3 64.77 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 203.2 38.1)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "8ead71e1-897d-4d15-b08f-81a7b3c6f60e")
+		(property "Sheetname" "I/O Bank 2"
+			(at 203.2 36.83 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank2.kicad_sch"
+			(at 203.2 64.77 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "6")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 203.2 88.9)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "9be028a9-bfaf-45ab-966f-b91649f4bf4e")
+		(property "Sheetname" "I/O Bank 7"
+			(at 203.2 87.63 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank7.kicad_sch"
+			(at 203.2 115.57 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "9")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 114.3 88.9)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "ca6a568c-ff6b-417c-926a-670090b49346")
+		(property "Sheetname" "I/O Bank 6"
+			(at 114.3 87.63 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_bank6.kicad_sch"
+			(at 114.3 115.57 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "8")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 203.2 127)
+		(size 71.12 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "cb72f760-8541-425f-8edf-099dfc1840e7")
+		(property "Sheetname" "Power and Ground"
+			(at 203.2 125.73 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fpga_power.kicad_sch"
+			(at 203.2 153.67 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "roco"
+				(path "/4f145421-0158-43a7-b58f-b53bbe95a52c/c6e5dea1-5f7f-48bc-bd9f-699d039314a4"
+					(page "12")
+				)
+			)
+		)
+	)
+	(embedded_fonts no)
+)

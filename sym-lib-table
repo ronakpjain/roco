@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "roco")(type "KiCad")(uri "${KIPRJMOD}/libraries/roco.kicad_sym")(options "")(descr "Project-local ECP5 symbols"))
+)

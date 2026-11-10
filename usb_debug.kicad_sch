@@ -1,0 +1,2 @@
+(kicad_sch (version 20260306) (generator "eeschema") (generator_version "10.0")
+(uuid "c53d816f-9644-4d5b-b7cf-5d86a82e22e2") (paper "A4") (title_block (title "USB-C Debug / Programming")) (lib_symbols) (embedded_fonts no))

@@ -12,7 +12,7 @@ pcb/
 ├── *.kicad_sch      Hierarchical schematic sheets
 ├── libraries/       Symbols, footprints, and 3D models
 └── docs/            Design notes, budgets, pin plan, and datasheets
-cpu/                 Empty; reserved for CPU/RTL development
+cpu/                 Pipelined RV32I SoC in SystemVerilog (see cpu/README.md)
 ```
 
 Open [`pcb/roco.kicad_pro`](pcb/roco.kicad_pro) in KiCad 10.
@@ -24,6 +24,7 @@ Open [`pcb/roco.kicad_pro`](pcb/roco.kicad_pro) in KiCad 10.
 - [USB-C PD](pcb/docs/usb-c-pd.md)
 - [Power budget](pcb/docs/power-budget.md) and [current allocations](pcb/docs/current-budget.csv)
 - [Pin plan](pcb/docs/pin-plan.csv)
+- [CPU and SoC](cpu/README.md)
 - [Datasheets](pcb/docs/datasheets/) and [sources](pcb/docs/datasheet-sources.csv)
 
 Power-budget calculator (Python 3.9+):

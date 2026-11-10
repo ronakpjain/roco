@@ -47,15 +47,17 @@ format-check:
 syntax:
 	$(VERIBLE_SYNTAX) --error_limit=20 $(ALL_SV) $(RTL_SVH)
 
+# Keep advisory style/width warnings nonfatal, but reject structural defects.
+LINT_FLAGS := --lint-only --Wall -Wno-fatal -Werror-PINMISSING -Werror-PINNOCONNECT \
+	-Werror-UNDRIVEN -Werror-MULTIDRIVEN -Werror-LATCH -Werror-UNOPTFLAT
+
 lint:
-	$(VERILATOR) --lint-only --Wall -Wno-fatal \
-		-I$(RTL_DIR)/common \
-		--top-module rv32_core \
-		$(RTL_SV)
-	$(VERILATOR) --lint-only --Wall -Wno-fatal \
-		-I$(RTL_DIR)/common \
-		--top-module sdram_ctrl \
-		$(RTL_SV)
+	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
+		--top-module rv32_core $(SIM_RTL)
+	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
+		--top-module sdram_ctrl $(SIM_RTL)
+	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
+		--top-module roco_soc $(SIM_RTL)
 
 hooks:
 	git config core.hooksPath .githooks
@@ -87,8 +89,8 @@ $(BUILD_DIR)/hello.hex: $(BUILD_DIR)/hello.bin
 $(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.elf
 	$(PYTHON) scripts/boot.py --elf $< --emit-hex $@ --riscv-prefix $(RISCV)-
 
-$(BUILD_DIR)/tb_core.vvp: $(RTL_SV) sim/tb_core.sv | build
-	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ sim/tb_core.sv $(RTL_SV)
+$(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv $(SIM_RTL)
 
 $(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_sdram_ctrl.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \

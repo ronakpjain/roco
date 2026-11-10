@@ -61,7 +61,6 @@ module icache #(
   logic [TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
   logic valid_ram[0:NUM_LINES-1];
 
-  logic [31:0] cpu_rsp_data_q;
   logic rsp_valid_q;
   logic [31:0] rsp_addr_q;
   logic [22:0] fill_word_addr;
@@ -80,7 +79,6 @@ module icache #(
 
   always_ff @(posedge clk) begin
     ram_data <= data_ram[ram_raddr];
-    cpu_rsp_data_q <= ram_data;
   end
 
   assign cpu_rsp_valid = rsp_valid_q;
@@ -104,7 +102,6 @@ module icache #(
       state <= S_IDLE;
       rsp_valid_q <= 1'b0;
       rsp_addr_q <= '0;
-      cpu_rsp_data_q <= '0;
       fill_word_addr <= '0;
       fill_idx <= '0;
       fill_tag <= '0;

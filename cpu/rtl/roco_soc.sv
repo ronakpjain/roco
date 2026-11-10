@@ -233,7 +233,13 @@ module roco_soc #(
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
       .fence_req(core_fence_req),
-      .fence_done(fence_done)
+      .fence_done(fence_done),
+      // Simulation observes these hierarchically; no board-level consumer.
+      .trace_valid(),
+      .trace_pc(),
+      .trace_instr(),
+      .trace_rd(),
+      .trace_wdata()
   );
 
   // -------------------------------------------------------------- I-cache

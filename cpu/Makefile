@@ -14,6 +14,9 @@ VERILATOR := verilator
 IVERILOG := iverilog
 VVP := vvp
 PYTHON := python3
+YOSYS := yosys
+NEXTPNR := nextpnr-ecp5
+ECPPACK := ecppack
 RISCV ?= $(shell command -v riscv64-elf-gcc >/dev/null 2>&1 && echo riscv64-elf \
 	|| (test -x /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf-gcc \
 	    && echo /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf) || echo riscv64-elf)
@@ -25,7 +28,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc test-boot
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc test-boot synth bitstream
 
 all: format-check syntax lint
 
@@ -116,6 +119,21 @@ test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 test-isa: $(BUILD_DIR)/tb_core.vvp
 	./scripts/get-riscv-tests.sh
 	$(PYTHON) scripts/run_isa_tests.py --riscv-prefix $(RISCV)-
+
+synth: $(BUILD_DIR)/roco.json
+
+$(BUILD_DIR)/roco.json: $(RTL_SV) | build
+	$(YOSYS) -p "read_verilog -sv -I$(RTL_DIR)/common $(RTL_SV); synth_ecp5 -top roco_top -json $@"
+
+bitstream: $(BUILD_DIR)/roco.bit
+
+$(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf
+	$(NEXTPNR) --45k --package CABGA381 --speed 6 \
+		--json $(BUILD_DIR)/roco.json --lpf constraints/roco.lpf \
+		--textcfg $@
+
+$(BUILD_DIR)/roco.bit: $(BUILD_DIR)/roco.config
+	$(ECPPACK) --svf $(BUILD_DIR)/roco.svf $< $@
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -1,0 +1,120 @@
+# roco Rev A pin constraints (LFE5U-45F-6BG381C).
+# Balls follow pcb/docs/pin-plan.csv.
+
+BLOCK RESETPATHS;
+BLOCK ASYNCPATHS;
+
+# Reference clock (ball A4, dedicated ULC_GPLL0T_IN).
+LOCATE COMP "clk_24" SITE "A4";
+IOBUF PORT "clk_24" IO_TYPE=LVCMOS33;
+FREQUENCY PORT "clk_24" 24 MHz;
+
+# Reset and user buttons, active low with board pull-ups.
+LOCATE COMP "app_reset_n" SITE "B5";
+IOBUF PORT "app_reset_n" IO_TYPE=LVCMOS33 PULLMODE=UP;
+LOCATE COMP "user_button_n[0]" SITE "C5";
+IOBUF PORT "user_button_n[0]" IO_TYPE=LVCMOS33 PULLMODE=UP;
+LOCATE COMP "user_button_n[1]" SITE "C4";
+IOBUF PORT "user_button_n[1]" IO_TYPE=LVCMOS33 PULLMODE=UP;
+
+# User LEDs.
+LOCATE COMP "user_led[0]" SITE "A3";
+IOBUF PORT "user_led[0]" IO_TYPE=LVCMOS33;
+LOCATE COMP "user_led[1]" SITE "B4";
+IOBUF PORT "user_led[1]" IO_TYPE=LVCMOS33;
+LOCATE COMP "user_led[2]" SITE "B3";
+IOBUF PORT "user_led[2]" IO_TYPE=LVCMOS33;
+LOCATE COMP "user_led[3]" SITE "E4";
+IOBUF PORT "user_led[3]" IO_TYPE=LVCMOS33;
+
+# FT2232H channel B UART.
+LOCATE COMP "uart_tx" SITE "L5";
+IOBUF PORT "uart_tx" IO_TYPE=LVCMOS33;
+LOCATE COMP "uart_rx" SITE "M5";
+IOBUF PORT "uart_rx" IO_TYPE=LVCMOS33;
+
+# SDRAM data bus (bank 0).
+LOCATE COMP "sdram_dq[0]" SITE "C10";
+IOBUF PORT "sdram_dq[0]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[1]" SITE "B9";
+IOBUF PORT "sdram_dq[1]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[2]" SITE "E10";
+IOBUF PORT "sdram_dq[2]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[3]" SITE "D10";
+IOBUF PORT "sdram_dq[3]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[4]" SITE "C9";
+IOBUF PORT "sdram_dq[4]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[5]" SITE "E9";
+IOBUF PORT "sdram_dq[5]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[6]" SITE "A8";
+IOBUF PORT "sdram_dq[6]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[7]" SITE "D9";
+IOBUF PORT "sdram_dq[7]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[8]" SITE "A7";
+IOBUF PORT "sdram_dq[8]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[9]" SITE "B8";
+IOBUF PORT "sdram_dq[9]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[10]" SITE "D8";
+IOBUF PORT "sdram_dq[10]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[11]" SITE "C8";
+IOBUF PORT "sdram_dq[11]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[12]" SITE "E8";
+IOBUF PORT "sdram_dq[12]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[13]" SITE "C7";
+IOBUF PORT "sdram_dq[13]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[14]" SITE "D7";
+IOBUF PORT "sdram_dq[14]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dq[15]" SITE "C6";
+IOBUF PORT "sdram_dq[15]" IO_TYPE=LVCMOS33;
+
+# SDRAM masks (bank 0).
+LOCATE COMP "sdram_dqm[0]" SITE "E7";
+IOBUF PORT "sdram_dqm[0]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_dqm[1]" SITE "D6";
+IOBUF PORT "sdram_dqm[1]" IO_TYPE=LVCMOS33;
+
+# SDRAM address and bank (bank 1).
+LOCATE COMP "sdram_a[0]" SITE "B19";
+IOBUF PORT "sdram_a[0]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[1]" SITE "A18";
+IOBUF PORT "sdram_a[1]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[2]" SITE "B18";
+IOBUF PORT "sdram_a[2]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[3]" SITE "C17";
+IOBUF PORT "sdram_a[3]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[4]" SITE "A17";
+IOBUF PORT "sdram_a[4]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[5]" SITE "B17";
+IOBUF PORT "sdram_a[5]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[6]" SITE "D16";
+IOBUF PORT "sdram_a[6]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[7]" SITE "B16";
+IOBUF PORT "sdram_a[7]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[8]" SITE "C16";
+IOBUF PORT "sdram_a[8]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[9]" SITE "A16";
+IOBUF PORT "sdram_a[9]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[10]" SITE "E15";
+IOBUF PORT "sdram_a[10]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[11]" SITE "C15";
+IOBUF PORT "sdram_a[11]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_a[12]" SITE "D15";
+IOBUF PORT "sdram_a[12]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_ba[0]" SITE "B15";
+IOBUF PORT "sdram_ba[0]" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_ba[1]" SITE "A15";
+IOBUF PORT "sdram_ba[1]" IO_TYPE=LVCMOS33;
+
+# SDRAM command and clock (bank 1).
+LOCATE COMP "sdram_ras_n" SITE "E14";
+IOBUF PORT "sdram_ras_n" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_cas_n" SITE "C14";
+IOBUF PORT "sdram_cas_n" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_we_n" SITE "D14";
+IOBUF PORT "sdram_we_n" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_cs_n" SITE "A14";
+IOBUF PORT "sdram_cs_n" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_cke" SITE "E13";
+IOBUF PORT "sdram_cke" IO_TYPE=LVCMOS33;
+LOCATE COMP "sdram_clk" SITE "C13";
+IOBUF PORT "sdram_clk" IO_TYPE=LVCMOS33;

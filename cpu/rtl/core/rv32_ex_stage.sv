@@ -13,7 +13,6 @@ module rv32_ex_stage (
   input logic clk,
   input logic rst,
   input logic halt,
-  input logic stall,
   input logic lu_stall,
   input logic retire,
   /* ID/EX pipeline register. */
@@ -194,7 +193,7 @@ module rv32_ex_stage (
   assign csr_write_intent = idex_is_csr && ((idex_csr_op == `RV32_CSR_RW) || (csr_src != 32'd0));
   assign ex_csr_illegal = idex_is_csr && (!csr_exists || (csr_write_intent && !csr_writable));
   assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
-                     csr_writable && !ex_trap && !stall && !halt && !rst;
+                     csr_writable && !ex_trap && !fence_hold && !halt && !rst;
 
   always_comb begin
     case (idex_csr_op)
@@ -318,14 +317,16 @@ module rv32_ex_stage (
     end
   end
 
-  assign ex_redirect_en = ex_redirect && !stall && !halt && !rst;
+  // A redirecting instruction cannot issue a cache lookup. Only an older
+  // FENCE.I can hold it; do not feed the data-cache hit path into redirects.
+  assign ex_redirect_en = ex_redirect && !fence_hold && !halt && !rst;
   assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) && !ex_trap &&
                        !rst && !halt && !fence_hold;
   assign ex_lu_we = idex_is_store;
   assign ex_lu_addr = ex_addr;
   assign ex_lu_wdata = ex_st;
   assign ex_lu_be = ex_be;
-  assign btb_update = idex_valid && !ex_trap && !stall && !halt && !rst &&
+  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
   assign btb_is_jal = idex_is_jal;

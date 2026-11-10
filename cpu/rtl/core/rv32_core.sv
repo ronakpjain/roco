@@ -253,7 +253,6 @@ module rv32_core (
       .clk(clk),
       .rst(rst),
       .halt(halt),
-      .stall(stall),
       .lu_stall(dmem_lu_stall),
       .retire(retire),
       .idex_valid(idex_valid),

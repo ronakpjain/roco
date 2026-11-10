@@ -284,13 +284,15 @@ module roco_soc #(
       .flush_done(dcache_flush_done),
       .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
       .lu_we(dmem_lu_we),
-      .lu_addr(dmem_lu_addr),
+      // Only SDRAM requests reach this cache. Use the physical offset so
+      // constant region bits do not occupy tag RAM or the hit comparator.
+      .lu_addr({7'd0, dmem_lu_addr[24:0]}),
       .lu_wdata(dmem_lu_wdata),
       .lu_be(dmem_lu_be),
       .lu_hit(dc_lu_hit),
       .cm_valid(dmem_req && dmem_in_sdram),
       .cm_we(dmem_we),
-      .cm_addr(dmem_addr),
+      .cm_addr({7'd0, dmem_addr[24:0]}),
       .cm_wdata(dmem_wdata),
       .cm_be(dmem_be),
       .cm_rdata(dc_cm_rdata),

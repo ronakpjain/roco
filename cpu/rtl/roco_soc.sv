@@ -140,6 +140,8 @@ module roco_soc #(
   logic [31:0] boot_addr;
   logic boot_restart;
   logic boot_done_eff;
+  logic boot_release;
+  logic core_rst;
 
   // ---------------------------------------------------------------- UART
   logic [7:0] uart_tx_data;
@@ -185,11 +187,21 @@ module roco_soc #(
   assign d_unc_req = dmem_req && !dmem_in_sdram;
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
+  // Hold the core in reset for one extra cycle after boot_done so that
+  // pc_if samples the image base address, not the pre-boot zero value.
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      boot_release <= 1'b0;
+    end else begin
+      boot_release <= boot_done_eff;
+    end
+  end
+  assign core_rst = rst || !boot_release;
 
   // ---------------------------------------------------------------- CPU
   rv32_core u_cpu (
       .clk(clk),
-      .rst(rst || !boot_done_eff),
+      .rst(core_rst),
       .boot_addr(BOOT_OVERRIDE ? 32'h1000_0000 : boot_addr),
       .halt(halted),
       .imem_req(imem_req),

@@ -19,6 +19,7 @@ module rv32_id_stage (
   input logic [31:0] if_pred_target,
   input logic hold,
   input logic flush,
+  input logic bubble,
   /* Writeback port into the register file. */
   input logic wb_we,
   input logic [4:0] wb_rd,
@@ -160,7 +161,7 @@ module rv32_id_stage (
       idex_is_fence_i <= 1'b0;
     end else if (halt || hold) begin
       // Frozen while MEM owns the bus.
-    end else if (flush) begin
+    end else if (flush || bubble) begin
       idex_valid <= 1'b0;
     end else begin
       idex_valid <= if_valid;

@@ -135,6 +135,7 @@ module rv32_core (
   logic [4:0] wb_rd;
   logic [31:0] wb_data;
 
+  logic load_use;
   logic dmem_lu_stall;
   logic stall;
   logic ex_lu_valid;
@@ -142,7 +143,6 @@ module rv32_core (
   logic [31:0] ex_lu_addr;
   logic [31:0] ex_lu_wdata;
   logic [3:0] ex_lu_be;
-  logic [31:0] mem_load_value;
   logic mem_redirect;
   logic retire;
   logic if_consume;
@@ -153,7 +153,11 @@ module rv32_core (
   logic [31:0] commit_wdata;
 
   assign retire = commit_valid;
-  assign if_consume = if_valid && !stall && !ex_redirect_en && !mem_redirect;
+  // Keep a dependent instruction in ID until the load reaches WB.
+  assign load_use = idex_valid && idex_is_load && (idex_rd != 5'd0) && if_valid &&
+                    ((dec_use_rs1 && dec_rs1 == idex_rd) ||
+                     (dec_use_rs2 && dec_rs2 == idex_rd));
+  assign if_consume = if_valid && !stall && !load_use && !ex_redirect_en && !mem_redirect;
   assign dmem_lu_valid = ex_lu_valid;
   assign dmem_lu_we = ex_lu_we;
   assign dmem_lu_addr = ex_lu_addr;
@@ -172,7 +176,7 @@ module rv32_core (
       .rst(rst),
       .halt(halt),
       .boot_addr(boot_addr),
-      .stall(stall),
+      .stall(stall || load_use),
       .flush(ex_redirect_en || mem_redirect),
       .pred_taken(pred_taken),
       .pred_target(pred_target),
@@ -203,6 +207,7 @@ module rv32_core (
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
       .hold(stall),
+      .bubble(load_use),
       .flush(ex_redirect_en || mem_redirect),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
@@ -284,7 +289,6 @@ module rv32_core (
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
-      .mem_load_value(mem_load_value),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
       .btb_update(btb_update),
@@ -353,7 +357,7 @@ module rv32_core (
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
-      .load_value(mem_load_value),
+      .load_value(),
       .fence_req(fence_req),
       .mem_redirect(mem_redirect),
       .commit_valid(commit_valid),

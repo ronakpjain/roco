@@ -46,7 +46,6 @@ module rv32_ex_stage (
   input logic idex_mret,
   input logic idex_is_fence_i,
   input logic fence_hold,
-  input logic [31:0] mem_load_value,
   input logic idex_pred_taken,
   input logic [31:0] idex_pred_target,
   /* Writeback forwarding and CSR write port. */
@@ -125,14 +124,14 @@ module rv32_ex_stage (
 
   // ------------------------------------------------------------- Forwarding
   always_comb begin
-    fwd_exmem_a = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0) && (exmem_rd == idex_rs1);
+    fwd_exmem_a = exmem_valid && exmem_regwrite && !exmem_is_load &&
+                  (exmem_rd != 5'd0) && (exmem_rd == idex_rs1);
     fwd_wb_a = wb_we && (wb_rd != 5'd0) && (wb_rd == idex_rs1);
-    fwd_exmem_b = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0) && (exmem_rd == idex_rs2);
+    fwd_exmem_b = exmem_valid && exmem_regwrite && !exmem_is_load &&
+                  (exmem_rd != 5'd0) && (exmem_rd == idex_rs2);
     fwd_wb_b = wb_we && (wb_rd != 5'd0) && (wb_rd == idex_rs2);
-    rs1_fwd = fwd_exmem_a ? (exmem_is_load ? mem_load_value : exmem_wbval) :
-              fwd_wb_a ? wb_data : idex_rs1_val;
-    rs2_fwd = fwd_exmem_b ? (exmem_is_load ? mem_load_value : exmem_wbval) :
-              fwd_wb_b ? wb_data : idex_rs2_val;
+    rs1_fwd = fwd_exmem_a ? exmem_wbval : fwd_wb_a ? wb_data : idex_rs1_val;
+    rs2_fwd = fwd_exmem_b ? exmem_wbval : fwd_wb_b ? wb_data : idex_rs2_val;
   end
 
   // ------------------------------------------------------------------- ALU

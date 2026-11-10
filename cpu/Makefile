@@ -129,10 +129,13 @@ synth: $(BUILD_DIR)/roco.json
 $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 	$(YOSYS) -p "read_verilog -sv -I$(RTL_DIR)/common $(RTL_SV); synth_ecp5 -top roco_top -json $@"
 
+# Share routing settings between timing measurements and the shipped bitstream.
+PNR_SEED ?= 1
+PNR_FLAGS ?=
 # Diagnostic route: report timing even when the unchanged 48 MHz PLL fails.
-TIMING_SEED ?= 1
+TIMING_SEED ?= $(PNR_SEED)
 timing: $(BUILD_DIR)/roco.json
-	$(NEXTPNR) --45k --package CABGA381 --speed 6 \
+	$(NEXTPNR) --45k --package CABGA381 --speed 6 $(PNR_FLAGS) \
 		--json $< --lpf constraints/roco.lpf \
 		--textcfg $(BUILD_DIR)/timing-seed$(TIMING_SEED).config \
 		--report $(BUILD_DIR)/timing-seed$(TIMING_SEED).json \
@@ -141,10 +144,19 @@ timing: $(BUILD_DIR)/roco.json
 
 bitstream: $(BUILD_DIR)/roco.bit
 
-$(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf
-	$(NEXTPNR) --45k --package CABGA381 --speed 6 \
+# Re-route when a command-line seed or routing flag changes.
+.PHONY: force-pnr-options
+$(BUILD_DIR)/pnr-options: force-pnr-options | build
+	@printf '%s\n' "$(NEXTPNR)" "$(PNR_SEED)" "$(PNR_FLAGS)" > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+
+$(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf Makefile $(BUILD_DIR)/pnr-options
+	$(NEXTPNR) --45k --package CABGA381 --speed 6 $(PNR_FLAGS) \
 		--json $(BUILD_DIR)/roco.json --lpf constraints/roco.lpf \
-		--textcfg $@
+		--seed $(PNR_SEED) --textcfg $@.tmp \
+		--report $(BUILD_DIR)/roco-timing.json --detailed-timing-report \
+		--log $(BUILD_DIR)/roco-route.log
+	mv $@.tmp $@
 
 $(BUILD_DIR)/roco.bit: $(BUILD_DIR)/roco.config
 	$(ECPPACK) --svf $(BUILD_DIR)/roco.svf $< $@

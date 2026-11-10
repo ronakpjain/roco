@@ -78,7 +78,9 @@ module uart_boot (
   integer k;
 
   assign boot_busy = (state != S_MAGIC);
-  assign rx_ready = rx_valid &&
+  // After a successful boot the CPU owns the UART; the loader must not
+  // consume the application's receive bytes while waiting for a restart.
+  assign rx_ready = rx_valid && !boot_done &&
                     ((state == S_MAGIC) || (state == S_BASE) || (state == S_LEN) ||
                      (state == S_CRC) || (state == S_DATA));
   assign tx_valid = ((state == S_FINISH) || (state == S_ERROR)) && !tx_done;

@@ -106,6 +106,8 @@ module rv32_ex_stage (
   logic [31:0] stall_store_data;
   logic [3:0] stall_be;
   logic [31:0] ex_addr;
+  logic [31:0] memory_addr;
+  logic [31:0] memory_addr_held;
   logic [31:0] ex_st;
   logic [3:0] ex_be;
   logic [31:0] ex_trap_tval;
@@ -150,19 +152,26 @@ module rv32_ex_stage (
   always_comb begin
     case (idex_funct3)
       3'b000: begin
-        ex_store_be = 4'b0001 << ex_alu_result[1:0];
+        ex_store_be = 4'b0001 << memory_addr[1:0];
       end
       3'b001: begin
-        ex_store_be = 4'b0011 << ex_alu_result[1:0];
+        ex_store_be = 4'b0011 << memory_addr[1:0];
       end
       default: begin
         ex_store_be = 4'b1111;
       end
     endcase
-    ex_store_data = rs2_fwd << {ex_alu_result[1:0], 3'b000};
+    ex_store_data = rs2_fwd << {memory_addr[1:0], 3'b000};
   end
 
-  assign ex_addr = stall_active ? stall_alu : ex_alu_result;
+  // Loads and stores always add rs1 and the immediate. Keep their address
+  // path independent of the general ALU opcode and result mux.
+  assign memory_addr =
+      ({32{fwd_exmem_a}} & (exmem_wbval + idex_imm)) |
+      ({32{!fwd_exmem_a && fwd_wb_a}} & (wb_data + idex_imm)) |
+      ({32{!fwd_exmem_a && !fwd_wb_a}} & (idex_rs1_val + idex_imm));
+  assign memory_addr_held = stall_active ? stall_alu : memory_addr;
+  assign ex_addr = (idex_is_load || idex_is_store) ? memory_addr_held : ex_alu_result;
   assign ex_st = stall_active ? stall_store_data : ex_store_data;
   assign ex_be = stall_active ? stall_be : ex_store_be;
   assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
@@ -250,10 +259,10 @@ module rv32_ex_stage (
       if (idex_is_load || idex_is_store) begin
         case (idex_funct3)
           3'b001, 3'b101: begin
-            ex_mem_misaligned = ex_addr[0];
+            ex_mem_misaligned = memory_addr_held[0];
           end
           3'b010: begin
-            ex_mem_misaligned = |ex_addr[1:0];
+            ex_mem_misaligned = |memory_addr_held[1:0];
           end
           default: begin
             ex_mem_misaligned = 1'b0;
@@ -320,10 +329,14 @@ module rv32_ex_stage (
   // A redirecting instruction cannot issue a cache lookup. Only an older
   // FENCE.I can hold it; do not feed the data-cache hit path into redirects.
   assign ex_redirect_en = ex_redirect && !fence_hold && !halt && !rst;
-  assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) && !ex_trap &&
+  // The decoder makes memory operations mutually exclusive with branches,
+  // CSR accesses and system instructions. Only illegal decode and memory
+  // alignment can trap a load/store; keep unrelated trap paths off lookup.
+  assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) &&
+                       !idex_illegal && !ex_mem_misaligned &&
                        !rst && !halt && !fence_hold;
   assign ex_lu_we = idex_is_store;
-  assign ex_lu_addr = ex_addr;
+  assign ex_lu_addr = memory_addr_held;
   assign ex_lu_wdata = ex_st;
   assign ex_lu_be = ex_be;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
@@ -342,7 +355,7 @@ module rv32_ex_stage (
       stall_be <= '0;
     end else if (lu_stall && !stall_active) begin
       stall_active <= 1'b1;
-      stall_alu <= ex_alu_result;
+      stall_alu <= memory_addr;
       stall_store_data <= ex_store_data;
       stall_be <= ex_store_be;
     end else if (!lu_stall) begin

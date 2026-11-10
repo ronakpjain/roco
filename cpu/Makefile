@@ -25,7 +25,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc
 
 all: format-check syntax lint
 
@@ -78,6 +78,17 @@ $(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_
 
 test-sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp
 	$(VVP) $(BUILD_DIR)/tb_sdram_ctrl.vvp
+
+$(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/sdram_model.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
+		sim/tb_soc.sv sim/sdram_model.sv $(RTL_SV)
+
+test-soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/basic.hex
+
+test-isa-soc: $(BUILD_DIR)/tb_soc.vvp
+	./scripts/get-riscv-tests.sh
+	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)-
 
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex

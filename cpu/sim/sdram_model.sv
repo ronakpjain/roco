@@ -70,6 +70,16 @@ module sdram_model #(
   assign dq_out = rd_pipe[0];
   assign dq_oe = rd_valid[0];
 
+  // Testbench backdoor: load one 32-bit word without a bus transaction.
+  task automatic preload(input logic [22:0] word_addr, input logic [31:0] data);
+    logic [WORD_AW:0] base;
+    begin
+      base = (word_addr << 1) & ((1 << (WORD_AW + 1)) - 1);
+      mem[base] = data[15:0];
+      mem[base+1] = data[31:16];
+    end
+  endtask
+
   initial begin
     // Memory contents are not initialised: tests write before reading.
     for (k = 0; k < 4; k = k + 1) begin

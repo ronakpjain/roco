@@ -90,7 +90,9 @@ module tb_core;
       .trace_pc(trace_pc),
       .trace_instr(trace_instr),
       .trace_rd(trace_rd),
-      .trace_wdata(trace_wdata)
+      .trace_wdata(trace_wdata),
+      .fence_req(),
+      .fence_done(1'b1)
   );
 
   // ------------------------------------------------------------ Clock/reset

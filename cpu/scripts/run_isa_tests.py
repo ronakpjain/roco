@@ -76,17 +76,19 @@ def build_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path) -> tuple
     return elf, hexfile
 
 
-def run_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path, max_cycles: int) -> tuple[str, bool, str]:
+def run_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path, max_cycles: int,
+             sim_name: str) -> tuple[str, bool, str]:
     name = src.stem
     try:
         _, hexfile = build_test(src, prefix, tests_dir)
+        sim = "tb_soc.vvp" if sim_name == "soc" else "tb_core.vvp"
         result = subprocess.run(
-            ["vvp", str(ROOT / "build" / "tb_core.vvp"), f"+hex={hexfile}", f"+max_cycles={max_cycles}"],
+            ["vvp", str(ROOT / "build" / sim), f"+hex={hexfile}", f"+max_cycles={max_cycles}"],
             capture_output=True,
             text=True,
             timeout=120,
         )
-        passed = "tb_core: PASS" in result.stdout
+        passed = ("tb_soc: PASS" in result.stdout) if sim_name == "soc" else ("tb_core: PASS" in result.stdout)
         detail = "" if passed else result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "no output"
         return name, passed, detail
     except subprocess.CalledProcessError as exc:
@@ -100,6 +102,7 @@ def main() -> int:
     parser.add_argument("--riscv-prefix", default=os.environ.get("RISCV_PREFIX", default_prefix()))
     parser.add_argument("--tests", nargs="*", help="only run these test names")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
+    parser.add_argument("--sim", choices=("core", "soc"), default="core")
     parser.add_argument("--max-cycles", type=int, default=2_000_000)
     parser.add_argument(
         "--tests-dir",
@@ -128,7 +131,7 @@ def main() -> int:
     failures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = [
-            pool.submit(run_test, src, args.riscv_prefix, tests_dir, args.max_cycles)
+            pool.submit(run_test, src, args.riscv_prefix, tests_dir, args.max_cycles, args.sim)
             for src in sources
         ]
         for future in concurrent.futures.as_completed(futures):

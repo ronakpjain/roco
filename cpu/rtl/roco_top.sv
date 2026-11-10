@@ -106,7 +106,7 @@ module roco_top (
       .BAUD(115200),
       .BOOT_OVERRIDE(1'b0),
       .ICACHE_LINES(128),
-      .DCACHE_LINES(256)
+      .DCACHE_LINES(128)
   ) u_soc (
       .clk(clk_48),
       .rst(rst_48),

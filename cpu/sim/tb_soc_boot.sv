@@ -228,7 +228,7 @@ module tb_soc_boot;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (!rst && halted) begin
       repeat (5000) @(posedge clk);
       if (exit_code == 32'd1) begin

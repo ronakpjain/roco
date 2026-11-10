@@ -284,6 +284,7 @@ module rv32_core (
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
+      .mem_load_value(mem_load_value),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
       .btb_update(btb_update),

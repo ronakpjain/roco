@@ -54,8 +54,8 @@ module tb_soc;
   int unsigned push_cnt = 0;
   int unsigned start_cnt = 0;
   int unsigned full_push_cnt = 0;
-  int unsigned stat_cnt = 0;
-  int unsigned stat_full_cnt = 0;
+  logic [7:0] expected_tx[0:65535];
+  int unsigned received_cnt = 0;
   logic tx_busy_q = 0;
   integer dbg_cnt2 = 0;
   initial trace_on = $test$plusargs("trace");
@@ -122,6 +122,10 @@ module tb_soc;
       tx_busy_q <= 0;
     end else begin
       if (u_soc.mmio_tx_push) begin
+        if (!u_soc.uart_tx_ready) begin
+          $fatal(1, "UART write while not ready");
+        end
+        expected_tx[push_cnt] <= u_soc.mmio_tx_byte;
         push_cnt <= push_cnt + 1;
         if (u_soc.u_uart.tx_full) begin
           full_push_cnt <= full_push_cnt + 1;
@@ -219,6 +223,14 @@ module tb_soc;
         rx_byte[bit_idx] = uart_tx;
         repeat (DIV) @(posedge clk);
       end
+      if (uart_tx !== 1'b1) begin
+        $fatal(1, "UART stop bit missing");
+      end
+      if (received_cnt >= push_cnt || rx_byte !== expected_tx[received_cnt]) begin
+        $fatal(1, "UART byte %0d: got %02x expected %02x", received_cnt, rx_byte,
+               expected_tx[received_cnt]);
+      end
+      received_cnt = received_cnt + 1;
       $write("%c", rx_byte);
       $fflush();
     end
@@ -235,18 +247,6 @@ module tb_soc;
   end
 
   always_ff @(posedge clk) begin
-    if (!rst) begin
-      if (u_soc.dmem_req && !u_soc.dmem_we && (u_soc.dmem_addr[15:0] == 16'h0004) &&
-          u_soc.u_uart.tx_full) begin
-        stat_full_cnt <= stat_full_cnt + 1;
-      end
-      if (u_soc.dmem_req && !u_soc.dmem_we && (u_soc.dmem_addr[15:0] == 16'h0004) &&
-          (stat_cnt < 3)) begin
-        stat_cnt <= stat_cnt + 1;
-        $display("  stat read rdata=%h full=%b ready=%b", u_soc.dmem_rsp_data,
-                 u_soc.u_uart.tx_full, u_soc.u_uart.tx_ready);
-      end
-    end
     if (!rst && halted) begin
       $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
                u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);

@@ -248,6 +248,12 @@ module tb_sdram_ctrl;
     send_read(23'h200000, 4'd3, 4);
     check_burst(4, "burst bank1 row0");
 
+    // Maximum-length bursts must not wrap the read timing counter.
+    fill_pattern(32'h1234_0000);
+    send_write(23'h000100, 4'd15, 16);
+    send_read(23'h000100, 4'd15, 16);
+    check_burst(16, "sixteen-word burst");
+
     // Single-beat write and read.
     expected[0] = 32'hdead_beef;
     send_write(23'h001020, 4'd0, 1);

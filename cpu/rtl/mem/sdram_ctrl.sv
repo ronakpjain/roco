@@ -106,7 +106,8 @@ module sdram_ctrl #(
   logic [12:0] row_addr;
 
   // Read burst pipeline.
-  logic [4:0] rd_t;
+  // Six bits cover CL plus all 32 halfwords of a maximum-length read.
+  logic [5:0] rd_t;
   logic [4:0] rd_issue;
   logic [15:0] rd_lo;
 
@@ -367,18 +368,18 @@ module sdram_ctrl #(
         end
 
         S_READ: begin
-          rd_t <= rd_t + 5'd1;
+          rd_t <= rd_t + 6'd1;
           if ((rd_t[0] == 1'b0) && (rd_issue <= {1'b0, cmd_len})) begin
             rd_issue <= rd_issue + 5'd1;
           end
-          if (rd_t >= 5'(CL) + 5'd1) begin
-            if (((rd_t - 5'(CL) - 5'd1) & 5'd1) == 5'd0) begin
+          if (rd_t >= 6'(CL) + 6'd1) begin
+            if (((rd_t - 6'(CL) - 6'd1) & 6'd1) == 6'd0) begin
               rd_lo <= sd_dq_in;
             end else begin
               rdata <= {sd_dq_in, rd_lo};
               rvalid <= 1'b1;
-              rlast <= ((rd_t - 5'(CL) - 5'd1) >> 1) == {1'b0, cmd_len};
-              if (((rd_t - 5'(CL) - 5'd1) >> 1) == {1'b0, cmd_len}) begin
+              rlast <= ((rd_t - 6'(CL) - 6'd1) >> 1) == {2'b0, cmd_len};
+              if (((rd_t - 6'(CL) - 6'd1) >> 1) == {2'b0, cmd_len}) begin
                 rd_t <= 5'd0;
                 rd_issue <= 5'd0;
                 state <= S_IDLE;

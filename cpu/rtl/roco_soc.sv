@@ -520,6 +520,33 @@ module roco_soc #(
     endcase
   end
 
+  // Capture lookup events before the counter arithmetic. The MMIO value
+  // includes the captured event, including when it takes priority over clear.
+  logic [31:0] dc_hits_base;
+  logic [31:0] dc_misses_base;
+  logic dc_hit_q;
+  logic dc_miss_q;
+  logic dc_clear_q;
+
+  assign dc_hits = dc_hit_q ? dc_hits_base + 32'd1 : dc_clear_q ? 32'd0 : dc_hits_base;
+  assign dc_misses = dc_miss_q ? dc_misses_base + 32'd1 : dc_clear_q ? 32'd0 : dc_misses_base;
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      dc_hits_base <= '0;
+      dc_misses_base <= '0;
+      dc_hit_q <= 1'b0;
+      dc_miss_q <= 1'b0;
+      dc_clear_q <= 1'b0;
+    end else begin
+      dc_hits_base <= dc_hits;
+      dc_misses_base <= dc_misses;
+      dc_hit_q <= dc_hit;
+      dc_miss_q <= dc_miss;
+      dc_clear_q <= dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0030);
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
       i_unc_rsp <= 1'b0;
@@ -530,8 +557,6 @@ module roco_soc #(
       mtimecmp <= '0;
       ic_hits <= '0;
       ic_misses <= '0;
-      dc_hits <= '0;
-      dc_misses <= '0;
       halted <= 1'b0;
       exit_code <= '0;
       dbg0 <= '0;
@@ -563,8 +588,6 @@ module roco_soc #(
             16'h0030: begin
               ic_hits <= '0;
               ic_misses <= '0;
-              dc_hits <= '0;
-              dc_misses <= '0;
             end
             16'h0108: begin
               halted <= 1'b0;
@@ -585,12 +608,6 @@ module roco_soc #(
       end
       if (ic_miss) begin
         ic_misses <= ic_misses + 32'd1;
-      end
-      if (dc_hit) begin
-        dc_hits <= dc_hits + 32'd1;
-      end
-      if (dc_miss) begin
-        dc_misses <= dc_misses + 32'd1;
       end
     end
   end

@@ -46,7 +46,8 @@ module rv32_core (
   output logic [31:0] trace_instr,
   output logic [4:0] trace_rd,
   output logic [31:0] trace_wdata,
-  output logic flush_icache
+  output logic fence_req,
+  input logic fence_done
 );
 
   logic if_valid;
@@ -102,6 +103,7 @@ module rv32_core (
   logic exmem_regwrite;
   logic exmem_is_load;
   logic exmem_is_store;
+  logic exmem_is_fence_i;
 
   logic memwb_valid;
   logic [31:0] memwb_wbval;
@@ -115,7 +117,9 @@ module rv32_core (
   logic [31:0] wb_data;
 
   logic load_use;
+  logic hazard_stall;
   logic stall;
+  logic mem_redirect;
   logic mem_wait;
   logic retire;
   logic if_consume;
@@ -139,9 +143,9 @@ module rv32_core (
       .halt(halt),
       .boot_addr(boot_addr),
       .stall(stall),
-      .flush(ex_redirect_en),
+      .flush(ex_redirect_en || mem_redirect),
       .if_consume(if_consume),
-      .redirect_pc(ex_redirect_pc),
+      .redirect_pc(mem_redirect ? (exmem_pc + 32'd4) : ex_redirect_pc),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
       .imem_rsp_valid(imem_rsp_valid),
@@ -159,8 +163,8 @@ module rv32_core (
       .if_valid(if_valid),
       .if_pc(if_pc),
       .if_instr(if_instr),
-      .hold(mem_wait),
-      .flush(load_use || ex_redirect_en),
+      .hold(mem_wait || fence_req),
+      .flush(load_use || ex_redirect_en || mem_redirect),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
@@ -233,30 +237,12 @@ module rv32_core (
       .idex_ebreak(idex_ebreak),
       .idex_mret(idex_mret),
       .idex_is_fence_i(idex_is_fence_i),
+      .fence_hold(fence_req),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
-      .ex_flush_icache(flush_icache),
-      .exmem_valid(exmem_valid),
-      .exmem_pc(exmem_pc),
-      .exmem_instr(exmem_instr),
-      .exmem_alu(exmem_alu),
-      .exmem_wbval(exmem_wbval),
-      .exmem_store_data(exmem_store_data),
-      .exmem_be(exmem_be),
-      .exmem_rd(exmem_rd),
-      .exmem_funct3(exmem_funct3),
-      .exmem_regwrite(exmem_regwrite),
-      .exmem_is_load(exmem_is_load),
-      .exmem_is_store(exmem_is_store)
-  );
-
-  rv32_mem_stage u_mem (
-      .clk(clk),
-      .rst(rst),
-      .halt(halt),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),
@@ -269,6 +255,27 @@ module rv32_core (
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
+      .exmem_is_fence_i(exmem_is_fence_i)
+  );
+
+  rv32_mem_stage u_mem (
+      .clk(clk),
+      .rst(rst),
+      .halt(halt),
+      .fence_done(fence_done),
+      .exmem_valid(exmem_valid),
+      .exmem_pc(exmem_pc),
+      .exmem_instr(exmem_instr),
+      .exmem_alu(exmem_alu),
+      .exmem_wbval(exmem_wbval),
+      .exmem_store_data(exmem_store_data),
+      .exmem_be(exmem_be),
+      .exmem_rd(exmem_rd),
+      .exmem_funct3(exmem_funct3),
+      .exmem_regwrite(exmem_regwrite),
+      .exmem_is_load(exmem_is_load),
+      .exmem_is_store(exmem_is_store),
+      .exmem_is_fence_i(exmem_is_fence_i),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
@@ -278,6 +285,8 @@ module rv32_core (
       .dmem_rsp_addr(dmem_rsp_addr),
       .dmem_rsp_data(dmem_rsp_data),
       .mem_wait(mem_wait),
+      .fence_req(fence_req),
+      .mem_redirect(mem_redirect),
       .commit_valid(commit_valid),
       .commit_pc(commit_pc),
       .commit_instr(commit_instr),
@@ -315,7 +324,9 @@ module rv32_core (
       .dec_rs2(dec_rs2),
       .mem_wait(mem_wait),
       .load_use(load_use),
-      .stall(stall)
+      .stall(hazard_stall)
   );
+
+  assign stall = hazard_stall || fence_req;
 
 endmodule

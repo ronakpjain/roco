@@ -11,6 +11,7 @@ module rv32_mem_stage (
   input logic clk,
   input logic rst,
   input logic halt,
+  input logic fence_done,
   /* EX/MEM pipeline register. */
   input logic exmem_valid,
   input logic [31:0] exmem_pc,
@@ -24,6 +25,7 @@ module rv32_mem_stage (
   input logic exmem_regwrite,
   input logic exmem_is_load,
   input logic exmem_is_store,
+  input logic exmem_is_fence_i,
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
   output logic dmem_we,
@@ -34,6 +36,8 @@ module rv32_mem_stage (
   input logic [31:0] dmem_rsp_addr,
   input logic [31:0] dmem_rsp_data,
   output logic mem_wait,
+  output logic fence_req,
+  output logic mem_redirect,
   /* One-cycle commit strobe for minstret and the retire trace. */
   output logic commit_valid,
   output logic [31:0] commit_pc,
@@ -68,6 +72,8 @@ module rv32_mem_stage (
   assign commit_instr = exmem_instr;
   assign commit_rd = exmem_rd;
   assign commit_wdata = exmem_is_load ? load_data : exmem_wbval;
+  assign fence_req = exmem_valid && exmem_is_fence_i && !fence_done;
+  assign mem_redirect = exmem_valid && exmem_is_fence_i && fence_done;
 
   assign load_byte = 8'(dmem_rsp_data >> {exmem_alu[1:0], 3'b000});
   assign load_half = 16'(dmem_rsp_data >> {exmem_alu[1], 4'b0000});
@@ -103,8 +109,8 @@ module rv32_mem_stage (
       memwb_rd <= '0;
       memwb_regwrite <= 1'b0;
       memwb_is_load <= 1'b0;
-    end else if (halt || mem_wait) begin
-      // Wait for the memory response.
+    end else if (halt || mem_wait || fence_req) begin
+      // Wait for the memory response or the FENCE.I cache flush.
     end else begin
       memwb_valid <= exmem_valid;
       memwb_wbval <= exmem_wbval;

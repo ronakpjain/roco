@@ -17,6 +17,8 @@ module dcache #(
 ) (
   input logic clk,
   input logic rst,
+  input logic flush,
+  output logic flush_done,
   /* CPU side: hold req until rsp. */
   input logic cpu_req,
   input logic cpu_we,
@@ -63,7 +65,11 @@ module dcache #(
     S_WB_WR,
     S_FILL_REQ,
     S_FILL,
-    S_STORE_FILL
+    S_STORE_FILL,
+    S_FLUSH,
+    S_FLUSH_REQ,
+    S_FLUSH_RD,
+    S_FLUSH_WR
   } state_t;
 
   state_t state;
@@ -79,6 +85,10 @@ module dcache #(
   logic [31:0] fill_word;
   logic [31:0] resp_data;
   logic [22:0] victim_word;
+  logic [IDX_BITS-1:0] flush_idx;
+  logic flush_active;
+  logic [22:0] flush_word;
+  logic [31:0] flush_byte;
 
   logic valid_ram[0:NUM_LINES-1];
   logic dirty_ram[0:NUM_LINES-1];
@@ -104,6 +114,8 @@ module dcache #(
   assign req_tag = req_addr[31:IDX_HI+1];
   assign victim_byte = {tag_ram[req_idx], req_idx, {(OFF_BITS + 2) {1'b0}}};
   assign victim_word = victim_byte[24:2];
+  assign flush_byte = {tag_ram[flush_idx], flush_idx, {(OFF_BITS + 2) {1'b0}}};
+  assign flush_word = flush_byte[24:2];
   assign cache_hit = valid_ram[req_idx] && (tag_ram[req_idx] == req_tag);
 
   assign hit_pulse = (state == S_LOOK) && cache_hit;
@@ -113,8 +125,10 @@ module dcache #(
     ram_raddr = {req_idx, req_off};
     if (state == S_IDLE) begin
       ram_raddr = {cpu_addr[IDX_HI:IDX_LO], cpu_addr[OFF_BITS+1:2]};
-    end else if (state == S_WB_RD) begin
+    end else if ((state == S_WB_RD) || (state == S_WB_WR)) begin
       ram_raddr = {req_idx, beat};
+    end else if ((state == S_FLUSH_RD) || (state == S_FLUSH_WR)) begin
+      ram_raddr = {flush_idx, beat};
     end
   end
 
@@ -164,11 +178,12 @@ module dcache #(
     end
   end
 
-  assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ);
-  assign mem_we = (state == S_WB_REQ);
-  assign mem_word_addr = (state == S_WB_REQ) ? victim_word : req_line_word;
+  assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ) || (state == S_FLUSH_REQ);
+  assign mem_we = (state == S_WB_REQ) || (state == S_FLUSH_REQ);
+  assign mem_word_addr = (state == S_WB_REQ) ? victim_word :
+                         (state == S_FLUSH_REQ) ? flush_word : req_line_word;
   assign mem_len = 4'(LINE_WORDS - 1);
-  assign mem_wvalid = (state == S_WB_WR);
+  assign mem_wvalid = (state == S_WB_WR) || (state == S_FLUSH_WR);
   assign mem_wdata = ram_rdata;
   assign mem_wbe = 4'hf;
 
@@ -186,15 +201,26 @@ module dcache #(
       cpu_rsp <= 1'b0;
       cpu_rsp_addr <= '0;
       cpu_rsp_data <= '0;
+      flush_done <= 1'b0;
+      flush_active <= 1'b0;
+      flush_idx <= '0;
       for (i = 0; i < NUM_LINES; i = i + 1) begin
         valid_ram[i] <= 1'b0;
         dirty_ram[i] <= 1'b0;
       end
     end else begin
       cpu_rsp <= 1'b0;
+      if (!flush) begin
+        flush_done <= 1'b0;
+        flush_active <= 1'b0;
+      end
       case (state)
         S_IDLE: begin
-          if (cpu_req) begin
+          if (flush && !flush_active) begin
+            flush_active <= 1'b1;
+            flush_idx <= '0;
+            state <= S_FLUSH;
+          end else if (cpu_req) begin
             req_addr <= cpu_addr;
             req_we <= cpu_we;
             req_wdata <= cpu_wdata;
@@ -275,6 +301,42 @@ module dcache #(
         end
         S_STORE_FILL: begin
           state <= S_RESP;
+        end
+        S_FLUSH: begin
+          if (dirty_ram[flush_idx]) begin
+            state <= S_FLUSH_REQ;
+          end else if (flush_idx == IDX_BITS'(NUM_LINES - 1)) begin
+            flush_done <= 1'b1;
+            state <= S_IDLE;
+          end else begin
+            flush_idx <= flush_idx + 1'b1;
+          end
+        end
+        S_FLUSH_REQ: begin
+          if (mem_ready) begin
+            beat <= '0;
+            state <= S_FLUSH_RD;
+          end
+        end
+        S_FLUSH_RD: begin
+          state <= S_FLUSH_WR;
+        end
+        S_FLUSH_WR: begin
+          if (mem_wready) begin
+            if (beat == LAST_BEAT) begin
+              dirty_ram[flush_idx] <= 1'b0;
+              if (flush_idx == IDX_BITS'(NUM_LINES - 1)) begin
+                flush_done <= 1'b1;
+                state <= S_IDLE;
+              end else begin
+                flush_idx <= flush_idx + 1'b1;
+                state <= S_FLUSH;
+              end
+            end else begin
+              beat <= beat + 1'b1;
+              state <= S_FLUSH_RD;
+            end
+          end
         end
         default: begin
           state <= S_IDLE;

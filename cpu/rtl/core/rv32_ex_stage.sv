@@ -45,6 +45,7 @@ module rv32_ex_stage (
   input logic idex_ebreak,
   input logic idex_mret,
   input logic idex_is_fence_i,
+  input logic fence_hold,
   /* Writeback forwarding and CSR write port. */
   input logic wb_we,
   input logic [4:0] wb_rd,
@@ -52,7 +53,6 @@ module rv32_ex_stage (
   /* Redirect to fetch. */
   output logic ex_redirect_en,
   output logic [31:0] ex_redirect_pc,
-  output logic ex_flush_icache,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -65,7 +65,8 @@ module rv32_ex_stage (
   output logic [2:0] exmem_funct3,
   output logic exmem_regwrite,
   output logic exmem_is_load,
-  output logic exmem_is_store
+  output logic exmem_is_store,
+  output logic exmem_is_fence_i
 );
 
   logic [31:0] rs1_fwd;
@@ -279,15 +280,11 @@ module rv32_ex_stage (
       end else if (idex_is_jalr) begin
         ex_redirect = 1'b1;
         ex_redirect_pc = ex_jump_target;
-      end else if (idex_is_fence_i) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc = idex_pc + 32'd4;
       end
     end
   end
 
   assign ex_redirect_en = ex_redirect && !stall && !halt && !rst;
-  assign ex_flush_icache = ex_redirect_en && idex_is_fence_i;
 
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk) begin
@@ -304,8 +301,9 @@ module rv32_ex_stage (
       exmem_regwrite <= 1'b0;
       exmem_is_load <= 1'b0;
       exmem_is_store <= 1'b0;
-    end else if (halt || mem_wait) begin
-      // Hold the memory operation until MEM completes it.
+      exmem_is_fence_i <= 1'b0;
+    end else if (halt || mem_wait || fence_hold) begin
+      // Hold while MEM completes, or while a FENCE.I wait is active.
     end else begin
       exmem_valid <= idex_valid && !ex_trap;
       exmem_pc <= idex_pc;
@@ -319,6 +317,7 @@ module rv32_ex_stage (
       exmem_regwrite <= idex_regwrite;
       exmem_is_load <= idex_is_load;
       exmem_is_store <= idex_is_store;
+      exmem_is_fence_i <= idex_is_fence_i;
     end
   end
 

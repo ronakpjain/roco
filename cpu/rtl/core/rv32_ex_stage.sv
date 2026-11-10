@@ -106,6 +106,7 @@ module rv32_ex_stage (
   logic [31:0] stall_store_data;
   logic [3:0] stall_be;
   logic [31:0] ex_addr;
+  logic [31:0] ex_mem_addr;
   logic [31:0] ex_st;
   logic [3:0] ex_be;
   logic [31:0] ex_trap_tval;
@@ -162,7 +163,10 @@ module rv32_ex_stage (
     ex_store_data = rs2_fwd << {ex_alu_result[1:0], 3'b000};
   end
 
-  assign ex_addr = stall_active ? stall_alu : ex_alu_result;
+  // Memory addresses do not need the shift/compare/logic result mux.
+  assign ex_mem_addr = rs1_fwd + idex_imm;
+  assign ex_addr = stall_active ? stall_alu :
+                   (idex_is_load || idex_is_store) ? ex_mem_addr : ex_alu_result;
   assign ex_st = stall_active ? stall_store_data : ex_store_data;
   assign ex_be = stall_active ? stall_be : ex_store_be;
   assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
@@ -323,7 +327,7 @@ module rv32_ex_stage (
   assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) && !ex_trap &&
                        !rst && !halt && !fence_hold;
   assign ex_lu_we = idex_is_store;
-  assign ex_lu_addr = ex_addr;
+  assign ex_lu_addr = stall_active ? stall_alu : ex_mem_addr;
   assign ex_lu_wdata = ex_st;
   assign ex_lu_be = ex_be;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
@@ -342,7 +346,7 @@ module rv32_ex_stage (
       stall_be <= '0;
     end else if (lu_stall && !stall_active) begin
       stall_active <= 1'b1;
-      stall_alu <= ex_alu_result;
+      stall_alu <= ex_mem_addr;
       stall_store_data <= ex_store_data;
       stall_be <= ex_store_be;
     end else if (!lu_stall) begin

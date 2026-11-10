@@ -25,7 +25,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc test-boot
 
 all: format-check syntax lint
 
@@ -69,6 +69,19 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/hello.elf: sw/crt0.S sw/hello/main.c sw/hello/roco_io.h sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -ffreestanding -O2 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ sw/crt0.S sw/hello/main.c
+
+$(BUILD_DIR)/hello.bin: $(BUILD_DIR)/hello.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/hello.hex: $(BUILD_DIR)/hello.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.elf
+	$(PYTHON) scripts/boot.py --elf $< --emit-hex $@ --riscv-prefix $(RISCV)-
+
 $(BUILD_DIR)/tb_core.vvp: $(RTL_SV) sim/tb_core.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ sim/tb_core.sv $(RTL_SV)
 
@@ -89,6 +102,13 @@ test-soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_soc.vvp
 test-isa-soc: $(BUILD_DIR)/tb_soc.vvp
 	./scripts/get-riscv-tests.sh
 	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)-
+
+$(BUILD_DIR)/tb_soc_boot.vvp: $(RTL_SV) sim/tb_soc_boot.sv sim/sdram_model.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
+		sim/tb_soc_boot.sv sim/sdram_model.sv $(RTL_SV)
+
+test-boot: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
+	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello.packet.hex
 
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex

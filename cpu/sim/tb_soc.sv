@@ -137,7 +137,7 @@ module tb_soc;
       u_sdram.preload(i[22:0], image[i]);
     end
     if (!$value$plusargs("max_cycles=%d", max_cycles)) begin
-      max_cycles = 2_000_000;
+      max_cycles = 5_000_000;
     end
     cycles = 0;
     buttons = 2'b11;

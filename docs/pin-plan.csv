@@ -1,0 +1,108 @@
+signal,ball,bank,pin_function,dual_function,direction,note
+sdram_dq[0],C10,0,PT31B,-,inout,
+sdram_dq[1],B9,0,PT31A,-,inout,
+sdram_dq[2],E10,0,PT29B,-,inout,
+sdram_dq[3],D10,0,PT29A,-,inout,
+sdram_dq[4],C9,0,PT27A,-,inout,
+sdram_dq[5],E9,0,PT20B,-,inout,
+sdram_dq[6],A8,0,PT18B,-,inout,
+sdram_dq[7],D9,0,PT20A,-,inout,
+sdram_dq[8],A7,0,PT18A,-,inout,
+sdram_dq[9],B8,0,PT15B,-,inout,
+sdram_dq[10],D8,0,PT13B,-,inout,
+sdram_dq[11],C8,0,PT15A,-,inout,
+sdram_dq[12],E8,0,PT13A,-,inout,
+sdram_dq[13],C7,0,PT11B,-,inout,
+sdram_dq[14],D7,0,PT9B,-,inout,
+sdram_dq[15],C6,0,PT11A,-,inout,
+sdram_dqm[0],E7,0,PT9A,-,output,
+sdram_dqm[1],D6,0,PT6B,-,output,
+sdram_a[0],B19,1,PT83B,-,output,48 MHz initial SDRAM target
+sdram_a[1],A18,1,PT83A,-,output,48 MHz initial SDRAM target
+sdram_a[2],B18,1,PT80B,-,output,48 MHz initial SDRAM target
+sdram_a[3],C17,1,PT78B,-,output,48 MHz initial SDRAM target
+sdram_a[4],A17,1,PT80A,-,output,48 MHz initial SDRAM target
+sdram_a[5],B17,1,PT78A,-,output,48 MHz initial SDRAM target
+sdram_a[6],D16,1,PT76B,-,output,48 MHz initial SDRAM target
+sdram_a[7],B16,1,PT74B,-,output,48 MHz initial SDRAM target
+sdram_a[8],C16,1,PT76A,-,output,48 MHz initial SDRAM target
+sdram_a[9],A16,1,PT74A,-,output,48 MHz initial SDRAM target
+sdram_a[10],E15,1,PT71B,-,output,48 MHz initial SDRAM target
+sdram_a[11],C15,1,PT69B,-,output,48 MHz initial SDRAM target
+sdram_a[12],D15,1,PT71A,-,output,48 MHz initial SDRAM target
+sdram_ba[0],B15,1,PT69A,-,output,48 MHz initial SDRAM target
+sdram_ba[1],A15,1,PT67A,-,output,48 MHz initial SDRAM target
+sdram_ras_n,E14,1,PT58B,-,output,48 MHz initial SDRAM target
+sdram_cas_n,C14,1,PT56B,-,output,48 MHz initial SDRAM target
+sdram_we_n,D14,1,PT58A,-,output,48 MHz initial SDRAM target
+sdram_cs_n,A14,1,PT56A,-,output,48 MHz initial SDRAM target
+sdram_cke,E13,1,PT53B,-,output,48 MHz initial SDRAM target
+sdram_clk,C13,1,PT51B,-,output,48 MHz initial SDRAM target
+fifo_clk_60,J20,2,PR32C,PCLKT2_0,input,PCLKT2_0; FT232H clock domain; includes bus-switch path
+fifo_d[0],K18,2,PR29D,-,inout,Through Ioff-capable bus isolation
+fifo_d[1],H20,2,PR29B,-,inout,Through Ioff-capable bus isolation
+fifo_d[2],G20,2,PR26D,-,inout,Through Ioff-capable bus isolation
+fifo_d[3],F19,2,PR26B,-,inout,Through Ioff-capable bus isolation
+fifo_d[4],F20,2,PR26C,-,inout,Through Ioff-capable bus isolation
+fifo_d[5],E20,2,PR26A,-,inout,Through Ioff-capable bus isolation
+fifo_d[6],E19,2,PR23D,-,inout,Through Ioff-capable bus isolation
+fifo_d[7],D19,2,PR23B,-,inout,Through Ioff-capable bus isolation
+fifo_rxf_n,C20,2,PR23A,-,input,Through bus isolation
+fifo_txe_n,J16,2,PR20D,-,input,Through bus isolation
+fifo_rd_n,H17,2,PR20B,-,output,Through bus isolation
+fifo_wr_n,J17,2,PR20C,-,output,Through bus isolation
+fifo_oe_n,H18,2,PR20A,-,output,Through bus isolation
+fifo_siwu_n,H16,2,PR17D,-,output,Through bus isolation
+usb_vpo,J5,6,PL38B,-,output,TUSB1106 differential interface; OE high disables transmitter
+usb_vmo,K3,6,PL38D,-,output,TUSB1106 differential interface; OE high disables transmitter
+usb_oe_n,K2,6,PL41A,-,output,TUSB1106 differential interface; OE high disables transmitter
+usb_vp,H1,6,PL41C,-,input,
+usb_vm,J1,6,PL41B,-,input,
+usb_rcv,K1,6,PL41D,-,input,
+host_vbus_req,K4,6,PL44A,-,output,Selected full-source qualification gates this in hardware; external or accepted PD
+host_oc_n,L4,6,PL44C,-,input,
+uart_tx,L5,6,PL44D,-,output,FPGA to FT2232H channel B RX
+uart_rx,M5,6,PL53A,-,input,FT2232H channel B TX to FPGA
+exp_power_req,M4,6,PL59A,-,output,Selected full-source qualification gates this in hardware; external or accepted PD
+exp_oc_n,N4,6,PL59C,-,input,
+full_power_valid,N5,6,PL59B,-,input,Selected external or accepted 9V 3A PD; through main-3.3V-powered Ioff buffer
+pmod[0],U17,3,PR68B,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[1],U18,3,PR68A,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[2],T18,3,PR65D,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[3],R18,3,PR65B,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[4],U19,3,PR65C,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[5],T19,3,PR65A,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[6],U20,3,PR62D,-,inout,3.3 V only; high impedance until expansion is powered
+pmod[7],R20,3,PR62B,-,inout,3.3 V only; high impedance until expansion is powered
+gpio[0],T20,3,PR62C,-,inout,General-purpose header; 3.3 V only
+gpio[1],P20,3,PR62A,-,inout,General-purpose header; 3.3 V only
+gpio[2],P18,3,PR59D,-,inout,General-purpose header; 3.3 V only
+gpio[3],N20,3,PR59B,-,inout,General-purpose header; 3.3 V only
+gpio[4],P19,3,PR59C,-,inout,General-purpose header; 3.3 V only
+gpio[5],N19,3,PR59A,-,inout,General-purpose header; 3.3 V only
+gpio[6],T16,3,PR53A,-,inout,General-purpose header; 3.3 V only
+gpio[7],R17,3,PR44D,-,inout,General-purpose header; 3.3 V only
+clk_24,A4,7,PL11A,ULC_GPLL0T_IN,input,Dedicated ULC_GPLL0T_IN; PLL placement/routing still requires implementation
+app_reset_n,B5,7,PL11C,-,input,Active-low buttons with pullups
+user_button_n[0],C5,7,PL11D,-,input,Active-low buttons with pullups
+user_button_n[1],C4,7,PL14A,-,input,Active-low buttons with pullups
+user_led[0],A3,7,PL14C,-,output,
+user_led[1],B4,7,PL14B,-,output,
+user_led[2],B3,7,PL14D,-,output,
+user_led[3],E4,7,PL17A,-,output,
+flash_mosi,W2,8,PB11B,D0/MOSI/IO0,output,Bank 8 configuration dual-use pin; recovery/application sharing via sysCONFIG rules
+flash_miso,V2,8,PB11A,D1/MISO/IO1,input,Bank 8 configuration dual-use pin; recovery/application sharing via sysCONFIG rules
+flash_cs_n,T2,8,PB13A,SN/CSN,output,Bank 8 configuration dual-use pin; recovery/application sharing via sysCONFIG rules
+flash_wp_n,Y2,8,PB9B,D2/IO2,output,Bank 8 configuration dual-use pin; recovery/application sharing via sysCONFIG rules
+flash_hold_n,W1,8,PB9A,D3/IO3,output,Bank 8 configuration dual-use pin; recovery/application sharing via sysCONFIG rules
+CCLK,U3,8,CCLK,MCLK/SCK,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+PROGRAMN,W3,8,PROGRAMN,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+INITN,V3,8,INITN,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+DONE,Y3,8,DONE,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+CFG_0,U4,8,CFG_0,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+CFG_1,T4,8,CFG_1,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+CFG_2,R4,8,CFG_2,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+TCK,T5,40,TCK,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+TMS,U5,40,TMS,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+TDI,R5,40,TDI,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive
+TDO,V4,40,TDO,-,dedicated,Dedicated function; CCLK application access requires USRMCLK primitive

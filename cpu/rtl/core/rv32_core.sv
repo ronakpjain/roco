@@ -31,6 +31,8 @@ module rv32_core (
   input logic imem_rsp_valid,
   input logic [31:0] imem_rsp_addr,
   input logic [31:0] imem_rsp_data,
+  input logic imem_miss,
+  input logic imem_busy,
   /* Data memory port: hold req until rsp_valid; stores complete on rsp. */
   output logic dmem_req,
   output logic dmem_we,
@@ -53,6 +55,19 @@ module rv32_core (
   logic if_valid;
   logic [31:0] if_pc;
   logic [31:0] if_instr;
+  logic if_pred_taken;
+  logic [31:0] if_pred_target;
+  logic [31:0] fetch_pc;
+  logic pred_taken;
+  logic [31:0] pred_target;
+  logic idex_pred_taken;
+  logic [31:0] idex_pred_target;
+  logic btb_update;
+  logic btb_is_branch;
+  logic btb_is_jal;
+  logic btb_is_jalr;
+  logic btb_taken;
+  logic [31:0] btb_target;
 
   logic [4:0] dec_rs1;
   logic [4:0] dec_rs2;
@@ -130,7 +145,7 @@ module rv32_core (
   logic [31:0] commit_wdata;
 
   assign retire = commit_valid;
-  assign if_consume = if_valid && !mem_wait && !load_use && !ex_redirect_en;
+  assign if_consume = if_valid && !stall && !ex_redirect_en && !mem_redirect;
   assign trace_valid = commit_valid;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
@@ -144,6 +159,8 @@ module rv32_core (
       .boot_addr(boot_addr),
       .stall(stall),
       .flush(ex_redirect_en || mem_redirect),
+      .pred_taken(pred_taken),
+      .pred_target(pred_target),
       .if_consume(if_consume),
       .redirect_pc(mem_redirect ? (exmem_pc + 32'd4) : ex_redirect_pc),
       .imem_req(imem_req),
@@ -151,9 +168,14 @@ module rv32_core (
       .imem_rsp_valid(imem_rsp_valid),
       .imem_rsp_addr(imem_rsp_addr),
       .imem_rsp_data(imem_rsp_data),
+      .imem_miss(imem_miss),
+      .imem_busy(imem_busy),
       .if_valid(if_valid),
       .if_pc(if_pc),
-      .if_instr(if_instr)
+      .if_instr(if_instr),
+      .if_pred_taken(if_pred_taken),
+      .if_pred_target(if_pred_target),
+      .fetch_pc(fetch_pc)
   );
 
   rv32_id_stage u_id (
@@ -163,6 +185,8 @@ module rv32_core (
       .if_valid(if_valid),
       .if_pc(if_pc),
       .if_instr(if_instr),
+      .if_pred_taken(if_pred_taken),
+      .if_pred_target(if_pred_target),
       .hold(mem_wait || fence_req),
       .flush(load_use || ex_redirect_en || mem_redirect),
       .wb_we(wb_we),
@@ -175,6 +199,8 @@ module rv32_core (
       .idex_valid(idex_valid),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
+      .idex_pred_taken(idex_pred_taken),
+      .idex_pred_target(idex_pred_target),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
       .idex_imm(idex_imm),
@@ -212,6 +238,8 @@ module rv32_core (
       .idex_valid(idex_valid),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
+      .idex_pred_taken(idex_pred_taken),
+      .idex_pred_target(idex_pred_target),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
       .idex_imm(idex_imm),
@@ -243,6 +271,12 @@ module rv32_core (
       .wb_data(wb_data),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
+      .btb_update(btb_update),
+      .btb_is_branch(btb_is_branch),
+      .btb_is_jal(btb_is_jal),
+      .btb_is_jalr(btb_is_jalr),
+      .btb_taken(btb_taken),
+      .btb_target(btb_target),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),
@@ -256,6 +290,22 @@ module rv32_core (
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
       .exmem_is_fence_i(exmem_is_fence_i)
+  );
+
+  rv32_branch_predictor u_bp (
+      .clk(clk),
+      .rst(rst),
+      .flush(fence_req),
+      .if_pc(fetch_pc),
+      .if_pred_taken(pred_taken),
+      .if_pred_target(pred_target),
+      .ex_pc(idex_pc),
+      .ex_update(btb_update),
+      .ex_is_branch(btb_is_branch),
+      .ex_is_jal(btb_is_jal),
+      .ex_is_jalr(btb_is_jalr),
+      .ex_taken(btb_taken),
+      .ex_target(btb_target)
   );
 
   rv32_mem_stage u_mem (

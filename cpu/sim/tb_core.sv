@@ -47,7 +47,6 @@ module tb_core;
   logic [31:0] imem_rdata;
   logic [31:0] dmem_rdata;
 
-  logic im_busy;
   logic im_rsp_valid_q;
   logic [31:0] im_rsp_addr_q;
   logic [31:0] im_rsp_data_q;
@@ -78,6 +77,8 @@ module tb_core;
       .imem_rsp_valid(imem_rsp_valid),
       .imem_rsp_addr(imem_rsp_addr),
       .imem_rsp_data(imem_rsp_data),
+      .imem_miss(1'b0),
+      .imem_busy(1'b0),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
@@ -119,20 +120,13 @@ module tb_core;
   // -------------------------------------------------------------- I-port FSM
   always_ff @(posedge clk) begin
     if (rst) begin
-      im_busy <= 1'b0;
       im_rsp_valid_q <= 1'b0;
       im_rsp_addr_q <= '0;
       im_rsp_data_q <= '0;
     end else begin
-      im_rsp_valid_q <= 1'b0;
-      if (!im_busy && !im_rsp_valid_q && imem_req) begin
-        im_busy <= 1'b1;
-        im_rsp_addr_q <= imem_addr;
-        im_rsp_data_q <= imem_rdata;
-      end else if (im_busy) begin
-        im_busy <= 1'b0;
-        im_rsp_valid_q <= 1'b1;
-      end
+      im_rsp_valid_q <= imem_req;
+      im_rsp_addr_q <= imem_addr;
+      im_rsp_data_q <= imem_rdata;
     end
   end
 

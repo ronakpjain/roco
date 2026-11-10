@@ -103,6 +103,10 @@ module roco_soc #(
   logic ic_mem_rlast;
   logic ic_hit;
   logic ic_miss;
+  logic ic_cpu_miss;
+  logic ic_cpu_busy;
+  logic imem_miss;
+  logic imem_busy;
 
   logic dc_cpu_rsp;
   logic [31:0] dc_cpu_rsp_addr;
@@ -182,6 +186,8 @@ module roco_soc #(
   logic sdram_init_done;
 
   assign imem_in_sdram = (imem_addr[31:25] == 7'd8);
+  assign imem_miss = imem_in_sdram ? ic_cpu_miss : 1'b0;
+  assign imem_busy = imem_in_sdram ? ic_cpu_busy : 1'b0;
   assign dmem_in_sdram = (dmem_addr[31:25] == 7'd8);
   assign i_unc_req = imem_req && !imem_in_sdram;
   assign d_unc_req = dmem_req && !dmem_in_sdram;
@@ -209,6 +215,8 @@ module roco_soc #(
       .imem_rsp_valid(imem_rsp_valid),
       .imem_rsp_addr(imem_rsp_addr),
       .imem_rsp_data(imem_rsp_data),
+      .imem_miss(imem_miss),
+      .imem_busy(imem_busy),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
@@ -231,9 +239,11 @@ module roco_soc #(
       .flush(icache_flush),
       .cpu_req(imem_req && imem_in_sdram),
       .cpu_addr(imem_addr),
-      .cpu_rsp(ic_cpu_rsp),
+      .cpu_rsp_valid(ic_cpu_rsp),
       .cpu_rsp_addr(ic_cpu_rsp_addr),
       .cpu_rsp_data(ic_cpu_rsp_data),
+      .cpu_miss(ic_cpu_miss),
+      .cpu_busy(ic_cpu_busy),
       .mem_req(ic_mem_req),
       .mem_we(ic_mem_we),
       .mem_word_addr(ic_mem_word_addr),

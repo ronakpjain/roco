@@ -46,6 +46,8 @@ module rv32_ex_stage (
   input logic idex_mret,
   input logic idex_is_fence_i,
   input logic fence_hold,
+  input logic idex_pred_taken,
+  input logic [31:0] idex_pred_target,
   /* Writeback forwarding and CSR write port. */
   input logic wb_we,
   input logic [4:0] wb_rd,
@@ -53,6 +55,12 @@ module rv32_ex_stage (
   /* Redirect to fetch. */
   output logic ex_redirect_en,
   output logic [31:0] ex_redirect_pc,
+  output logic btb_update,
+  output logic btb_is_branch,
+  output logic btb_is_jal,
+  output logic btb_is_jalr,
+  output logic btb_taken,
+  output logic [31:0] btb_target,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -88,6 +96,7 @@ module rv32_ex_stage (
   logic ex_trap;
   logic [31:0] ex_trap_cause;
   logic ex_redirect;
+  logic branch_mispredict;
   logic [31:0] ex_trap_tval;
   logic ex_csr_illegal;
   logic [31:0] ex_wbval;
@@ -195,6 +204,7 @@ module rv32_ex_stage (
     ex_trap_cause = 32'd0;
     ex_trap_tval = 32'd0;
     ex_redirect = 1'b0;
+    branch_mispredict = 1'b0;
     ex_redirect_pc = 32'd0;
     if (idex_valid) begin
       if (idex_is_branch) begin
@@ -265,26 +275,42 @@ module rv32_ex_stage (
         ex_trap_tval = ex_alu_result;
       end
 
+      if (idex_is_branch) begin
+        branch_mispredict = (ex_branch_taken != idex_pred_taken) ||
+                            (ex_branch_taken && (ex_branch_target != idex_pred_target));
+      end else if (idex_is_jal) begin
+        branch_mispredict = !(idex_pred_taken && (idex_pred_target == ex_branch_target));
+      end else if (idex_is_jalr) begin
+        branch_mispredict = 1'b1;
+      end
+
       if (ex_trap) begin
         ex_redirect = 1'b1;
         ex_redirect_pc = mtvec;
       end else if (idex_mret) begin
         ex_redirect = 1'b1;
         ex_redirect_pc = mepc;
-      end else if (ex_branch_taken) begin
+      end else if (branch_mispredict) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc = ex_branch_target;
-      end else if (idex_is_jal) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc = ex_branch_target;
-      end else if (idex_is_jalr) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc = ex_jump_target;
+        if (idex_is_branch) begin
+          ex_redirect_pc = ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4);
+        end else if (idex_is_jal) begin
+          ex_redirect_pc = ex_branch_target;
+        end else begin
+          ex_redirect_pc = ex_jump_target;
+        end
       end
     end
   end
 
   assign ex_redirect_en = ex_redirect && !stall && !halt && !rst;
+  assign btb_update = idex_valid && !ex_trap && !stall && !halt && !rst &&
+                      (idex_is_branch || idex_is_jal || idex_is_jalr);
+  assign btb_is_branch = idex_is_branch;
+  assign btb_is_jal = idex_is_jal;
+  assign btb_is_jalr = idex_is_jalr;
+  assign btb_taken = (idex_is_branch && ex_branch_taken) || idex_is_jal;
+  assign btb_target = ex_branch_target;
 
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk) begin

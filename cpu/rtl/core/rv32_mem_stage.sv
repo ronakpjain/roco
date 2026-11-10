@@ -32,10 +32,8 @@ module rv32_mem_stage (
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
-  input logic dmem_rsp_valid,
-  input logic [31:0] dmem_rsp_addr,
   input logic [31:0] dmem_rsp_data,
-  output logic mem_wait,
+  output logic [31:0] load_value,
   output logic fence_req,
   output logic mem_redirect,
   /* One-cycle commit strobe for minstret and the retire trace. */
@@ -56,7 +54,6 @@ module rv32_mem_stage (
   logic [7:0] load_byte;
   logic [15:0] load_half;
   logic [31:0] load_data;
-  logic dmem_done;
   logic is_memory_op;
 
   assign is_memory_op = exmem_is_load || exmem_is_store;
@@ -64,10 +61,8 @@ module rv32_mem_stage (
   assign dmem_we = exmem_is_store;
   assign dmem_wdata = exmem_store_data;
   assign dmem_be = exmem_be;
-  assign dmem_done = dmem_rsp_valid && (dmem_rsp_addr == exmem_alu);
-  assign dmem_req = !rst && !halt && exmem_valid && is_memory_op && !dmem_done;
-  assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_done;
-  assign commit_valid = !rst && !halt && exmem_valid && !mem_wait;
+  assign dmem_req = !rst && !halt && exmem_valid && is_memory_op;
+  assign commit_valid = !rst && !halt && exmem_valid && !fence_req;
   assign commit_pc = exmem_pc;
   assign commit_instr = exmem_instr;
   assign commit_rd = exmem_rd;
@@ -75,6 +70,7 @@ module rv32_mem_stage (
   assign fence_req = exmem_valid && exmem_is_fence_i && !fence_done;
   assign mem_redirect = exmem_valid && exmem_is_fence_i && fence_done;
 
+  assign load_value = load_data;
   assign load_byte = 8'(dmem_rsp_data >> {exmem_alu[1:0], 3'b000});
   assign load_half = 16'(dmem_rsp_data >> {exmem_alu[1], 4'b0000});
 
@@ -109,8 +105,8 @@ module rv32_mem_stage (
       memwb_rd <= '0;
       memwb_regwrite <= 1'b0;
       memwb_is_load <= 1'b0;
-    end else if (halt || mem_wait || fence_req) begin
-      // Wait for the memory response or the FENCE.I cache flush.
+    end else if (halt || fence_req) begin
+      // Hold for the FENCE.I cache flush.
     end else begin
       memwb_valid <= exmem_valid;
       memwb_wbval <= exmem_wbval;

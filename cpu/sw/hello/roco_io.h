@@ -59,6 +59,18 @@ static inline unsigned int read_mcycleh(void) {
   return value;
 }
 
+static inline unsigned int read_minstret(void) {
+  unsigned int value;
+  __asm__ volatile("csrr %0, minstret" : "=r"(value));
+  return value;
+}
+
+static inline unsigned int read_minstreth(void) {
+  unsigned int value;
+  __asm__ volatile("csrr %0, minstreth" : "=r"(value));
+  return value;
+}
+
 static inline void write_tohost(unsigned int code) {
   TOHOST = code;
 }

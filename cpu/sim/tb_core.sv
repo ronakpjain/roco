@@ -29,13 +29,17 @@ module tb_core;
   logic imem_rsp_valid;
   logic [31:0] imem_rsp_addr;
   logic [31:0] imem_rsp_data;
+  logic dmem_lu_valid;
+  logic dmem_lu_we;
+  logic [31:0] dmem_lu_addr;
+  logic [31:0] dmem_lu_wdata;
+  logic [3:0] dmem_lu_be;
+  logic dmem_lu_hit;
   logic dmem_req;
   logic dmem_we;
   logic [31:0] dmem_addr;
   logic [31:0] dmem_wdata;
   logic [3:0] dmem_be;
-  logic dmem_rsp_valid;
-  logic [31:0] dmem_rsp_addr;
   logic [31:0] dmem_rsp_data;
   logic trace_valid;
   logic [31:0] trace_pc;
@@ -51,11 +55,11 @@ module tb_core;
   logic [31:0] im_rsp_addr_q;
   logic [31:0] im_rsp_data_q;
 
-  logic d_busy;
-  logic d_rsp_valid_q;
-  logic [31:0] d_rsp_addr_q;
-  logic [31:0] d_rsp_data_q;
-  logic [31:0] d_addr_q;
+  logic [31:0] d_lu_data;
+  logic [31:0] st_addr_q, st_data_q;
+  logic [3:0] st_be_q;
+  logic st_valid_q;
+  logic [31:0] st_merged;
 
   logic [31:0] exit_code;
   int unsigned cycles;
@@ -63,6 +67,8 @@ module tb_core;
   int unsigned i;
   string hexfile;
   logic trace_on;
+  logic debug_on;
+  integer dbg_cnt = 0;
 
   assign halt = (exit_code != 32'd0);
   assign boot_addr = MEM_BASE;
@@ -79,13 +85,17 @@ module tb_core;
       .imem_rsp_data(imem_rsp_data),
       .imem_miss(1'b0),
       .imem_busy(1'b0),
+      .dmem_lu_valid(dmem_lu_valid),
+      .dmem_lu_we(dmem_lu_we),
+      .dmem_lu_addr(dmem_lu_addr),
+      .dmem_lu_wdata(dmem_lu_wdata),
+      .dmem_lu_be(dmem_lu_be),
+      .dmem_lu_hit(dmem_lu_hit),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
-      .dmem_rsp_valid(dmem_rsp_valid),
-      .dmem_rsp_addr(dmem_rsp_addr),
       .dmem_rsp_data(dmem_rsp_data),
       .trace_valid(trace_valid),
       .trace_pc(trace_pc),
@@ -134,80 +144,63 @@ module tb_core;
   assign imem_rsp_addr = im_rsp_addr_q;
   assign imem_rsp_data = im_rsp_data_q;
 
-  // -------------------------------------------------------------- D-port FSM
+  // --------------------------------------------------------- D memory model
+  assign dmem_lu_hit = 1'b1;
+  assign st_merged[7:0] = st_be_q[0] ? st_data_q[7:0] : d_lu_data[7:0];
+  assign st_merged[15:8] = st_be_q[1] ? st_data_q[15:8] : d_lu_data[15:8];
+  assign st_merged[23:16] = st_be_q[2] ? st_data_q[23:16] : d_lu_data[23:16];
+  assign st_merged[31:24] = st_be_q[3] ? st_data_q[31:24] : d_lu_data[31:24];
+  assign dmem_rsp_data = (st_valid_q && (st_addr_q[31:2] == dmem_addr[31:2])) ? st_merged : d_lu_data;
+
+  always_ff @(posedge clk) begin
+    if (dmem_lu_addr[31:16] == 16'h1000) begin
+      d_lu_data <= mem[dmem_lu_addr[15:2]];
+    end else begin
+      d_lu_data <= 32'd0;
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
-      d_busy <= 1'b0;
-      d_rsp_valid_q <= 1'b0;
-      d_rsp_addr_q <= '0;
-      d_rsp_data_q <= '0;
-      d_addr_q <= '0;
-      exit_code <= '0;
+      st_valid_q <= 1'b0;
+      st_addr_q <= '0;
+      st_data_q <= '0;
+      st_be_q <= '0;
     end else begin
-      d_rsp_valid_q <= 1'b0;
-      if (!d_busy && !d_rsp_valid_q && dmem_req) begin
-        d_busy <= 1'b1;
-        d_addr_q <= dmem_addr;
-        if (!dmem_we) begin
-          d_rsp_data_q <= dmem_rdata;
-        end else if (dmem_addr[31:16] == 16'h1000) begin
-          if (dmem_be[0]) begin
-            mem[dmem_addr[15:2]][7:0] <= dmem_wdata[7:0];
-          end
-          if (dmem_be[1]) begin
-            mem[dmem_addr[15:2]][15:8] <= dmem_wdata[15:8];
-          end
-          if (dmem_be[2]) begin
-            mem[dmem_addr[15:2]][23:16] <= dmem_wdata[23:16];
-          end
-          if (dmem_be[3]) begin
-            mem[dmem_addr[15:2]][31:24] <= dmem_wdata[31:24];
-          end
-        end else if (dmem_addr == UART_ADDR) begin
-          $write("%c", dmem_wdata[7:0]);
-          $fflush();
-        end else if (dmem_addr == EXIT_ADDR) begin
-          exit_code <= dmem_wdata;
-        end
-      end else if (d_busy) begin
-        d_busy <= 1'b0;
-        d_rsp_valid_q <= 1'b1;
-        d_rsp_addr_q <= d_addr_q;
+      st_valid_q <= dmem_req && dmem_we;
+      if (dmem_req && dmem_we) begin
+        st_addr_q <= dmem_addr;
+        st_data_q <= dmem_wdata;
+        st_be_q <= dmem_be;
       end
     end
   end
 
-  logic debug_on;
   always_ff @(posedge clk) begin
-    if (debug_on && dmem_req && !d_busy) begin
-      $display("  dmem req addr=%08x we=%0d wdata=%08x be=%b", dmem_addr, dmem_we, dmem_wdata,
-               dmem_be);
-    end
-    if (debug_on && u_core.u_ex.csr_wr_en) begin
-      $display("  csr write addr=%03x data=%08x src=%08x rs1f=%08x rs1v=%08x exmem=%08x wb=%08x",
-               u_core.u_ex.idex_csr_addr, u_core.u_ex.csr_wdata, u_core.u_ex.csr_src,
-               u_core.u_ex.rs1_fwd, u_core.u_ex.idex_rs1_val, u_core.u_ex.exmem_wbval,
-               u_core.wb_data);
-      $display("    op=%0d instr=%08x", u_core.u_ex.idex_csr_op, u_core.u_ex.idex_instr);
-    end
-    if (debug_on && u_core.u_ex.idex_valid && u_core.u_ex.idex_mret) begin
-      $display("  mret mepc=%08x", u_core.u_ex.mepc);
-    end
-    if (debug_on && u_core.ex_redirect_en) begin
-      $display("  redirect from pc=%08x instr=%08x -> %08x", u_core.u_ex.idex_pc,
-               u_core.u_ex.idex_instr, u_core.ex_redirect_pc);
-    end
-    if (debug_on && imem_rsp_valid) begin
-      $display("  ifetch  <- %08x", imem_rsp_addr);
-    end
-    if (debug_on && exit_code != 32'd0) begin
-      $display("  exit_code=%08x", exit_code);
+    if (rst) begin
+      exit_code <= '0;
+    end else if (dmem_req && dmem_we) begin
+      if (dmem_addr[31:16] == 16'h1000) begin
+        if (dmem_be[0]) begin
+          mem[dmem_addr[15:2]][7:0] <= dmem_wdata[7:0];
+        end
+        if (dmem_be[1]) begin
+          mem[dmem_addr[15:2]][15:8] <= dmem_wdata[15:8];
+        end
+        if (dmem_be[2]) begin
+          mem[dmem_addr[15:2]][23:16] <= dmem_wdata[23:16];
+        end
+        if (dmem_be[3]) begin
+          mem[dmem_addr[15:2]][31:24] <= dmem_wdata[31:24];
+        end
+      end else if (dmem_addr == UART_ADDR) begin
+        $write("%c", dmem_wdata[7:0]);
+        $fflush();
+      end else if (dmem_addr == EXIT_ADDR) begin
+        exit_code <= dmem_wdata;
+      end
     end
   end
-
-  assign dmem_rsp_valid = d_rsp_valid_q;
-  assign dmem_rsp_addr = d_rsp_addr_q;
-  assign dmem_rsp_data = d_rsp_data_q;
 
   // ------------------------------------------------------------- Image load
   initial begin

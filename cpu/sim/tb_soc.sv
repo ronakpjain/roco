@@ -51,12 +51,50 @@ module tb_soc;
   integer bit_idx;
 
   logic trace_on;
+  integer dbg_cnt2 = 0;
   initial trace_on = $test$plusargs("trace");
 
   always_ff @(posedge clk) begin
     if (trace_on && u_soc.u_cpu.trace_valid) begin
       $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.u_cpu.trace_pc,
                u_soc.u_cpu.trace_instr, u_soc.u_cpu.trace_rd, u_soc.u_cpu.trace_wdata);
+    end
+    if (trace_on && u_soc.u_cpu.u_ex.idex_valid && (u_soc.u_cpu.u_ex.idex_pc == 32'h10000148) &&
+        (dbg_cnt2 < 4)) begin
+      dbg_cnt2 <= dbg_cnt2 + 1;
+      $display("  st ex rs1=%0d rs1v=%h fwd=%h wb=%h wbv=%b wbrd=%0d exm=%b exmrd=%0d exmw=%h",
+               u_soc.u_cpu.u_ex.idex_rs1, u_soc.u_cpu.u_ex.idex_rs1_val, u_soc.u_cpu.u_ex.rs1_fwd,
+               u_soc.u_cpu.u_ex.wb_data, u_soc.u_cpu.u_ex.wb_we, u_soc.u_cpu.u_ex.wb_rd,
+               u_soc.u_cpu.u_ex.exmem_valid, u_soc.u_cpu.u_ex.exmem_rd,
+               u_soc.u_cpu.u_ex.exmem_wbval);
+    end
+    if (trace_on && !u_soc.sdram_cs_n && u_soc.sdram_ras_n && !u_soc.sdram_cas_n && !u_soc.sdram_we_n) begin
+      $display("  sdwr a=%h ba=%0d dq=%h", u_soc.sdram_a[8:0], u_soc.sdram_ba, u_soc.sdram_dq_out);
+    end
+    if (trace_on && !u_soc.sdram_cs_n && !u_soc.sdram_ras_n && u_soc.sdram_cas_n && u_soc.sdram_we_n) begin
+      $display("  sdact a=%h ba=%0d cmd=%h", u_soc.sdram_a, u_soc.sdram_ba, u_soc.u_sdram.cmd_addr);
+    end
+    if (trace_on && u_soc.dmem_req && u_soc.dmem_we && (u_soc.dmem_addr[15:0] == 16'h0244)) begin
+      $display("  store244 state=%0d dirty36=%b cmwe=%b", u_soc.u_dcache.state,
+               u_soc.u_dcache.dirty_ram[36], u_soc.dmem_we);
+    end
+    if (trace_on && (u_soc.u_dcache.state == 8) && u_soc.u_dcache.mem_ready) begin
+      $display("  flushreq idx=%0d word=%h tag=%h valid=%b dirty=%b", u_soc.u_dcache.flush_idx,
+               u_soc.u_dcache.mem_word_addr, u_soc.u_dcache.tag_ram[u_soc.u_dcache.flush_idx],
+               u_soc.u_dcache.valid_ram[u_soc.u_dcache.flush_idx],
+               u_soc.u_dcache.dirty_ram[u_soc.u_dcache.flush_idx]);
+    end
+    if (trace_on && (u_soc.u_dcache.state == 10) && u_soc.u_dcache.mem_wready) begin
+      $display("  flushwr idx=%0d beat=%0d data=%h", u_soc.u_dcache.flush_idx, u_soc.u_dcache.beat,
+               u_soc.u_dcache.mem_wdata);
+    end
+    if (trace_on && u_soc.dmem_req && (u_soc.dmem_addr[31:4] == 28'h1000034)) begin
+      $display(
+          "  dc cm we=%b addr=%h wd=%h be=%b rdata=%h luq=%h pv=%b pa=%h pd=%h pb=%b st=%0d byp=%b",
+          u_soc.dmem_we, u_soc.dmem_addr, u_soc.dmem_wdata, u_soc.dmem_be, u_soc.dmem_rsp_data,
+          u_soc.u_dcache.lu_addr_q, u_soc.u_dcache.prev_store_valid,
+          u_soc.u_dcache.prev_store_addr, u_soc.u_dcache.prev_store_data,
+          u_soc.u_dcache.prev_store_be, u_soc.u_dcache.state, u_soc.u_dcache.bypass);
     end
     if (trace_on && u_soc.core_fence_req) begin
       $display("  fence req, state=%0d dcache_done=%b", u_soc.fence_state, u_soc.dcache_flush_done);
@@ -173,6 +211,7 @@ module tb_soc;
 
   always_ff @(posedge clk) begin
     if (!rst && halted) begin
+      $display("tb_soc: bench cycles=%0d instret=%0d", u_soc.dbg0, u_soc.dbg1);
       if (exit_code == 32'd1) begin
         $display("tb_soc: PASS (%0d sdram errors)", sdram_errors);
       end else begin

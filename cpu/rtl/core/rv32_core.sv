@@ -6,7 +6,7 @@
 //   rv32_ex_stage   ALU, forwarding, branches, traps, CSR file, EX/MEM
 //   rv32_mem_stage  data memory request, load alignment, MEM/WB register
 //   rv32_wb_stage   register-file write data and retire trace
-//   rv32_hazard_unit  load-use and memory-wait stalls
+//   rv32_branch_predictor  bimodal predictor and BTB
 //
 // Branches and jumps resolve in EX, so a taken control transfer costs two
 // flushed slots. Full EX/MEM and MEM/WB forwarding is used; the only
@@ -33,14 +33,18 @@ module rv32_core (
   input logic [31:0] imem_rsp_data,
   input logic imem_miss,
   input logic imem_busy,
-  /* Data memory port: hold req until rsp_valid; stores complete on rsp. */
+  /* Data memory: lookup in EX, commit in MEM, data returns combinationally. */
+  output logic dmem_lu_valid,
+  output logic dmem_lu_we,
+  output logic [31:0] dmem_lu_addr,
+  output logic [31:0] dmem_lu_wdata,
+  output logic [3:0] dmem_lu_be,
+  input logic dmem_lu_hit,
   output logic dmem_req,
   output logic dmem_we,
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
-  input logic dmem_rsp_valid,
-  input logic [31:0] dmem_rsp_addr,
   input logic [31:0] dmem_rsp_data,
   /* Retire trace, for simulation only. */
   output logic trace_valid,
@@ -131,11 +135,15 @@ module rv32_core (
   logic [4:0] wb_rd;
   logic [31:0] wb_data;
 
-  logic load_use;
-  logic hazard_stall;
+  logic dmem_lu_stall;
   logic stall;
+  logic ex_lu_valid;
+  logic ex_lu_we;
+  logic [31:0] ex_lu_addr;
+  logic [31:0] ex_lu_wdata;
+  logic [3:0] ex_lu_be;
+  logic [31:0] mem_load_value;
   logic mem_redirect;
-  logic mem_wait;
   logic retire;
   logic if_consume;
   logic commit_valid;
@@ -146,6 +154,13 @@ module rv32_core (
 
   assign retire = commit_valid;
   assign if_consume = if_valid && !stall && !ex_redirect_en && !mem_redirect;
+  assign dmem_lu_valid = ex_lu_valid;
+  assign dmem_lu_we = ex_lu_we;
+  assign dmem_lu_addr = ex_lu_addr;
+  assign dmem_lu_wdata = ex_lu_wdata;
+  assign dmem_lu_be = ex_lu_be;
+  assign dmem_lu_stall = ex_lu_valid && !dmem_lu_hit;
+  assign stall = dmem_lu_stall || fence_req;
   assign trace_valid = commit_valid;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
@@ -187,8 +202,8 @@ module rv32_core (
       .if_instr(if_instr),
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
-      .hold(mem_wait || fence_req),
-      .flush(load_use || ex_redirect_en || mem_redirect),
+      .hold(stall),
+      .flush(ex_redirect_en || mem_redirect),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
@@ -233,7 +248,7 @@ module rv32_core (
       .rst(rst),
       .halt(halt),
       .stall(stall),
-      .mem_wait(mem_wait),
+      .lu_stall(dmem_lu_stall),
       .retire(retire),
       .idex_valid(idex_valid),
       .idex_pc(idex_pc),
@@ -277,6 +292,11 @@ module rv32_core (
       .btb_is_jalr(btb_is_jalr),
       .btb_taken(btb_taken),
       .btb_target(btb_target),
+      .ex_lu_valid(ex_lu_valid),
+      .ex_lu_we(ex_lu_we),
+      .ex_lu_addr(ex_lu_addr),
+      .ex_lu_wdata(ex_lu_wdata),
+      .ex_lu_be(ex_lu_be),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),
@@ -331,10 +351,8 @@ module rv32_core (
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
-      .dmem_rsp_valid(dmem_rsp_valid),
-      .dmem_rsp_addr(dmem_rsp_addr),
       .dmem_rsp_data(dmem_rsp_data),
-      .mem_wait(mem_wait),
+      .load_value(mem_load_value),
       .fence_req(fence_req),
       .mem_redirect(mem_redirect),
       .commit_valid(commit_valid),
@@ -363,20 +381,6 @@ module rv32_core (
       .wb_data(wb_data)
   );
 
-  rv32_hazard_unit u_hazard (
-      .idex_valid(idex_valid),
-      .idex_is_load(idex_is_load),
-      .idex_rd(idex_rd),
-      .if_valid(if_valid),
-      .dec_use_rs1(dec_use_rs1),
-      .dec_use_rs2(dec_use_rs2),
-      .dec_rs1(dec_rs1),
-      .dec_rs2(dec_rs2),
-      .mem_wait(mem_wait),
-      .load_use(load_use),
-      .stall(hazard_stall)
-  );
 
-  assign stall = hazard_stall || fence_req;
 
 endmodule

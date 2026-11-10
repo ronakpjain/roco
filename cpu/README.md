@@ -26,10 +26,18 @@ instantiates `roco_soc`. Inside the SoC:
 - The uncached path decodes the UART, timer, LED, button, cache-counter,
   boot-status and `tohost` registers.
 
-Pipeline: IF, ID, EX, MEM, WB. Branches, jumps, traps and MRET resolve in
-EX; a taken control transfer costs two flushed slots. Full EX/MEM and
-MEM/WB forwarding; a load-use dependency inserts one bubble. Each stage
-lives in its own module and owns its pipeline register:
+Pipeline: IF, ID, EX, MEM, WB. The I-cache streams one instruction per
+cycle into a four-entry fetch queue; a 32-entry bimodal 2-bit predictor
+with a BTB predicts taken branches so correctly predicted control
+transfers do not flush the pipeline. Branches, jumps, traps and MRET
+resolve in EX; a mispredict flushes two slots.
+
+The D-cache is looked up in EX and its data is available in MEM, so a
+cache-hit load or store costs no extra cycle. Load data is forwarded
+from the MEM stage to a dependent instruction in EX, and a store in MEM
+is merged into a younger lookup of the same word (store-to-load
+forwarding). Each stage lives in its own module and owns its pipeline
+register:
 
 | Module | Responsibility |
 |---|---|
@@ -39,7 +47,7 @@ lives in its own module and owns its pipeline register:
 | `rv32_ex_stage.sv` | Forwarding, ALU, branches, traps, CSR file, EX/MEM |
 | `rv32_mem_stage.sv` | Data memory request, load alignment, MEM/WB |
 | `rv32_wb_stage.sv` | Writeback select |
-| `rv32_hazard_unit.sv` | Load-use and memory-wait stalls |
+| `rv32_branch_predictor.sv` | Bimodal counters and BTB |
 
 ## Implemented ISA
 
@@ -66,11 +74,14 @@ path instead.
 | I-cache | 2 KiB | 128 lines x 16 B, direct mapped | read-only, whole-line fill |
 | D-cache | 4 KiB | 256 lines x 16 B, direct mapped | write-back, write-allocate, byte enables |
 
-Both caches are blocking: one memory transaction is outstanding per
-cache. The D-cache data array is split into four byte-lane memories so
-ECP5 block RAMs implement byte enables. A dirty victim is written back
-before the new line is fetched; a store miss fetches the line and then
-merges the store bytes so partial writes never fabricate data. A single
+The I-cache streams one response per cycle on hits. The D-cache is
+looked up in EX: tags are compared combinationally and the data RAM read
+is registered, so a hit is consumed in MEM without stalling. Both caches
+are blocking on a miss: one memory transaction is outstanding per cache.
+The D-cache data array is split into four byte-lane memories so ECP5
+block RAMs implement byte enables. A dirty victim is written back before
+the new line is fetched; a store miss fetches the line and then merges
+the store bytes so partial writes never fabricate data. A single
 word request from the bootloader shares the SDRAM controller through
 `mem_arbiter.sv` with round-robin priority.
 
@@ -95,6 +106,7 @@ auto-refresh are implemented. A timing-checking behavioural model
 | `0x8000_0020/24` | R/W | `mtimecmp` low/high |
 | `0x8000_0028` | R | Timer pending (`mtime >= mtimecmp`) |
 | `0x8000_0030/34/38/3c` | R/W | I-cache hits/misses, D-cache hits/misses (write clears) |
+| `0x8000_0048/4c` | R/W | Debug benchmark cycle/instruction counts |
 | `0x8000_0100` | R | Boot status: bit0 done, bit1 busy, bit2 error, bit3 SDRAM ready |
 | `0x8000_0104` | R | Loaded image base |
 | `0x8000_0108` | W | Restart the bootloader |
@@ -160,7 +172,11 @@ Simulation (2026-11, Icarus Verilog 13):
 - SDRAM controller: bursts, row/bank changes, refresh and data
   retention pass with zero timing-check violations.
 - Hello program: PASS through the backdoor preload and through the
-  UART bootloader, printing cache counters over UART.
+  UART bootloader.
+- The hello cache benchmark (64 passes over a 4 KiB array) measures
+  262,594 cycles for 262,341 retired instructions: **CPI ≈ 1.00**.
+  Before the fetch queue, predictor and EX-stage D-cache lookup the
+  same loop measured about 6 cycles per instruction.
 
 Yosys `synth_ecp5 -top roco_top` (LFE5U-45F): 9009 LUT4, 4099
 flip-flops, 8 DP16KD, 422 CCU2C, 1 EHXPLLL. This is synthesis only; the
@@ -170,11 +186,11 @@ remain bring-up checks, as noted in `pcb/docs/rev-a-design.md`.
 
 ## Known limitations and next steps
 
-- The I-cache responds three cycles after a request and the front end
-  only holds one instruction, so instruction throughput is well below
-  one IPC even on hits. A pipelined cache lookup and a fetch queue are
-  the obvious next step.
-- The D-cache is blocking and has no write buffer.
+- The branch predictor is small (32 entries, bimodal) and JALR always
+  mispredicts. A larger BTB and a return-address stack are the next
+  steps.
+- The D-cache is blocking on misses and has no write buffer; the
+  benchmark's steady state only measures hits.
 - There is no cache coherence: `FENCE.I` flushes the D-cache and
   invalidates the I-cache; there is no DMA or second master.
 - Boot is over UART only. Booting from the W25Q128 flash needs an SPI

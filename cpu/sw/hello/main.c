@@ -28,12 +28,17 @@ int main(void) {
     array[i] = i + (i << 8) + 0x5a5a5a5au;
   }
   before = read_mcycle();
+  unsigned int inst_before = read_minstret();
   for (i = 0; i < 64; i++) {
     for (unsigned int j = 0; j < 1024; j++) {
       sum += array[j];
     }
   }
   after = read_mcycle();
+  unsigned int inst_after = read_minstret();
+
+  *(volatile unsigned int *)0x80000048u = after - before;
+  *(volatile unsigned int *)0x8000004cu = inst_after - inst_before;
 
   puts("sum=");
   for (int shift = 28; shift >= 0; shift -= 4) {
@@ -42,6 +47,10 @@ int main(void) {
   puts(" cycles=");
   for (int shift = 28; shift >= 0; shift -= 4) {
     putc("0123456789abcdef"[(after - before) >> shift & 0xf]);
+  }
+  puts(" instret=");
+  for (int shift = 28; shift >= 0; shift -= 4) {
+    putc("0123456789abcdef"[(inst_after - inst_before) >> shift & 0xf]);
   }
   puts("\r\nicache hits=");
   for (int shift = 28; shift >= 0; shift -= 4) {

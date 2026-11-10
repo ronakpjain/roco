@@ -59,13 +59,17 @@ module roco_soc #(
   logic imem_rsp_valid;
   logic [31:0] imem_rsp_addr;
   logic [31:0] imem_rsp_data;
+  logic dmem_lu_valid;
+  logic dmem_lu_we;
+  logic [31:0] dmem_lu_addr;
+  logic [31:0] dmem_lu_wdata;
+  logic [3:0] dmem_lu_be;
+  logic dmem_lu_hit;
   logic dmem_req;
   logic dmem_we;
   logic [31:0] dmem_addr;
   logic [31:0] dmem_wdata;
   logic [3:0] dmem_be;
-  logic dmem_rsp_valid;
-  logic [31:0] dmem_rsp_addr;
   logic [31:0] dmem_rsp_data;
   logic core_fence_req;
   logic fence_done;
@@ -76,14 +80,13 @@ module roco_soc #(
 
   logic imem_in_sdram;
   logic dmem_in_sdram;
+  logic dmem_lu_in_sdram;
   logic i_unc_req;
-  logic d_unc_req;
   logic i_unc_rsp;
-  logic d_unc_rsp;
   logic [31:0] i_unc_rsp_addr;
   logic [31:0] i_unc_rsp_data;
-  logic [31:0] d_unc_rsp_addr;
-  logic [31:0] d_unc_rsp_data;
+  logic dc_lu_hit;
+  logic [31:0] dc_cm_rdata;
 
   // ----------------------------------------------------------- Cache ports
   logic ic_cpu_rsp;
@@ -108,9 +111,6 @@ module roco_soc #(
   logic imem_miss;
   logic imem_busy;
 
-  logic dc_cpu_rsp;
-  logic [31:0] dc_cpu_rsp_addr;
-  logic [31:0] dc_cpu_rsp_data;
   logic dc_mem_req;
   logic dc_mem_we;
   logic [22:0] dc_mem_word_addr;
@@ -169,6 +169,8 @@ module roco_soc #(
   logic [31:0] dc_hits;
   logic [31:0] dc_misses;
   logic [31:0] mmio_rdata;
+  logic [31:0] dbg0;
+  logic [31:0] dbg1;
 
   // ------------------------------------------------------- SDRAM controller
   logic c_req;
@@ -189,8 +191,9 @@ module roco_soc #(
   assign imem_miss = imem_in_sdram ? ic_cpu_miss : 1'b0;
   assign imem_busy = imem_in_sdram ? ic_cpu_busy : 1'b0;
   assign dmem_in_sdram = (dmem_addr[31:25] == 7'd8);
+  assign dmem_lu_in_sdram = (dmem_lu_addr[31:25] == 7'd8);
   assign i_unc_req = imem_req && !imem_in_sdram;
-  assign d_unc_req = dmem_req && !dmem_in_sdram;
+  assign dmem_lu_hit = dmem_lu_in_sdram ? dc_lu_hit : 1'b1;
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
   // Hold the core in reset for one extra cycle after boot_done so that
@@ -217,13 +220,17 @@ module roco_soc #(
       .imem_rsp_data(imem_rsp_data),
       .imem_miss(imem_miss),
       .imem_busy(imem_busy),
+      .dmem_lu_valid(dmem_lu_valid),
+      .dmem_lu_we(dmem_lu_we),
+      .dmem_lu_addr(dmem_lu_addr),
+      .dmem_lu_wdata(dmem_lu_wdata),
+      .dmem_lu_be(dmem_lu_be),
+      .dmem_lu_hit(dmem_lu_hit),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
-      .dmem_rsp_valid(dmem_rsp_valid),
-      .dmem_rsp_addr(dmem_rsp_addr),
       .dmem_rsp_data(dmem_rsp_data),
       .fence_req(core_fence_req),
       .fence_done(fence_done)
@@ -269,14 +276,18 @@ module roco_soc #(
       .rst(rst),
       .flush(dcache_flush),
       .flush_done(dcache_flush_done),
-      .cpu_req(dmem_req && dmem_in_sdram),
-      .cpu_we(dmem_we),
-      .cpu_addr(dmem_addr),
-      .cpu_wdata(dmem_wdata),
-      .cpu_be(dmem_be),
-      .cpu_rsp(dc_cpu_rsp),
-      .cpu_rsp_addr(dc_cpu_rsp_addr),
-      .cpu_rsp_data(dc_cpu_rsp_data),
+      .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
+      .lu_we(dmem_lu_we),
+      .lu_addr(dmem_lu_addr),
+      .lu_wdata(dmem_lu_wdata),
+      .lu_be(dmem_lu_be),
+      .lu_hit(dc_lu_hit),
+      .cm_valid(dmem_req && dmem_in_sdram),
+      .cm_we(dmem_we),
+      .cm_addr(dmem_addr),
+      .cm_wdata(dmem_wdata),
+      .cm_be(dmem_be),
+      .cm_rdata(dc_cm_rdata),
       .mem_req(dc_mem_req),
       .mem_we(dc_mem_we),
       .mem_word_addr(dc_mem_word_addr),
@@ -387,7 +398,7 @@ module roco_soc #(
   assign uart_tx_data = boot_tx_valid ? boot_tx_data : mmio_tx_byte;
   assign boot_tx_ready = uart_tx_ready;
   assign uart_rx_ready = boot_rx_ready | mmio_rx_pop;
-  assign uart_rx_clear = d_unc_req && !dmem_we && (dmem_addr[15:0] == 16'h0004);
+  assign uart_rx_clear = dmem_req && !dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0004);
 
   uart #(
       .CLK_HZ(CLK_HZ),
@@ -432,10 +443,11 @@ module roco_soc #(
   );
 
   // --------------------------------------------------------------- MMIO
-  assign mmio_tx_push = d_unc_req && dmem_we && (dmem_addr[15:0] == 16'h0000);
+  assign mmio_tx_push = dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0000);
   assign mmio_tx_byte = dmem_wdata[7:0];
-  assign mmio_rx_pop = d_unc_req && !dmem_we && (dmem_addr[15:0] == 16'h0000) && uart_rx_valid;
-  assign boot_restart = d_unc_req && dmem_we && (dmem_addr[15:0] == 16'h0108);
+  assign mmio_rx_pop = dmem_req && !dmem_we && !dmem_in_sdram &&
+                      (dmem_addr[15:0] == 16'h0000) && uart_rx_valid;
+  assign boot_restart = dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
 
   always_comb begin
     mmio_rdata = 32'd0;
@@ -479,6 +491,12 @@ module roco_soc #(
       16'h003c: begin
         mmio_rdata = dc_misses;
       end
+      16'h0048: begin
+        mmio_rdata = dbg0;
+      end
+      16'h004c: begin
+        mmio_rdata = dbg1;
+      end
       16'h0100: begin
         mmio_rdata = {28'd0, sdram_init_done, boot_error, boot_busy, boot_done_eff};
       end
@@ -497,11 +515,8 @@ module roco_soc #(
   always_ff @(posedge clk) begin
     if (rst) begin
       i_unc_rsp <= 1'b0;
-      d_unc_rsp <= 1'b0;
       i_unc_rsp_addr <= '0;
       i_unc_rsp_data <= '0;
-      d_unc_rsp_addr <= '0;
-      d_unc_rsp_data <= '0;
       led_reg <= 4'd0;
       mtime <= '0;
       mtimecmp <= '0;
@@ -511,16 +526,15 @@ module roco_soc #(
       dc_misses <= '0;
       halted <= 1'b0;
       exit_code <= '0;
+      dbg0 <= '0;
+      dbg1 <= '0;
     end else begin
       i_unc_rsp <= i_unc_req;
-      d_unc_rsp <= d_unc_req;
       if (i_unc_req) begin
         i_unc_rsp_addr <= imem_addr;
         i_unc_rsp_data <= 32'h0000_0000;
       end
-      if (d_unc_req) begin
-        d_unc_rsp_addr <= dmem_addr;
-        d_unc_rsp_data <= mmio_rdata;
+      if (dmem_req && !dmem_in_sdram) begin
         if (dmem_we) begin
           case (dmem_addr[15:0])
             16'h0010: begin
@@ -531,6 +545,12 @@ module roco_soc #(
             end
             16'h0024: begin
               mtimecmp[63:32] <= dmem_wdata;
+            end
+            16'h0048: begin
+              dbg0 <= dmem_wdata;
+            end
+            16'h004c: begin
+              dbg1 <= dmem_wdata;
             end
             16'h0030: begin
               ic_hits <= '0;
@@ -573,8 +593,8 @@ module roco_soc #(
   // stalled FENCE.I instruction. The core holds IF/ID/EX until fence_done.
   localparam logic [1:0] F_IDLE   = 2'd0;
   localparam logic [1:0] F_DCACHE = 2'd1;
-  localparam logic [1:0] F_ICACHE = 2'd2;
-  localparam logic [1:0] F_DONE   = 2'd3;
+  localparam logic [1:0] F_DRAIN  = 2'd2;
+  localparam logic [1:0] F_ICACHE = 2'd3;
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -589,24 +609,25 @@ module roco_soc #(
           if (core_fence_req) begin
             dcache_flush <= 1'b1;
             fence_state <= F_DCACHE;
+          end else begin
+            fence_done <= 1'b0;
           end
         end
         F_DCACHE: begin
           if (dcache_flush_done) begin
             dcache_flush <= 1'b0;
+            fence_state <= F_DRAIN;
+          end
+        end
+        F_DRAIN: begin
+          if (c_ready) begin
             icache_flush <= 1'b1;
             fence_state <= F_ICACHE;
           end
         end
         F_ICACHE: begin
           fence_done <= 1'b1;
-          fence_state <= F_DONE;
-        end
-        F_DONE: begin
-          if (!core_fence_req) begin
-            fence_done <= 1'b0;
-            fence_state <= F_IDLE;
-          end
+          fence_state <= F_IDLE;
         end
         default: begin
           fence_state <= F_IDLE;
@@ -619,9 +640,7 @@ module roco_soc #(
   assign imem_rsp_valid = imem_in_sdram ? ic_cpu_rsp : i_unc_rsp;
   assign imem_rsp_addr = imem_in_sdram ? ic_cpu_rsp_addr : i_unc_rsp_addr;
   assign imem_rsp_data = imem_in_sdram ? ic_cpu_rsp_data : i_unc_rsp_data;
-  assign dmem_rsp_valid = dmem_in_sdram ? dc_cpu_rsp : d_unc_rsp;
-  assign dmem_rsp_addr = dmem_in_sdram ? dc_cpu_rsp_addr : d_unc_rsp_addr;
-  assign dmem_rsp_data = dmem_in_sdram ? dc_cpu_rsp_data : d_unc_rsp_data;
+  assign dmem_rsp_data = dmem_in_sdram ? dc_cm_rdata : mmio_rdata;
 
   assign leds = led_reg;
 

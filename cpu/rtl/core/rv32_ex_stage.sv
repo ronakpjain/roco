@@ -14,7 +14,7 @@ module rv32_ex_stage (
   input logic rst,
   input logic halt,
   input logic stall,
-  input logic mem_wait,
+  input logic lu_stall,
   input logic retire,
   /* ID/EX pipeline register. */
   input logic idex_valid,
@@ -46,6 +46,7 @@ module rv32_ex_stage (
   input logic idex_mret,
   input logic idex_is_fence_i,
   input logic fence_hold,
+  input logic [31:0] mem_load_value,
   input logic idex_pred_taken,
   input logic [31:0] idex_pred_target,
   /* Writeback forwarding and CSR write port. */
@@ -61,6 +62,11 @@ module rv32_ex_stage (
   output logic btb_is_jalr,
   output logic btb_taken,
   output logic [31:0] btb_target,
+  output logic ex_lu_valid,
+  output logic ex_lu_we,
+  output logic [31:0] ex_lu_addr,
+  output logic [31:0] ex_lu_wdata,
+  output logic [3:0] ex_lu_be,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -97,6 +103,13 @@ module rv32_ex_stage (
   logic [31:0] ex_trap_cause;
   logic ex_redirect;
   logic branch_mispredict;
+  logic stall_active;
+  logic [31:0] stall_alu;
+  logic [31:0] stall_store_data;
+  logic [3:0] stall_be;
+  logic [31:0] ex_addr;
+  logic [31:0] ex_st;
+  logic [3:0] ex_be;
   logic [31:0] ex_trap_tval;
   logic ex_csr_illegal;
   logic [31:0] ex_wbval;
@@ -112,14 +125,14 @@ module rv32_ex_stage (
 
   // ------------------------------------------------------------- Forwarding
   always_comb begin
-    fwd_exmem_a = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0) &&
-                  (exmem_rd == idex_rs1) && !exmem_is_load;
+    fwd_exmem_a = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0) && (exmem_rd == idex_rs1);
     fwd_wb_a = wb_we && (wb_rd != 5'd0) && (wb_rd == idex_rs1);
-    fwd_exmem_b = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0) &&
-                  (exmem_rd == idex_rs2) && !exmem_is_load;
+    fwd_exmem_b = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0) && (exmem_rd == idex_rs2);
     fwd_wb_b = wb_we && (wb_rd != 5'd0) && (wb_rd == idex_rs2);
-    rs1_fwd = fwd_exmem_a ? exmem_wbval : fwd_wb_a ? wb_data : idex_rs1_val;
-    rs2_fwd = fwd_exmem_b ? exmem_wbval : fwd_wb_b ? wb_data : idex_rs2_val;
+    rs1_fwd = fwd_exmem_a ? (exmem_is_load ? mem_load_value : exmem_wbval) :
+              fwd_wb_a ? wb_data : idex_rs1_val;
+    rs2_fwd = fwd_exmem_b ? (exmem_is_load ? mem_load_value : exmem_wbval) :
+              fwd_wb_b ? wb_data : idex_rs2_val;
   end
 
   // ------------------------------------------------------------------- ALU
@@ -151,8 +164,11 @@ module rv32_ex_stage (
     ex_store_data = rs2_fwd << {ex_alu_result[1:0], 3'b000};
   end
 
+  assign ex_addr = stall_active ? stall_alu : ex_alu_result;
+  assign ex_st = stall_active ? stall_store_data : ex_store_data;
+  assign ex_be = stall_active ? stall_be : ex_store_be;
   assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
-                    idex_is_csr ? csr_rdata : ex_alu_result;
+                    idex_is_csr ? csr_rdata : ex_addr;
 
   // -------------------------------------------------- CSR file (EX and WB)
   rv32_csr u_csr (
@@ -236,10 +252,10 @@ module rv32_ex_stage (
       if (idex_is_load || idex_is_store) begin
         case (idex_funct3)
           3'b001, 3'b101: begin
-            ex_mem_misaligned = ex_alu_result[0];
+            ex_mem_misaligned = ex_addr[0];
           end
           3'b010: begin
-            ex_mem_misaligned = |ex_alu_result[1:0];
+            ex_mem_misaligned = |ex_addr[1:0];
           end
           default: begin
             ex_mem_misaligned = 1'b0;
@@ -272,7 +288,7 @@ module rv32_ex_stage (
       end else if (ex_mem_misaligned) begin
         ex_trap = 1'b1;
         ex_trap_cause = idex_is_store ? `RV32_CAUSE_STORE_MISALIGNED : `RV32_CAUSE_LOAD_MISALIGNED;
-        ex_trap_tval = ex_alu_result;
+        ex_trap_tval = ex_addr;
       end
 
       if (idex_is_branch) begin
@@ -304,6 +320,12 @@ module rv32_ex_stage (
   end
 
   assign ex_redirect_en = ex_redirect && !stall && !halt && !rst;
+  assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) && !ex_trap &&
+                       !rst && !halt && !fence_hold;
+  assign ex_lu_we = idex_is_store;
+  assign ex_lu_addr = ex_addr;
+  assign ex_lu_wdata = ex_st;
+  assign ex_lu_be = ex_be;
   assign btb_update = idex_valid && !ex_trap && !stall && !halt && !rst &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
@@ -311,6 +333,22 @@ module rv32_ex_stage (
   assign btb_is_jalr = idex_is_jalr;
   assign btb_taken = (idex_is_branch && ex_branch_taken) || idex_is_jal;
   assign btb_target = ex_branch_target;
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      stall_active <= 1'b0;
+      stall_alu <= '0;
+      stall_store_data <= '0;
+      stall_be <= '0;
+    end else if (lu_stall && !stall_active) begin
+      stall_active <= 1'b1;
+      stall_alu <= ex_alu_result;
+      stall_store_data <= ex_store_data;
+      stall_be <= ex_store_be;
+    end else if (!lu_stall) begin
+      stall_active <= 1'b0;
+    end
+  end
 
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk) begin
@@ -328,16 +366,18 @@ module rv32_ex_stage (
       exmem_is_load <= 1'b0;
       exmem_is_store <= 1'b0;
       exmem_is_fence_i <= 1'b0;
-    end else if (halt || mem_wait || fence_hold) begin
-      // Hold while MEM completes, or while a FENCE.I wait is active.
+    end else if (halt || fence_hold) begin
+      // Hold while a FENCE.I wait is active.
+    end else if (lu_stall) begin
+      exmem_valid <= 1'b0;
     end else begin
       exmem_valid <= idex_valid && !ex_trap;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
-      exmem_alu <= ex_alu_result;
+      exmem_alu <= ex_addr;
       exmem_wbval <= ex_wbval;
-      exmem_store_data <= ex_store_data;
-      exmem_be <= ex_store_be;
+      exmem_store_data <= ex_st;
+      exmem_be <= ex_be;
       exmem_rd <= idex_rd;
       exmem_funct3 <= idex_funct3;
       exmem_regwrite <= idex_regwrite;

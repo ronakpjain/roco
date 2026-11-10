@@ -32,7 +32,8 @@ module rv32_decoder (
   output logic illegal,
   output logic ecall,
   output logic ebreak,
-  output logic mret
+  output logic mret,
+  output logic is_fence_i
 );
 
   always_comb begin
@@ -60,6 +61,7 @@ module rv32_decoder (
     ecall = 1'b0;
     ebreak = 1'b0;
     mret = 1'b0;
+    is_fence_i = 1'b0;
 
     case (instr[6:0])
       7'b0110111: begin  // LUI
@@ -224,8 +226,10 @@ module rv32_decoder (
           illegal = 1'b1;
         end
       end
-      7'b0001111: begin  // FENCE / FENCE.I, treated as NOP
-        if ((instr[14:12] != 3'b000) && (instr[14:12] != 3'b001)) begin
+      7'b0001111: begin  // FENCE is a NOP; FENCE.I flushes the I-cache
+        if (instr[14:12] == 3'b001) begin
+          is_fence_i = 1'b1;
+        end else if (instr[14:12] != 3'b000) begin
           illegal = 1'b1;
         end
       end

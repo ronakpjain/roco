@@ -44,6 +44,7 @@ module rv32_ex_stage (
   input logic idex_ecall,
   input logic idex_ebreak,
   input logic idex_mret,
+  input logic idex_is_fence_i,
   /* Writeback forwarding and CSR write port. */
   input logic wb_we,
   input logic [4:0] wb_rd,
@@ -51,6 +52,7 @@ module rv32_ex_stage (
   /* Redirect to fetch. */
   output logic ex_redirect_en,
   output logic [31:0] ex_redirect_pc,
+  output logic ex_flush_icache,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -277,11 +279,15 @@ module rv32_ex_stage (
       end else if (idex_is_jalr) begin
         ex_redirect = 1'b1;
         ex_redirect_pc = ex_jump_target;
+      end else if (idex_is_fence_i) begin
+        ex_redirect = 1'b1;
+        ex_redirect_pc = idex_pc + 32'd4;
       end
     end
   end
 
   assign ex_redirect_en = ex_redirect && !stall && !halt && !rst;
+  assign ex_flush_icache = ex_redirect_en && idex_is_fence_i;
 
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk) begin

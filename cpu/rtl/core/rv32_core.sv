@@ -45,7 +45,8 @@ module rv32_core (
   output logic [31:0] trace_pc,
   output logic [31:0] trace_instr,
   output logic [4:0] trace_rd,
-  output logic [31:0] trace_wdata
+  output logic [31:0] trace_wdata,
+  output logic flush_icache
 );
 
   logic if_valid;
@@ -84,6 +85,7 @@ module rv32_core (
   logic idex_ecall;
   logic idex_ebreak;
   logic idex_mret;
+  logic idex_is_fence_i;
 
   logic ex_redirect_en;
   logic [31:0] ex_redirect_pc;
@@ -192,7 +194,8 @@ module rv32_core (
       .idex_illegal(idex_illegal),
       .idex_ecall(idex_ecall),
       .idex_ebreak(idex_ebreak),
-      .idex_mret(idex_mret)
+      .idex_mret(idex_mret),
+      .idex_is_fence_i(idex_is_fence_i)
   );
 
   rv32_ex_stage u_ex (
@@ -229,11 +232,13 @@ module rv32_core (
       .idex_ecall(idex_ecall),
       .idex_ebreak(idex_ebreak),
       .idex_mret(idex_mret),
+      .idex_is_fence_i(idex_is_fence_i),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
+      .ex_flush_icache(flush_icache),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),

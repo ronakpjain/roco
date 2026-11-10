@@ -176,7 +176,8 @@ module rv32_core (
       .rst(rst),
       .halt(halt),
       .boot_addr(boot_addr),
-      .stall(stall || load_use),
+      // Queue capacity, not backend readiness, throttles instruction fetch.
+      .stall(1'b0),
       .flush(ex_redirect_en || mem_redirect),
       .pred_taken(pred_taken),
       .pred_target(pred_target),

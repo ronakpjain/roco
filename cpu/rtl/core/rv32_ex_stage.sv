@@ -233,22 +233,22 @@ module rv32_ex_stage (
       if (idex_is_branch) begin
         case (idex_funct3)
           3'b000: begin
-            ex_branch_taken = (ex_alu_result == 32'd0);
+            ex_branch_taken = (rs1_fwd == rs2_fwd);
           end
           3'b001: begin
-            ex_branch_taken = (ex_alu_result != 32'd0);
+            ex_branch_taken = (rs1_fwd != rs2_fwd);
           end
           3'b100: begin
-            ex_branch_taken = ex_alu_result[0];
+            ex_branch_taken = ($signed(rs1_fwd) < $signed(rs2_fwd));
           end
           3'b101: begin
-            ex_branch_taken = !ex_alu_result[0];
+            ex_branch_taken = ($signed(rs1_fwd) >= $signed(rs2_fwd));
           end
           3'b110: begin
-            ex_branch_taken = ex_alu_result[0];
+            ex_branch_taken = (rs1_fwd < rs2_fwd);
           end
           3'b111: begin
-            ex_branch_taken = !ex_alu_result[0];
+            ex_branch_taken = (rs1_fwd >= rs2_fwd);
           end
           default: begin
             ex_branch_taken = 1'b0;

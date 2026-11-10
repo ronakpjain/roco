@@ -1,7 +1,7 @@
 // RV32I arithmetic/logic unit.
 //
-// One combinational opcode selects a 32-bit result. Branches reuse SUB,
-// SLT and SLTU so that the pipeline only needs a single carry chain.
+// One combinational opcode selects a 32-bit result. The execute stage
+// compares branch operands independently of this result-selection path.
 
 `default_nettype none
 `include "rv32_defs.svh"

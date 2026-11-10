@@ -1,0 +1,18 @@
+rail,load,external_mA,usb_mA,basis
+1.1V,FPGA core,2000,2000,Identical full-mode allocations for external and accepted 9V 3A PD; replace with implemented Diamond power estimate
+2.5V,FPGA auxiliary,100,100,Provisional allocation; independently soft-started buck
+3.3V,FPGA I/O banks,250,250,Dynamic I/O allocation; depends on pin loads and toggle rates
+3.3V,IS42S16160J-7TLI SDRAM,180,180,120 mA Idd4 output-open limit plus 60 mA output-loading allocation
+3.3V,FT2232HL including internal 1.8V regulator,200,200,70 mA typical core plus 60 mA maximum PHY plus 70 mA I/O and uncertainty allocation
+3.3V,USB2512B hub,120,120,65 mA maximum one-port HS base plus 25 mA additional HS port plus 30 mA allocation
+3.3V,W25Q128JV flash,30,30,25 mA maximum program or erase plus 5 mA allocation
+3.3V,TUSB1106 PHY,15,15,8 mA maximum operating supply plus 2.5 mA I/O plus allocation; external-3.3V mode
+3.3V,24 MHz ASV oscillator,15,15,15 mA maximum for 15 to 29.9 MHz band
+3.3V,FT2232H 93LC56B EEPROM,5,5,5 mA allocation including programming
+3.3V,Status and user LEDs,20,20,Up to ten simultaneous 2 mA LEDs
+3.3V,Bus isolation supervisors buffers and pullups,30,30,Design allocation; includes powered/unpowered interface isolation
+3.3V,Switched expansion power,250,250,250 mA useful allocation; hardware enabled only with selected external or accepted 9V 3A PD
+5.088V,FT232HL and its EEPROM,200,200,5V-input mode; all FT232H local rails and EEPROM fed from its local regulator output; engineering envelope not guaranteed maximum
+5.088V,USB-A peripheral VBUS,500,500,One USB 2.0 high-power load; requires selected external or accepted 9V 3A PD
+5.088V,USB-A output discharge resistor,6,6,1k resistor after port switch; maximum nominal rail draw rounded up; hardware disabled with host port
+AON,Always-on and PD control overhead,5,10,Raw-input current allocation; USB includes autonomous STUSB4500 overhead; not guaranteed maximum consumption

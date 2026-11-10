@@ -29,7 +29,7 @@ module roco_soc #(
     parameter int BAUD = 115200,
     parameter bit BOOT_OVERRIDE = 1'b0,
     parameter int ICACHE_LINES = 128,
-    parameter int DCACHE_LINES = 256
+    parameter int DCACHE_LINES = 128
 ) (
   input logic clk,
   input logic rst,
@@ -275,7 +275,7 @@ module roco_soc #(
 
   // -------------------------------------------------------------- D-cache
   dcache #(
-      .LINE_WORDS(4),
+      .LINE_WORDS(8),
       .NUM_LINES(DCACHE_LINES)
   ) u_dcache (
       .clk(clk),

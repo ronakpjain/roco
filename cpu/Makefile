@@ -30,7 +30,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc test-boot synth bitstream
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram test-soc test-isa-soc test-boot synth timing bitstream
 
 all: format-check syntax lint
 
@@ -128,6 +128,16 @@ synth: $(BUILD_DIR)/roco.json
 
 $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 	$(YOSYS) -p "read_verilog -sv -I$(RTL_DIR)/common $(RTL_SV); synth_ecp5 -top roco_top -json $@"
+
+# Diagnostic route: report timing even when the unchanged 48 MHz PLL fails.
+TIMING_SEED ?= 1
+timing: $(BUILD_DIR)/roco.json
+	$(NEXTPNR) --45k --package CABGA381 --speed 6 \
+		--json $< --lpf constraints/roco.lpf \
+		--textcfg $(BUILD_DIR)/timing-seed$(TIMING_SEED).config \
+		--report $(BUILD_DIR)/timing-seed$(TIMING_SEED).json \
+		--detailed-timing-report --timing-allow-fail --seed $(TIMING_SEED) \
+		--log $(BUILD_DIR)/timing-seed$(TIMING_SEED).log
 
 bitstream: $(BUILD_DIR)/roco.bit
 

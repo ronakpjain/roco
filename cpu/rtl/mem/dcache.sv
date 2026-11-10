@@ -178,7 +178,7 @@ module dcache #(
     end
   end
 
-  assign bypass = prev_store_valid && (prev_store_addr[31:2] == lu_addr_q[31:2]);
+  assign bypass = lu_valid_q && prev_store_valid && (prev_store_addr[31:2] == lu_addr_q[31:2]);
   assign merged[7:0] = prev_store_be[0] ? prev_store_data[7:0] : ram_data[7:0];
   assign merged[15:8] = prev_store_be[1] ? prev_store_data[15:8] : ram_data[15:8];
   assign merged[23:16] = prev_store_be[2] ? prev_store_data[23:16] : ram_data[23:16];
@@ -220,9 +220,9 @@ module dcache #(
         flush_active <= 1'b0;
       end
 
+      lu_valid_q <= lu_valid;
       if (lu_valid) begin
         lu_addr_q <= lu_addr;
-        lu_valid_q <= 1'b1;
       end
 
       prev_store_valid <= (state == S_IDLE) && cm_valid && cm_we;

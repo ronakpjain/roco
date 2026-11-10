@@ -50,7 +50,9 @@ module uart #(
   assign tx_empty = (tx_head == tx_tail);
   assign tx_full = (tx_head[ADDR_BITS] != tx_tail[ADDR_BITS]) &&
                    (tx_head[ADDR_BITS-1:0] == tx_tail[ADDR_BITS-1:0]);
-  assign tx_ready = !tx_full;
+  // Accept a byte only when the transmitter is idle. The FIFO remains
+  // as a small elastic buffer, but the CPU cannot outrun the line rate.
+  assign tx_ready = !tx_busy && tx_empty;
 
   logic tx_direct;
   assign tx_direct = tx_valid && tx_ready && tx_empty && !tx_busy;

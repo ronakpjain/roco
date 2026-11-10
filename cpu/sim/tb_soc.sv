@@ -51,6 +51,12 @@ module tb_soc;
   integer bit_idx;
 
   logic trace_on;
+  int unsigned push_cnt = 0;
+  int unsigned start_cnt = 0;
+  int unsigned full_push_cnt = 0;
+  int unsigned stat_cnt = 0;
+  int unsigned stat_full_cnt = 0;
+  logic tx_busy_q = 0;
   integer dbg_cnt2 = 0;
   initial trace_on = $test$plusargs("trace");
 
@@ -106,6 +112,25 @@ module tb_soc;
           u_soc.u_arbiter.locked, u_soc.u_arbiter.owner, u_soc.u_arbiter.wr_rem,
           u_soc.u_sdram.state, u_soc.u_dcache.mem_req, u_soc.u_dcache.mem_we,
           u_soc.u_dcache.mem_wvalid, u_soc.u_dcache.mem_wready);
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      push_cnt <= 0;
+      start_cnt <= 0;
+      tx_busy_q <= 0;
+    end else begin
+      if (u_soc.mmio_tx_push) begin
+        push_cnt <= push_cnt + 1;
+        if (u_soc.u_uart.tx_full) begin
+          full_push_cnt <= full_push_cnt + 1;
+        end
+      end
+      tx_busy_q <= u_soc.u_uart.tx_busy;
+      if (u_soc.u_uart.tx_busy && !tx_busy_q) begin
+        start_cnt <= start_cnt + 1;
+      end
     end
   end
 
@@ -210,8 +235,21 @@ module tb_soc;
   end
 
   always_ff @(posedge clk) begin
+    if (!rst) begin
+      if (u_soc.dmem_req && !u_soc.dmem_we && (u_soc.dmem_addr[15:0] == 16'h0004) &&
+          u_soc.u_uart.tx_full) begin
+        stat_full_cnt <= stat_full_cnt + 1;
+      end
+      if (u_soc.dmem_req && !u_soc.dmem_we && (u_soc.dmem_addr[15:0] == 16'h0004) &&
+          (stat_cnt < 3)) begin
+        stat_cnt <= stat_cnt + 1;
+        $display("  stat read rdata=%h full=%b ready=%b", u_soc.dmem_rsp_data,
+                 u_soc.u_uart.tx_full, u_soc.u_uart.tx_ready);
+      end
+    end
     if (!rst && halted) begin
-      $display("tb_soc: bench cycles=%0d instret=%0d", u_soc.dbg0, u_soc.dbg1);
+      $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
+               u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);
       if (exit_code == 32'd1) begin
         $display("tb_soc: PASS (%0d sdram errors)", sdram_errors);
       end else begin

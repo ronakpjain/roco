@@ -25,7 +25,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-sdram
 
 all: format-check syntax lint
 
@@ -47,6 +47,10 @@ lint:
 		-I$(RTL_DIR)/common \
 		--top-module rv32_core \
 		$(RTL_SV)
+	$(VERILATOR) --lint-only --Wall -Wno-fatal \
+		-I$(RTL_DIR)/common \
+		--top-module sdram_ctrl \
+		$(RTL_SV)
 
 hooks:
 	git config core.hooksPath .githooks
@@ -67,6 +71,13 @@ $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
 
 $(BUILD_DIR)/tb_core.vvp: $(RTL_SV) sim/tb_core.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ sim/tb_core.sv $(RTL_SV)
+
+$(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_sdram_ctrl.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
+		sim/tb_sdram_ctrl.sv rtl/mem/sdram_ctrl.sv sim/sdram_model.sv
+
+test-sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp
+	$(VVP) $(BUILD_DIR)/tb_sdram_ctrl.vvp
 
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex

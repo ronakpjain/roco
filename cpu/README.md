@@ -12,6 +12,10 @@ instantiates the ECP5 PLL.
 
 ## Block diagram
 
+![roco CPU block diagram](docs/roco-cpu.png)
+
+Editable source: [docs/roco-cpu.drawio](docs/roco-cpu.drawio).
+
 `roco_top` contains the 24 MHz to 48 MHz PLL and reset synchronizer, and
 instantiates `roco_soc`. Inside the SoC:
 
@@ -101,11 +105,10 @@ traps through `mtvec`. Programs must be linked at `0x1000_0000`.
 
 ## Boot protocol
 
-After reset the CPU is held in reset and the loader waits for:
-
-```text
-"ROCO" | base (LE32) | length (LE32) | crc32(payload) (LE32) | payload
-```
+After reset the CPU is held in reset and the loader waits for a packet
+consisting of the 4-byte magic `ROCO`, a little-endian 32-bit base, a
+little-endian 32-bit length, a little-endian CRC-32 of the payload, and
+then the payload itself.
 
 Payload bytes are packed into 32-bit words and written to SDRAM at
 `base`, which must be word aligned and inside `0x1000_0000` -
@@ -183,17 +186,17 @@ remain bring-up checks, as noted in `pcb/docs/rev-a-design.md`.
 
 ## Layout
 
-```text
-rtl/
-  roco_top.sv        board top: PLL, reset, buttons, pins
-  roco_soc.sv        CPU + caches + memory + peripherals + bootloader
-  core/              pipeline stages, decoder, ALU, CSR, regfile
-  mem/               I/D caches, arbiter, SDRAM controller
-  periph/            UART and UART image loader
-  common/            shared RV32 control encodings
-constraints/roco.lpf ECP5 pin locations and clock constraint
-sim/                 testbenches and the SDRAM behavioural model
-sw/                  crt0, linker script and the hello/cache demo
-tests/               riscv-tests environment and linker script
-scripts/             ISA runner, image converter, host bootloader
-```
+| Path | Contents |
+|---|---|
+| `rtl/roco_top.sv` | Board top: PLL, reset, buttons, pins |
+| `rtl/roco_soc.sv` | CPU, caches, memory, peripherals, bootloader |
+| `rtl/core/` | Pipeline stages, decoder, ALU, CSR, regfile |
+| `rtl/mem/` | I/D caches, arbiter, SDRAM controller |
+| `rtl/periph/` | UART and UART image loader |
+| `rtl/common/` | Shared RV32 control encodings |
+| `constraints/roco.lpf` | ECP5 pin locations and clock constraint |
+| `sim/` | Testbenches and the SDRAM behavioural model |
+| `sw/` | crt0, linker script, hello/cache demo |
+| `tests/` | riscv-tests environment and linker script |
+| `scripts/` | ISA runner, image converter, host bootloader |
+| `docs/` | Block diagram source and preview |

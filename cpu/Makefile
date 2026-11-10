@@ -130,7 +130,7 @@ $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 	$(YOSYS) -p "read_verilog -sv -I$(RTL_DIR)/common $(RTL_SV); synth_ecp5 -top roco_top -json $@"
 
 # Share routing settings between timing measurements and the shipped bitstream.
-PNR_SEED ?= 1
+PNR_SEED ?= 4
 PNR_FLAGS ?=
 # Diagnostic route: report timing even when the unchanged 48 MHz PLL fails.
 TIMING_SEED ?= $(PNR_SEED)

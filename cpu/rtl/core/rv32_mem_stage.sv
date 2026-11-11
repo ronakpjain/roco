@@ -33,7 +33,6 @@ module rv32_mem_stage (
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
-  output logic [31:0] load_value,
   output logic fence_req,
   output logic mem_redirect,
   /* One-cycle commit strobe for minstret and the retire trace. */
@@ -70,7 +69,6 @@ module rv32_mem_stage (
   assign fence_req = exmem_valid && exmem_is_fence_i && !fence_done;
   assign mem_redirect = exmem_valid && exmem_is_fence_i && fence_done;
 
-  assign load_value = load_data;
   assign load_byte = 8'(dmem_rsp_data >> {exmem_alu[1:0], 3'b000});
   assign load_half = 16'(dmem_rsp_data >> {exmem_alu[1], 4'b0000});
 

@@ -50,7 +50,13 @@ module roco_soc #(
   output logic sdram_dq_oe,
   input logic [15:0] sdram_dq_in,
   output logic halted,
-  output logic [31:0] exit_code
+  output logic [31:0] exit_code,
+  /* Retire trace: simulation and debug only, not pinned out on the board. */
+  output logic trace_valid,
+  output logic [31:0] trace_pc,
+  output logic [31:0] trace_instr,
+  output logic [4:0] trace_rd,
+  output logic [31:0] trace_wdata
 );
 
   // ------------------------------------------------------------- Core buses
@@ -60,10 +66,7 @@ module roco_soc #(
   logic [31:0] imem_rsp_addr;
   logic [31:0] imem_rsp_data;
   logic dmem_lu_valid;
-  logic dmem_lu_we;
-  logic [31:0] dmem_lu_addr;
-  logic [31:0] dmem_lu_wdata;
-  logic [3:0] dmem_lu_be;
+  logic [31:2] dmem_lu_addr;
   logic dmem_lu_hit;
   logic dmem_req;
   logic dmem_we;
@@ -93,14 +96,9 @@ module roco_soc #(
   logic [31:0] ic_cpu_rsp_addr;
   logic [31:0] ic_cpu_rsp_data;
   logic ic_mem_req;
-  logic ic_mem_we;
   logic [22:0] ic_mem_word_addr;
   logic [3:0] ic_mem_len;
   logic ic_mem_ready;
-  logic ic_mem_wvalid;
-  logic ic_mem_wready;
-  logic [31:0] ic_mem_wdata;
-  logic [3:0] ic_mem_wbe;
   logic ic_mem_rvalid;
   logic [31:0] ic_mem_rdata;
   logic ic_mem_rlast;
@@ -221,10 +219,7 @@ module roco_soc #(
       .imem_miss(imem_miss),
       .imem_busy(imem_busy),
       .dmem_lu_valid(dmem_lu_valid),
-      .dmem_lu_we(dmem_lu_we),
       .dmem_lu_addr(dmem_lu_addr),
-      .dmem_lu_wdata(dmem_lu_wdata),
-      .dmem_lu_be(dmem_lu_be),
       .dmem_lu_hit(dmem_lu_hit),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
@@ -234,12 +229,11 @@ module roco_soc #(
       .dmem_rsp_data(dmem_rsp_data),
       .fence_req(core_fence_req),
       .fence_done(fence_done),
-      // Simulation observes these hierarchically; no board-level consumer.
-      .trace_valid(),
-      .trace_pc(),
-      .trace_instr(),
-      .trace_rd(),
-      .trace_wdata()
+      .trace_valid(trace_valid),
+      .trace_pc(trace_pc),
+      .trace_instr(trace_instr),
+      .trace_rd(trace_rd),
+      .trace_wdata(trace_wdata)
   );
 
   // -------------------------------------------------------------- I-cache
@@ -258,14 +252,9 @@ module roco_soc #(
       .cpu_miss(ic_cpu_miss),
       .cpu_busy(ic_cpu_busy),
       .mem_req(ic_mem_req),
-      .mem_we(ic_mem_we),
       .mem_word_addr(ic_mem_word_addr),
       .mem_len(ic_mem_len),
       .mem_ready(ic_mem_ready),
-      .mem_wvalid(ic_mem_wvalid),
-      .mem_wready(ic_mem_wready),
-      .mem_wdata(ic_mem_wdata),
-      .mem_wbe(ic_mem_wbe),
       .mem_rvalid(ic_mem_rvalid),
       .mem_rdata(ic_mem_rdata),
       .mem_rlast(ic_mem_rlast),
@@ -283,16 +272,11 @@ module roco_soc #(
       .flush(dcache_flush),
       .flush_done(dcache_flush_done),
       .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
-      .lu_we(dmem_lu_we),
-      // Only SDRAM requests reach this cache. Use the physical offset so
-      // constant region bits do not occupy tag RAM or the hit comparator.
-      .lu_addr({7'd0, dmem_lu_addr[24:0]}),
-      .lu_wdata(dmem_lu_wdata),
-      .lu_be(dmem_lu_be),
+      .lu_addr(dmem_lu_addr[24:2]),
       .lu_hit(dc_lu_hit),
       .cm_valid(dmem_req && dmem_in_sdram),
       .cm_we(dmem_we),
-      .cm_addr({7'd0, dmem_addr[24:0]}),
+      .cm_addr(dmem_addr[24:2]),
       .cm_wdata(dmem_wdata),
       .cm_be(dmem_be),
       .cm_rdata(dc_cm_rdata),
@@ -317,14 +301,13 @@ module roco_soc #(
       .clk(clk),
       .rst(rst),
       .i_req(ic_mem_req),
-      .i_we(ic_mem_we),
+      .i_we(1'b0),
       .i_word_addr(ic_mem_word_addr),
       .i_len(ic_mem_len),
       .i_ready(ic_mem_ready),
-      .i_wready(ic_mem_wready),
-      .i_wvalid(ic_mem_wvalid),
-      .i_wdata(ic_mem_wdata),
-      .i_wbe(ic_mem_wbe),
+      .i_wvalid(1'b0),
+      .i_wdata(32'd0),
+      .i_wbe(4'd0),
       .i_rvalid(ic_mem_rvalid),
       .i_rdata(ic_mem_rdata),
       .i_rlast(ic_mem_rlast),
@@ -349,9 +332,6 @@ module roco_soc #(
       .b_wvalid(boot_mem_wvalid),
       .b_wdata(boot_mem_wdata),
       .b_wbe(boot_mem_wbe),
-      .b_rvalid(),
-      .b_rdata(),
-      .b_rlast(),
       .c_req(c_req),
       .c_ready(c_ready),
       .c_we(c_we),

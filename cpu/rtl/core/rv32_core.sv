@@ -35,10 +35,7 @@ module rv32_core (
   input logic imem_busy,
   /* Data memory: lookup in EX, commit in MEM, data returns combinationally. */
   output logic dmem_lu_valid,
-  output logic dmem_lu_we,
-  output logic [31:0] dmem_lu_addr,
-  output logic [31:0] dmem_lu_wdata,
-  output logic [3:0] dmem_lu_be,
+  output logic [31:2] dmem_lu_addr,
   input logic dmem_lu_hit,
   output logic dmem_req,
   output logic dmem_we,
@@ -139,10 +136,7 @@ module rv32_core (
   logic dmem_lu_stall;
   logic stall;
   logic ex_lu_valid;
-  logic ex_lu_we;
-  logic [31:0] ex_lu_addr;
-  logic [31:0] ex_lu_wdata;
-  logic [3:0] ex_lu_be;
+  logic [31:2] ex_lu_addr;
   logic mem_redirect;
   logic retire;
   logic if_consume;
@@ -159,10 +153,7 @@ module rv32_core (
                      (dec_use_rs2 && dec_rs2 == idex_rd));
   assign if_consume = if_valid && !stall && !load_use && !ex_redirect_en && !mem_redirect;
   assign dmem_lu_valid = ex_lu_valid;
-  assign dmem_lu_we = ex_lu_we;
   assign dmem_lu_addr = ex_lu_addr;
-  assign dmem_lu_wdata = ex_lu_wdata;
-  assign dmem_lu_be = ex_lu_be;
   assign dmem_lu_stall = ex_lu_valid && !dmem_lu_hit;
   assign stall = dmem_lu_stall || fence_req;
   assign trace_valid = commit_valid;
@@ -298,10 +289,7 @@ module rv32_core (
       .btb_taken(btb_taken),
       .btb_target(btb_target),
       .ex_lu_valid(ex_lu_valid),
-      .ex_lu_we(ex_lu_we),
       .ex_lu_addr(ex_lu_addr),
-      .ex_lu_wdata(ex_lu_wdata),
-      .ex_lu_be(ex_lu_be),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),
@@ -324,7 +312,7 @@ module rv32_core (
       .if_pc(fetch_pc),
       .if_pred_taken(pred_taken),
       .if_pred_target(pred_target),
-      .ex_pc(idex_pc),
+      .ex_pc(idex_pc[31:2]),
       .ex_update(btb_update),
       .ex_is_branch(btb_is_branch),
       .ex_is_jal(btb_is_jal),
@@ -357,7 +345,6 @@ module rv32_core (
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
-      .load_value(),
       .fence_req(fence_req),
       .mem_redirect(mem_redirect),
       .commit_valid(commit_valid),

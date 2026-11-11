@@ -61,10 +61,8 @@ module rv32_ex_stage (
   output logic btb_taken,
   output logic [31:0] btb_target,
   output logic ex_lu_valid,
-  output logic ex_lu_we,
-  output logic [31:0] ex_lu_addr,
-  output logic [31:0] ex_lu_wdata,
-  output logic [3:0] ex_lu_be,
+  // Word address of the lookup: the byte offset never matters to a cache.
+  output logic [31:2] ex_lu_addr,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -335,10 +333,7 @@ module rv32_ex_stage (
   assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) &&
                        !idex_illegal && !ex_mem_misaligned &&
                        !rst && !halt && !fence_hold;
-  assign ex_lu_we = idex_is_store;
-  assign ex_lu_addr = memory_addr_held;
-  assign ex_lu_wdata = ex_st;
-  assign ex_lu_be = ex_be;
+  assign ex_lu_addr = memory_addr_held[31:2];
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;

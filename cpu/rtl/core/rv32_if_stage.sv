@@ -53,7 +53,6 @@ module rv32_if_stage (
   logic [2:0] q_count;
   logic pending_pred_taken;
   logic [31:0] pending_pred_target;
-  logic pending_pred_valid;
 
   logic q_empty;
   logic issue;
@@ -87,7 +86,6 @@ module rv32_if_stage (
       q_count <= '0;
       pending_pred_taken <= 1'b0;
       pending_pred_target <= '0;
-      pending_pred_valid <= 1'b0;
     end else if (halt) begin
       // Frozen after a tohost store.
     end else if (flush) begin
@@ -96,7 +94,6 @@ module rv32_if_stage (
       q_head <= '0;
       q_tail <= '0;
       q_count <= '0;
-      pending_pred_valid <= 1'b0;
     end else begin
       // Queue push and pop.
       if (push) begin
@@ -120,7 +117,6 @@ module rv32_if_stage (
         last_req <= pc_if;
         pending_pred_taken <= pred_taken;
         pending_pred_target <= pred_target;
-        pending_pred_valid <= !miss_now;
         if (!miss_now) begin
           pc_if <= pc_next;
         end

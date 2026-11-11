@@ -11,13 +11,12 @@
 module mem_arbiter (
   input logic clk,
   input logic rst,
-  /* Instruction cache. */
+  /* Instruction cache: read-only. */
   input logic i_req,
   input logic i_we,
   input logic [22:0] i_word_addr,
   input logic [3:0] i_len,
   output logic i_ready,
-  output logic i_wready,
   input logic i_wvalid,
   input logic [31:0] i_wdata,
   input logic [3:0] i_wbe,
@@ -37,7 +36,7 @@ module mem_arbiter (
   output logic d_rvalid,
   output logic [31:0] d_rdata,
   output logic d_rlast,
-  /* Boot loader. */
+  /* Boot loader: write-only. */
   input logic b_req,
   input logic b_we,
   input logic [22:0] b_word_addr,
@@ -47,9 +46,6 @@ module mem_arbiter (
   input logic b_wvalid,
   input logic [31:0] b_wdata,
   input logic [3:0] b_wbe,
-  output logic b_rvalid,
-  output logic [31:0] b_rdata,
-  output logic b_rlast,
   /* SDRAM controller. */
   output logic c_req,
   input logic c_ready,
@@ -121,7 +117,6 @@ module mem_arbiter (
     c_wdata = 32'd0;
     c_wbe = 4'd0;
     i_ready = 1'b0;
-    i_wready = 1'b0;
     i_rvalid = 1'b0;
     i_rdata = 32'd0;
     i_rlast = 1'b0;
@@ -132,9 +127,6 @@ module mem_arbiter (
     d_rlast = 1'b0;
     b_ready = 1'b0;
     b_wready = 1'b0;
-    b_rvalid = 1'b0;
-    b_rdata = 32'd0;
-    b_rlast = 1'b0;
     case (sel)
       OWN_I: begin
         c_req = i_req;
@@ -145,7 +137,6 @@ module mem_arbiter (
         c_wdata = i_wdata;
         c_wbe = i_wbe;
         i_ready = c_ready;
-        i_wready = c_wready;
         i_rvalid = c_rvalid;
         i_rdata = c_rdata;
         i_rlast = c_rlast;
@@ -174,9 +165,6 @@ module mem_arbiter (
         c_wbe = b_wbe;
         b_ready = c_ready;
         b_wready = c_wready;
-        b_rvalid = c_rvalid;
-        b_rdata = c_rdata;
-        b_rlast = c_rlast;
       end
       default: begin
       end

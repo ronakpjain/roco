@@ -100,7 +100,7 @@ module sdram_model #(
     errors = 32'd0;
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     cycle <= cycle + 32'd1;
     refresh_age <= refresh_age + 32'd1;
 

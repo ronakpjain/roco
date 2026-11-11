@@ -30,10 +30,7 @@ module tb_core;
   logic [31:0] imem_rsp_addr;
   logic [31:0] imem_rsp_data;
   logic dmem_lu_valid;
-  logic dmem_lu_we;
-  logic [31:0] dmem_lu_addr;
-  logic [31:0] dmem_lu_wdata;
-  logic [3:0] dmem_lu_be;
+  logic [31:2] dmem_lu_addr;
   logic dmem_lu_hit;
   logic dmem_req;
   logic dmem_we;
@@ -66,6 +63,8 @@ module tb_core;
   int unsigned max_cycles;
   int unsigned i;
   string hexfile;
+  integer hex_fd;
+  integer hex_matched;
   logic trace_on;
   logic debug_on;
   integer dbg_cnt = 0;
@@ -86,10 +85,7 @@ module tb_core;
       .imem_miss(1'b0),
       .imem_busy(1'b0),
       .dmem_lu_valid(dmem_lu_valid),
-      .dmem_lu_we(dmem_lu_we),
       .dmem_lu_addr(dmem_lu_addr),
-      .dmem_lu_wdata(dmem_lu_wdata),
-      .dmem_lu_be(dmem_lu_be),
       .dmem_lu_hit(dmem_lu_hit),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
@@ -128,7 +124,7 @@ module tb_core;
   end
 
   // -------------------------------------------------------------- I-port FSM
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
       im_rsp_valid_q <= 1'b0;
       im_rsp_addr_q <= '0;
@@ -152,7 +148,7 @@ module tb_core;
   assign st_merged[31:24] = st_be_q[3] ? st_data_q[31:24] : d_lu_data[31:24];
   assign dmem_rsp_data = (st_valid_q && (st_addr_q[31:2] == dmem_addr[31:2])) ? st_merged : d_lu_data;
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (dmem_lu_addr[31:16] == 16'h1000) begin
       d_lu_data <= mem[dmem_lu_addr[15:2]];
     end else begin
@@ -160,7 +156,7 @@ module tb_core;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
       st_valid_q <= 1'b0;
       st_addr_q <= '0;
@@ -176,7 +172,7 @@ module tb_core;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
       exit_code <= '0;
     end else if (dmem_req && dmem_we) begin
@@ -213,7 +209,20 @@ module tb_core;
       mem[i] = 32'd0;
     end
     if (hexfile.len() > 0) begin
-      $readmemh(hexfile, mem);
+      hex_fd = $fopen(hexfile, "r");
+      if (hex_fd == 0) begin
+        $display("tb_core: cannot open %s", hexfile);
+        $finish;
+      end
+      i = 0;
+      hex_matched = 1;
+      while ((hex_matched == 1) && (i < MEM_WORDS)) begin
+        hex_matched = $fscanf(hex_fd, "%h", mem[i]);
+        if (hex_matched == 1) begin
+          i = i + 1;
+        end
+      end
+      $fclose(hex_fd);
     end
     trace_on = $test$plusargs("trace");
     debug_on = $test$plusargs("debug");
@@ -231,7 +240,7 @@ module tb_core;
   end
 
   // ---------------------------------------------------------- Run monitoring
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (!rst && !halt) begin
       cycles <= cycles + 1;
       if (cycles > max_cycles) begin
@@ -245,7 +254,7 @@ module tb_core;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (!rst && halt) begin
       if (exit_code == 32'd1) begin
         $display("tb_core: PASS");

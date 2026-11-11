@@ -24,16 +24,11 @@ module icache #(
   output logic [31:0] cpu_rsp_data,
   output logic cpu_miss,
   output logic cpu_busy,
-  /* Memory side. */
+  /* Memory side: read-only, the instruction cache never writes. */
   output logic mem_req,
-  output logic mem_we,
   output logic [22:0] mem_word_addr,
   output logic [3:0] mem_len,
   input logic mem_ready,
-  output logic mem_wvalid,
-  input logic mem_wready,
-  output logic [31:0] mem_wdata,
-  output logic [3:0] mem_wbe,
   input logic mem_rvalid,
   input logic [31:0] mem_rdata,
   input logic mem_rlast,
@@ -90,12 +85,8 @@ module icache #(
   assign miss_pulse = cpu_miss;
 
   assign mem_req = (state == S_REQ);
-  assign mem_we = 1'b0;
   assign mem_word_addr = fill_word_addr;
   assign mem_len = 4'(LINE_WORDS - 1);
-  assign mem_wvalid = 1'b0;
-  assign mem_wdata = 32'd0;
-  assign mem_wbe = 4'd0;
 
   always_ff @(posedge clk) begin
     if (rst) begin

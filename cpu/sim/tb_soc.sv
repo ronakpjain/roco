@@ -44,6 +44,8 @@ module tb_soc;
 
   logic [31:0] image[0:IMAGE_WORDS-1];
   string hexfile;
+  integer hex_fd;
+  integer hex_matched;
   int unsigned i;
   int unsigned cycles;
   int unsigned max_cycles;
@@ -60,10 +62,10 @@ module tb_soc;
   integer dbg_cnt2 = 0;
   initial trace_on = $test$plusargs("trace");
 
-  always_ff @(posedge clk) begin
-    if (trace_on && u_soc.u_cpu.trace_valid) begin
-      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.u_cpu.trace_pc,
-               u_soc.u_cpu.trace_instr, u_soc.u_cpu.trace_rd, u_soc.u_cpu.trace_wdata);
+  always @(posedge clk) begin
+    if (trace_on && u_soc.trace_valid) begin
+      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace_pc, u_soc.trace_instr,
+               u_soc.trace_rd, u_soc.trace_wdata);
     end
     if (trace_on && u_soc.u_cpu.u_ex.idex_valid && (u_soc.u_cpu.u_ex.idex_pc == 32'h10000148) &&
         (dbg_cnt2 < 4)) begin
@@ -115,7 +117,7 @@ module tb_soc;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
       push_cnt <= 0;
       start_cnt <= 0;
@@ -199,7 +201,20 @@ module tb_soc;
     for (i = 0; i < IMAGE_WORDS; i = i + 1) begin
       image[i] = 32'd0;
     end
-    $readmemh(hexfile, image);
+    hex_fd = $fopen(hexfile, "r");
+    if (hex_fd == 0) begin
+      $display("tb_soc: cannot open %s", hexfile);
+      $finish;
+    end
+    i = 0;
+    hex_matched = 1;
+    while ((hex_matched == 1) && (i < IMAGE_WORDS)) begin
+      hex_matched = $fscanf(hex_fd, "%h", image[i]);
+      if (hex_matched == 1) begin
+        i = i + 1;
+      end
+    end
+    $fclose(hex_fd);
     for (i = 0; i < IMAGE_WORDS; i = i + 1) begin
       u_sdram.preload(i[22:0], image[i]);
     end
@@ -236,7 +251,7 @@ module tb_soc;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (!rst && !halted) begin
       cycles <= cycles + 1;
       if (cycles > max_cycles) begin
@@ -246,7 +261,7 @@ module tb_soc;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (!rst && halted) begin
       $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
                u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);

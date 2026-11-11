@@ -6,6 +6,10 @@
 // stalls the EX stage while the line is written back and refilled; the
 // lookup is simply retried until it hits.
 //
+// The lookup and commit ports carry word addresses (byte address bits
+// 24:2) of the 32 MB SDRAM window, so tags hold only the address bits
+// that vary inside that window.
+//
 // Stores commit in MEM through the byte-enable write port. A store in
 // MEM and a lookup in EX to the same word are merged (store-to-load
 // forwarding) because both access the array on the same edge. The data
@@ -23,15 +27,12 @@ module dcache #(
   output logic flush_done,
   /* EX lookup. */
   input logic lu_valid,
-  input logic lu_we,
-  input logic [31:0] lu_addr,
-  input logic [31:0] lu_wdata,
-  input logic [3:0] lu_be,
+  input logic [24:2] lu_addr,
   output logic lu_hit,
   /* MEM commit. */
   input logic cm_valid,
   input logic cm_we,
-  input logic [31:0] cm_addr,
+  input logic [24:2] cm_addr,
   input logic [31:0] cm_wdata,
   input logic [3:0] cm_be,
   output logic [31:0] cm_rdata,
@@ -55,10 +56,13 @@ module dcache #(
 
   localparam int OFF_BITS = $clog2(LINE_WORDS);
   localparam int IDX_BITS = $clog2(NUM_LINES);
-  localparam int TAG_BITS = 32 - IDX_BITS - OFF_BITS - 2;
   localparam int DEPTH = NUM_LINES * LINE_WORDS;
   localparam int IDX_LO = OFF_BITS + 2;
   localparam int IDX_HI = IDX_LO + IDX_BITS - 1;
+  // The cache addresses words inside the 32 MB SDRAM window, so a tag only
+  // needs the address bits above the index that still vary inside it.
+  localparam int MEM_WORD_BITS = 23;
+  localparam int MEM_TAG_BITS = MEM_WORD_BITS - IDX_BITS - OFF_BITS;
   localparam logic [22:0] LINE_MASK = ~23'(LINE_WORDS - 1);
   localparam logic [OFF_BITS-1:0] LAST_BEAT = OFF_BITS'(LINE_WORDS - 1);
 
@@ -79,7 +83,7 @@ module dcache #(
   state_t state;
   logic valid_ram[0:NUM_LINES-1];
   logic dirty_ram[0:NUM_LINES-1];
-  logic [TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
+  logic [MEM_TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
 
   logic [7:0] lane0[0:DEPTH-1];
   logic [7:0] lane1[0:DEPTH-1];
@@ -92,39 +96,34 @@ module dcache #(
   logic [31:0] ram_wdata;
   logic [3:0] ram_wbe;
   logic ram_we;
-  logic [31:0] lu_addr_q;
+  // Word addresses: the byte offset inside a word never reaches the tag
+  // RAM, index or store-to-load comparator.
+  logic [24:2] lu_addr_q;
   logic lu_valid_q;
 
-  logic [31:0] prev_store_addr;
+  logic [24:2] prev_store_addr;
   logic [31:0] prev_store_data;
   logic [3:0] prev_store_be;
   logic prev_store_valid;
 
-  logic [31:0] miss_line_word;
+  logic [MEM_WORD_BITS-1:0] miss_line_word;
   logic [IDX_BITS-1:0] miss_idx;
-  logic [TAG_BITS-1:0] miss_tag;
+  logic [MEM_TAG_BITS-1:0] miss_tag;
   logic [IDX_BITS-1:0] flush_idx;
   logic [OFF_BITS-1:0] beat;
   logic flush_active;
 
-  logic [31:0] lu_word;
-  logic [31:0] victim_byte;
-  logic [22:0] victim_word;
-  logic [31:0] flush_byte_word;
-  logic [22:0] flush_word;
-  logic [1:0] cm_lane;
+  logic [MEM_WORD_BITS-1:0] victim_word;
+  logic [MEM_WORD_BITS-1:0] flush_word;
   logic [31:0] merged;
   logic bypass;
   integer i;
 
-  assign lu_word = lu_addr[24:2];
-  assign victim_byte = {tag_ram[miss_idx], miss_idx, {(OFF_BITS + 2) {1'b0}}};
-  assign victim_word = victim_byte[24:2];
-  assign flush_byte_word = {tag_ram[flush_idx], flush_idx, {(OFF_BITS + 2) {1'b0}}};
-  assign flush_word = flush_byte_word[24:2];
+  assign victim_word = {tag_ram[miss_idx], miss_idx, {(OFF_BITS) {1'b0}}};
+  assign flush_word = {tag_ram[flush_idx], flush_idx, {(OFF_BITS) {1'b0}}};
 
   assign lu_hit = valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
-                  (tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[31:IDX_HI+1]);
+                  (tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
   assign hit_pulse = lu_valid && (state == S_IDLE) && lu_hit;
   assign miss_pulse = lu_valid && (state == S_IDLE) && !lu_hit;
 
@@ -178,7 +177,7 @@ module dcache #(
     end
   end
 
-  assign bypass = lu_valid_q && prev_store_valid && (prev_store_addr[31:2] == lu_addr_q[31:2]);
+  assign bypass = lu_valid_q && prev_store_valid && (prev_store_addr == lu_addr_q);
   assign merged[7:0] = prev_store_be[0] ? prev_store_data[7:0] : ram_data[7:0];
   assign merged[15:8] = prev_store_be[1] ? prev_store_data[15:8] : ram_data[15:8];
   assign merged[23:16] = prev_store_be[2] ? prev_store_data[23:16] : ram_data[23:16];
@@ -241,8 +240,8 @@ module dcache #(
             state <= S_FLUSH;
           end else if (lu_valid && !lu_hit) begin
             miss_idx <= lu_addr[IDX_HI:IDX_LO];
-            miss_tag <= lu_addr[31:IDX_HI+1];
-            miss_line_word <= lu_word & LINE_MASK;
+            miss_tag <= lu_addr[24:IDX_HI+1];
+            miss_line_word <= lu_addr & LINE_MASK;
             state <= S_START;
           end
         end

@@ -314,7 +314,7 @@ module sdram_ctrl #(
                 wr_beat <= 4'd0;
               end else begin
                 state <= S_READ;
-                rd_t <= 5'd0;
+                rd_t <= 6'd0;
                 rd_issue <= 5'd0;
               end
             end else if (row_open) begin
@@ -359,7 +359,7 @@ module sdram_ctrl #(
               wr_beat <= 4'd0;
             end else begin
               state <= S_READ;
-              rd_t <= 5'd0;
+              rd_t <= 6'd0;
               rd_issue <= 5'd0;
             end
           end else begin
@@ -380,7 +380,7 @@ module sdram_ctrl #(
               rvalid <= 1'b1;
               rlast <= ((rd_t - 6'(CL) - 6'd1) >> 1) == {2'b0, cmd_len};
               if (((rd_t - 6'(CL) - 6'd1) >> 1) == {2'b0, cmd_len}) begin
-                rd_t <= 5'd0;
+                rd_t <= 6'd0;
                 rd_issue <= 5'd0;
                 state <= S_IDLE;
               end

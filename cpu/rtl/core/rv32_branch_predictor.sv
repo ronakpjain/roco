@@ -23,8 +23,8 @@ module rv32_branch_predictor #(
   input logic [31:0] if_pc,
   output logic if_pred_taken,
   output logic [31:0] if_pred_target,
-  /* Execute-side update. */
-  input logic [31:0] ex_pc,
+  /* Execute-side update. The byte offset inside a word is never used. */
+  input logic [31:2] ex_pc,
   input logic ex_update,
   input logic ex_is_branch,
   input logic ex_is_jal,

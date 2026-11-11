@@ -56,16 +56,16 @@ module tb_soc_boot;
   logic trace_on;
   initial trace_on = $test$plusargs("trace");
 
-  always_ff @(posedge clk) begin
-    if (trace_on && u_soc.u_cpu.trace_valid) begin
-      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.u_cpu.trace_pc,
-               u_soc.u_cpu.trace_instr, u_soc.u_cpu.trace_rd, u_soc.u_cpu.trace_wdata);
+  always @(posedge clk) begin
+    if (trace_on && u_soc.trace_valid) begin
+      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace_pc, u_soc.trace_instr,
+               u_soc.trace_rd, u_soc.trace_wdata);
     end
   end
 
   int unsigned dbg_cycles;
   initial dbg_cycles = 0;
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     dbg_cycles <= dbg_cycles + 1;
     if (trace_on && (dbg_cycles % 2000 == 0)) begin
       $display("  dbg rst=%b boot=%b rel=%b pc=%08x ireq=%b icst=%0d lock=%b own=%0d cst=%0d",
@@ -218,7 +218,7 @@ module tb_soc_boot;
     end
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (!rst && !halted) begin
       cycles <= cycles + 1;
       if (cycles > max_cycles) begin

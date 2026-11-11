@@ -59,13 +59,13 @@ usb_oe_n,K2,6,PL41A,-,output,TUSB1106 differential interface; OE high disables t
 usb_vp,H1,6,PL41C,-,input,
 usb_vm,J1,6,PL41B,-,input,
 usb_rcv,K1,6,PL41D,-,input,
-host_vbus_req,K4,6,PL44A,-,output,Selected full-source qualification gates this in hardware; external or accepted PD
+host_vbus_req,K4,6,PL44A,-,output,Validated selected 5V source gates this in hardware; laptop full-load qualification unresolved
 host_oc_n,L4,6,PL44C,-,input,
 uart_tx,L5,6,PL44D,-,output,FPGA to FT2232H channel B RX
 uart_rx,M5,6,PL53A,-,input,FT2232H channel B TX to FPGA
-exp_power_req,M4,6,PL59A,-,output,Selected full-source qualification gates this in hardware; external or accepted PD
+exp_power_req,M4,6,PL59A,-,output,Validated selected 5V source gates this in hardware; laptop full-load qualification unresolved
 exp_oc_n,N4,6,PL59C,-,input,
-full_power_valid,N5,6,PL59B,-,input,Selected external or accepted 9V 3A PD; through main-3.3V-powered Ioff buffer
+full_power_valid,N5,6,PL59B,-,input,Validated selected 5V source; through main-3.3V-powered Ioff buffer; laptop qualification unresolved
 pmod[0],U17,3,PR68B,-,inout,3.3 V only; high impedance until expansion is powered
 pmod[1],U18,3,PR68A,-,inout,3.3 V only; high impedance until expansion is powered
 pmod[2],T18,3,PR65D,-,inout,3.3 V only; high impedance until expansion is powered

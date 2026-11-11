@@ -234,14 +234,16 @@ module dcache #(
 
       case (state)
         S_IDLE: begin
+          // Only the state transition depends on the tag comparison.
+          // The captured address is used after entering S_START.
+          miss_idx <= lu_addr[IDX_HI:IDX_LO];
+          miss_tag <= lu_addr[24:IDX_HI+1];
+          miss_line_word <= lu_addr & LINE_MASK;
           if (flush && !flush_active) begin
             flush_active <= 1'b1;
             flush_idx <= '0;
             state <= S_FLUSH;
           end else if (lu_valid && !lu_hit) begin
-            miss_idx <= lu_addr[IDX_HI:IDX_LO];
-            miss_tag <= lu_addr[24:IDX_HI+1];
-            miss_line_word <= lu_addr & LINE_MASK;
             state <= S_START;
           end
         end

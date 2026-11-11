@@ -33,6 +33,12 @@ module roco_top (
   logic clk_48;
   logic clk_fb;
   logic pll_locked;
+  logic unused_clk_os;
+  logic unused_clk_os2;
+  logic unused_clk_os3;
+  logic unused_pll_intlock;
+  logic unused_pll_refclk;
+  logic unused_pll_clkintfb;
 
   EHXPLLL #(
       .CLKI_DIV(1),
@@ -70,13 +76,13 @@ module roco_top (
       .ENCLKOS2(1'b0),
       .ENCLKOS3(1'b0),
       .CLKOP(clk_48),
-      .CLKOS(),
-      .CLKOS2(),
-      .CLKOS3(),
+      .CLKOS(unused_clk_os),
+      .CLKOS2(unused_clk_os2),
+      .CLKOS3(unused_clk_os3),
       .LOCK(pll_locked),
-      .INTLOCK(),
-      .REFCLK(),
-      .CLKINTFB()
+      .INTLOCK(unused_pll_intlock),
+      .REFCLK(unused_pll_refclk),
+      .CLKINTFB(unused_pll_clkintfb)
   );
 
   assign clk_fb = clk_48;
@@ -96,7 +102,13 @@ module roco_top (
 
   logic [3:0] soc_leds;
   logic soc_halted;
-  logic [31:0] soc_exit_code;
+  logic [2:0] soc_exit_code;
+  logic [31:3] unused_exit_code;
+  logic unused_trace_valid;
+  logic [31:0] unused_trace_pc;
+  logic [31:0] unused_trace_instr;
+  logic [4:0] unused_trace_rd;
+  logic [31:0] unused_trace_wdata;
   logic [15:0] sdram_dq_out;
   logic sdram_dq_oe;
   logic [15:0] sdram_dq_in;
@@ -127,7 +139,12 @@ module roco_top (
       .sdram_dq_oe(sdram_dq_oe),
       .sdram_dq_in(sdram_dq_in),
       .halted(soc_halted),
-      .exit_code(soc_exit_code)
+      .exit_code({unused_exit_code, soc_exit_code}),
+      .trace_valid(unused_trace_valid),
+      .trace_pc(unused_trace_pc),
+      .trace_instr(unused_trace_instr),
+      .trace_rd(unused_trace_rd),
+      .trace_wdata(unused_trace_wdata)
   );
 
   assign sdram_dq = sdram_dq_oe ? sdram_dq_out : 16'hzzzz;
@@ -135,6 +152,6 @@ module roco_top (
 
   // A halted program shows 1xxx on the LEDs: the high bit marks halt and
   // the low three bits are the exit code (001 for the usual PASS value).
-  assign user_led = soc_halted ? {1'b1, soc_exit_code[2:0]} : soc_leds;
+  assign user_led = soc_halted ? {1'b1, soc_exit_code} : soc_leds;
 
 endmodule

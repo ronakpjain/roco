@@ -72,7 +72,7 @@ module tb_soc;
       dbg_cnt2 <= dbg_cnt2 + 1;
       $display("  st ex rs1=%0d rs1v=%h fwd=%h wb=%h wbv=%b wbrd=%0d exm=%b exmrd=%0d exmw=%h",
                u_soc.u_cpu.u_ex.idex_rs1, u_soc.u_cpu.u_ex.idex_rs1_val, u_soc.u_cpu.u_ex.rs1_fwd,
-               u_soc.u_cpu.u_ex.wb_data, u_soc.u_cpu.u_ex.wb_we, u_soc.u_cpu.u_ex.wb_rd,
+               u_soc.u_cpu.wb_data, u_soc.u_cpu.wb_we, u_soc.u_cpu.wb_rd,
                u_soc.u_cpu.u_ex.exmem_valid, u_soc.u_cpu.u_ex.exmem_rd,
                u_soc.u_cpu.u_ex.exmem_wbval);
     end

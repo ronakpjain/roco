@@ -80,9 +80,14 @@ module rv32_core (
   logic [31:0] idex_instr;
   logic [31:0] idex_rs1_val;
   logic [31:0] idex_rs2_val;
+  logic idex_rs1_from_mem;
+  logic idex_rs2_from_mem;
+  logic idex_rs1_from_wb;
+  logic idex_rs2_from_wb;
+  logic idex_rs1_from_rf;
+  logic idex_rs2_from_rf;
   logic [31:0] idex_imm;
   logic [4:0] idex_rs1;
-  logic [4:0] idex_rs2;
   logic [4:0] idex_rd;
   logic [2:0] idex_funct3;
   logic [3:0] idex_alu_op;
@@ -122,11 +127,9 @@ module rv32_core (
   logic exmem_is_fence_i;
 
   logic memwb_valid;
-  logic [31:0] memwb_wbval;
-  logic [31:0] memwb_load_data;
+  logic [31:0] memwb_data;
   logic [4:0] memwb_rd;
   logic memwb_regwrite;
-  logic memwb_is_load;
 
   logic wb_we;
   logic [4:0] wb_rd;
@@ -201,6 +204,9 @@ module rv32_core (
       .hold(stall),
       .bubble(load_use),
       .flush(ex_redirect_en || mem_redirect),
+      .exmem_valid(exmem_valid),
+      .exmem_regwrite(exmem_regwrite),
+      .exmem_rd(exmem_rd),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
@@ -215,9 +221,14 @@ module rv32_core (
       .idex_pred_target(idex_pred_target),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
+      .idex_rs1_from_mem(idex_rs1_from_mem),
+      .idex_rs2_from_mem(idex_rs2_from_mem),
+      .idex_rs1_from_wb(idex_rs1_from_wb),
+      .idex_rs2_from_wb(idex_rs2_from_wb),
+      .idex_rs1_from_rf(idex_rs1_from_rf),
+      .idex_rs2_from_rf(idex_rs2_from_rf),
       .idex_imm(idex_imm),
       .idex_rs1(idex_rs1),
-      .idex_rs2(idex_rs2),
       .idex_rd(idex_rd),
       .idex_funct3(idex_funct3),
       .idex_alu_op(idex_alu_op),
@@ -253,9 +264,14 @@ module rv32_core (
       .idex_pred_target(idex_pred_target),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
+      .idex_rs1_from_mem(idex_rs1_from_mem),
+      .idex_rs2_from_mem(idex_rs2_from_mem),
+      .idex_rs1_from_wb(idex_rs1_from_wb),
+      .idex_rs2_from_wb(idex_rs2_from_wb),
+      .idex_rs1_from_rf(idex_rs1_from_rf),
+      .idex_rs2_from_rf(idex_rs2_from_rf),
       .idex_imm(idex_imm),
       .idex_rs1(idex_rs1),
-      .idex_rs2(idex_rs2),
       .idex_rd(idex_rd),
       .idex_funct3(idex_funct3),
       .idex_alu_op(idex_alu_op),
@@ -277,8 +293,6 @@ module rv32_core (
       .idex_mret(idex_mret),
       .idex_is_fence_i(idex_is_fence_i),
       .fence_hold(fence_req),
-      .wb_we(wb_we),
-      .wb_rd(wb_rd),
       .wb_data(wb_data),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
@@ -353,21 +367,17 @@ module rv32_core (
       .commit_rd(commit_rd),
       .commit_wdata(commit_wdata),
       .memwb_valid(memwb_valid),
-      .memwb_wbval(memwb_wbval),
-      .memwb_load_data(memwb_load_data),
+      .memwb_data(memwb_data),
       .memwb_rd(memwb_rd),
-      .memwb_regwrite(memwb_regwrite),
-      .memwb_is_load(memwb_is_load)
+      .memwb_regwrite(memwb_regwrite)
   );
 
   rv32_wb_stage u_wb (
       .halt(halt),
       .memwb_valid(memwb_valid),
       .memwb_regwrite(memwb_regwrite),
-      .memwb_is_load(memwb_is_load),
       .memwb_rd(memwb_rd),
-      .memwb_wbval(memwb_wbval),
-      .memwb_load_data(memwb_load_data),
+      .memwb_data(memwb_data),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data)

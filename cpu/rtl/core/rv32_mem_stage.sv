@@ -43,11 +43,9 @@ module rv32_mem_stage (
   output logic [31:0] commit_wdata,
   /* MEM/WB pipeline register. */
   output logic memwb_valid,
-  output logic [31:0] memwb_wbval,
-  output logic [31:0] memwb_load_data,
+  output logic [31:0] memwb_data,
   output logic [4:0] memwb_rd,
-  output logic memwb_regwrite,
-  output logic memwb_is_load
+  output logic memwb_regwrite
 );
 
   logic [7:0] load_byte;
@@ -98,20 +96,17 @@ module rv32_mem_stage (
   always_ff @(posedge clk) begin
     if (rst) begin
       memwb_valid <= 1'b0;
-      memwb_wbval <= '0;
-      memwb_load_data <= '0;
+      memwb_data <= '0;
       memwb_rd <= '0;
       memwb_regwrite <= 1'b0;
-      memwb_is_load <= 1'b0;
     end else if (halt || fence_req) begin
       // Hold for the FENCE.I cache flush.
     end else begin
       memwb_valid <= exmem_valid;
-      memwb_wbval <= exmem_wbval;
-      memwb_load_data <= load_data;
+      // Register the selected result so WB forwarding starts at a flop.
+      memwb_data <= commit_wdata;
       memwb_rd <= exmem_rd;
       memwb_regwrite <= exmem_regwrite;
-      memwb_is_load <= exmem_is_load;
     end
   end
 

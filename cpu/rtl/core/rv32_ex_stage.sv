@@ -21,9 +21,14 @@ module rv32_ex_stage (
   input logic [31:0] idex_instr,
   input logic [31:0] idex_rs1_val,
   input logic [31:0] idex_rs2_val,
+  input logic idex_rs1_from_mem,
+  input logic idex_rs2_from_mem,
+  input logic idex_rs1_from_wb,
+  input logic idex_rs2_from_wb,
+  input logic idex_rs1_from_rf,
+  input logic idex_rs2_from_rf,
   input logic [31:0] idex_imm,
   input logic [4:0] idex_rs1,
-  input logic [4:0] idex_rs2,
   input logic [4:0] idex_rd,
   input logic [2:0] idex_funct3,
   input logic [3:0] idex_alu_op,
@@ -47,9 +52,7 @@ module rv32_ex_stage (
   input logic fence_hold,
   input logic idex_pred_taken,
   input logic [31:0] idex_pred_target,
-  /* Writeback forwarding and CSR write port. */
-  input logic wb_we,
-  input logic [4:0] wb_rd,
+  /* Writeback forwarding. */
   input logic [31:0] wb_data,
   /* Redirect to fetch. */
   output logic ex_redirect_en,
@@ -81,10 +84,6 @@ module rv32_ex_stage (
 
   logic [31:0] rs1_fwd;
   logic [31:0] rs2_fwd;
-  logic fwd_exmem_a;
-  logic fwd_wb_a;
-  logic fwd_exmem_b;
-  logic fwd_wb_b;
   logic [31:0] ex_alu_a;
   logic [31:0] ex_alu_b;
   logic [31:0] ex_alu_result;
@@ -122,16 +121,12 @@ module rv32_ex_stage (
   logic [31:0] mepc;
 
   // ------------------------------------------------------------- Forwarding
-  always_comb begin
-    fwd_exmem_a = exmem_valid && exmem_regwrite && !exmem_is_load &&
-                  (exmem_rd != 5'd0) && (exmem_rd == idex_rs1);
-    fwd_wb_a = wb_we && (wb_rd != 5'd0) && (wb_rd == idex_rs1);
-    fwd_exmem_b = exmem_valid && exmem_regwrite && !exmem_is_load &&
-                  (exmem_rd != 5'd0) && (exmem_rd == idex_rs2);
-    fwd_wb_b = wb_we && (wb_rd != 5'd0) && (wb_rd == idex_rs2);
-    rs1_fwd = fwd_exmem_a ? exmem_wbval : fwd_wb_a ? wb_data : idex_rs1_val;
-    rs2_fwd = fwd_exmem_b ? exmem_wbval : fwd_wb_b ? wb_data : idex_rs2_val;
-  end
+  assign rs1_fwd = ({32{idex_rs1_from_mem}} & exmem_wbval) |
+                   ({32{idex_rs1_from_wb}} & wb_data) |
+                   ({32{idex_rs1_from_rf}} & idex_rs1_val);
+  assign rs2_fwd = ({32{idex_rs2_from_mem}} & exmem_wbval) |
+                   ({32{idex_rs2_from_wb}} & wb_data) |
+                   ({32{idex_rs2_from_rf}} & idex_rs2_val);
 
   // ------------------------------------------------------------------- ALU
   assign ex_alu_a = idex_alu_a_pc ? idex_pc : rs1_fwd;
@@ -163,11 +158,11 @@ module rv32_ex_stage (
   end
 
   // Loads and stores always add rs1 and the immediate. Keep their address
-  // path independent of the general ALU opcode and result mux.
+  // path independent of the ALU and compare forwarding registers in ID.
   assign memory_addr =
-      ({32{fwd_exmem_a}} & (exmem_wbval + idex_imm)) |
-      ({32{!fwd_exmem_a && fwd_wb_a}} & (wb_data + idex_imm)) |
-      ({32{!fwd_exmem_a && !fwd_wb_a}} & (idex_rs1_val + idex_imm));
+      ({32{idex_rs1_from_mem}} & (exmem_wbval + idex_imm)) |
+      ({32{idex_rs1_from_wb}} & (wb_data + idex_imm)) |
+      ({32{idex_rs1_from_rf}} & (idex_rs1_val + idex_imm));
   assign memory_addr_held = stall_active ? stall_alu : memory_addr;
   assign ex_addr = (idex_is_load || idex_is_store) ? memory_addr_held : ex_alu_result;
   assign ex_st = stall_active ? stall_store_data : ex_store_data;
@@ -348,13 +343,15 @@ module rv32_ex_stage (
       stall_alu <= '0;
       stall_store_data <= '0;
       stall_be <= '0;
-    end else if (lu_stall && !stall_active) begin
-      stall_active <= 1'b1;
-      stall_alu <= memory_addr;
-      stall_store_data <= ex_store_data;
-      stall_be <= ex_store_be;
-    end else if (!lu_stall) begin
-      stall_active <= 1'b0;
+    end else begin
+      stall_active <= lu_stall;
+      // Capture the first lookup's operands before a miss can remove a
+      // forwarding source. Only the valid bit depends on the cache hit.
+      if (!stall_active) begin
+        stall_alu <= memory_addr;
+        stall_store_data <= ex_store_data;
+        stall_be <= ex_store_be;
+      end
     end
   end
 

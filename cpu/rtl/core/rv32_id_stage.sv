@@ -20,6 +20,9 @@ module rv32_id_stage (
   input logic hold,
   input logic flush,
   input logic bubble,
+  input logic exmem_valid,
+  input logic exmem_regwrite,
+  input logic [4:0] exmem_rd,
   /* Writeback port into the register file. */
   input logic wb_we,
   input logic [4:0] wb_rd,
@@ -37,9 +40,14 @@ module rv32_id_stage (
   output logic [31:0] idex_pred_target,
   output logic [31:0] idex_rs1_val,
   output logic [31:0] idex_rs2_val,
+  output logic idex_rs1_from_mem,
+  output logic idex_rs2_from_mem,
+  output logic idex_rs1_from_wb,
+  output logic idex_rs2_from_wb,
+  output logic idex_rs1_from_rf,
+  output logic idex_rs2_from_rf,
   output logic [31:0] idex_imm,
   output logic [4:0] idex_rs1,
-  output logic [4:0] idex_rs2,
   output logic [4:0] idex_rd,
   output logic [2:0] idex_funct3,
   output logic [3:0] idex_alu_op,
@@ -85,6 +93,22 @@ module rv32_id_stage (
   logic [4:0] dec_rd;
   logic [31:0] rf_rdata1;
   logic [31:0] rf_rdata2;
+  logic ex_can_forward;
+  logic mem_can_forward;
+  logic rs1_from_mem;
+  logic rs2_from_mem;
+  logic rs1_matches_wb;
+  logic rs2_matches_wb;
+
+  // Compare register numbers one stage early. The instructions now in EX
+  // and MEM will be in MEM and WB when the decoded instruction executes.
+  // A trap in EX flushes that instruction.
+  assign ex_can_forward = idex_valid && idex_regwrite && !idex_is_load && (idex_rd != 5'd0);
+  assign mem_can_forward = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0);
+  assign rs1_from_mem = ex_can_forward && (dec_rs1 == idex_rd);
+  assign rs2_from_mem = ex_can_forward && (dec_rs2 == idex_rd);
+  assign rs1_matches_wb = mem_can_forward && (dec_rs1 == exmem_rd);
+  assign rs2_matches_wb = mem_can_forward && (dec_rs2 == exmem_rd);
 
   rv32_decoder u_decoder (
       .instr(if_instr),
@@ -136,9 +160,14 @@ module rv32_id_stage (
       idex_pred_target <= '0;
       idex_rs1_val <= '0;
       idex_rs2_val <= '0;
+      idex_rs1_from_mem <= 1'b0;
+      idex_rs2_from_mem <= 1'b0;
+      idex_rs1_from_wb <= 1'b0;
+      idex_rs2_from_wb <= 1'b0;
+      idex_rs1_from_rf <= 1'b1;
+      idex_rs2_from_rf <= 1'b1;
       idex_imm <= '0;
       idex_rs1 <= '0;
-      idex_rs2 <= '0;
       idex_rd <= '0;
       idex_funct3 <= '0;
       idex_alu_op <= `RV32_ALU_ADD;
@@ -161,19 +190,24 @@ module rv32_id_stage (
       idex_is_fence_i <= 1'b0;
     end else if (halt || hold) begin
       // Frozen while MEM owns the bus.
-    end else if (flush || bubble) begin
-      idex_valid <= 1'b0;
     end else begin
-      idex_valid <= if_valid;
+      // Only the valid bit needs the flush and bubble controls. Updating
+      // the invalid payload keeps those controls off the register enables.
+      idex_valid <= if_valid && !flush && !bubble;
       idex_pc <= if_pc;
       idex_instr <= if_instr;
       idex_pred_taken <= if_pred_taken;
       idex_pred_target <= if_pred_target;
       idex_rs1_val <= rf_rdata1;
       idex_rs2_val <= rf_rdata2;
+      idex_rs1_from_mem <= rs1_from_mem;
+      idex_rs2_from_mem <= rs2_from_mem;
+      idex_rs1_from_wb <= !rs1_from_mem && rs1_matches_wb;
+      idex_rs2_from_wb <= !rs2_from_mem && rs2_matches_wb;
+      idex_rs1_from_rf <= !rs1_from_mem && !rs1_matches_wb;
+      idex_rs2_from_rf <= !rs2_from_mem && !rs2_matches_wb;
       idex_imm <= dec_imm;
       idex_rs1 <= dec_rs1;
-      idex_rs2 <= dec_rs2;
       idex_rd <= dec_rd;
       idex_funct3 <= dec_funct3;
       idex_alu_op <= dec_alu_op;

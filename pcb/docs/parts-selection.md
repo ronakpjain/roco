@@ -27,6 +27,7 @@ Use **two USB-C connectors**: a power-only input and a self-powered USB 2.0 debu
 | External power header | JST B2P-VH(LF)(SN) / 1 | Keyed 3.96 mm, pin 1 +5 V, pin 2 GND | [JST drawing, linked only](https://www.jst-mfg.com/product/pdf/eng/eVH.pdf) |
 | External power harness | VHR-2N housing + two SVH-21T-P1.1 contacts, 18 AWG | Use correctly crimped contacts and a short cable; never connect AC mains to the board | Same JST reference |
 | External adapter | Mean Well GST25A05-P1J | 5 V / 4 A, 20 W; center-positive 5.5/2.1 mm output, needs a correctly rated barrel-to-VH harness | [Datasheet](datasheets/MeanWell-GST25A.pdf) |
+| USB raw-input TVS, selected / DNP pending qualification | Vishay SMBJ12A-E3/52 / 1 | Unidirectional, 12 V stand-off, SMB; before USB eFuse, cathode to raw VBUS. 19.9 V max clamp at specified 30.2 A pulse is **not** safe directly for the 16 V converter bus. See coordination and sustained-fault limits in [PD implementation](usb-c-pd.md) | [Manufacturer datasheet](datasheets/Vishay-SMBJ.pdf) |
 | Transient clamp footprints | Littelfuse SMF5.0CA / external branch only | After external 5 V eFuse. **Never populate on the 9 V USB branch**; USB clamp footprint stays unpopulated until coordinated with eFuse/converter limits | [Manufacturer family, linked only](https://www.littelfuse.com/products/overvoltage-protection/tvs-diodes/surface-mount/smf.aspx) |
 
 ## FPGA, configuration and memory

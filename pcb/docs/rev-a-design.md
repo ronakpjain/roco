@@ -36,7 +36,7 @@ For TPS2121 priority, CP2 gets about 1.49 V from an equal AON divider; PR1 is ab
 
 Programming baseline is consolidated in [usb-c-pd.md](usb-c-pd.md). External eFuse RILM remains 806 Ohm; USB becomes **1.27 kOhm**. USB OVLO and mux OV2 must be raised for 9 V while the external branch keeps its 5 V thresholds. Keep ITIMER open for fastest response, eFuse dVdt=10 nF and mux CSS=100 nF. DC limits are not instantaneous current ceilings.
 
-Replace the old 10 V bus bulk with **two 35 V / 150 uF Rubycon capacitors**. Never populate the former 5 V TVS on the negotiated USB branch. USB TVS/clamp coordination remains an explicit release check; the PD document describes the required ratings and unpopulated footprint policy.
+Replace the old 10 V bus bulk with **two 35 V / 150 uF Rubycon capacitors**. Never populate the former 5 V TVS on the negotiated USB branch. Vishay SMBJ12A-E3/52 is selected for raw USB VBUS before the eFuse, with a 12 V stand-off and specified 19.9 V surge clamp. It is not a clamp for the 16 V converter bus. USB TVS/eFuse coordination and sustained-overvoltage behavior remain explicit release checks; the PD document describes the limits and DNP-until-qualified policy.
 
 ## 3. Regulator targets and sequence
 

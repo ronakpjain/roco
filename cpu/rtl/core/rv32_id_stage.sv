@@ -67,6 +67,8 @@ module rv32_id_stage (
   output logic idex_ecall,
   output logic idex_ebreak,
   output logic idex_mret,
+  output logic idex_sret,
+  output logic idex_is_sfence,
   output logic idex_is_fence_i
 );
 
@@ -89,6 +91,8 @@ module rv32_id_stage (
   logic dec_ecall;
   logic dec_ebreak;
   logic dec_mret;
+  logic dec_sret;
+  logic dec_is_sfence;
   logic dec_is_fence_i;
   logic [4:0] dec_rd;
   logic [31:0] rf_rdata1;
@@ -136,6 +140,8 @@ module rv32_id_stage (
       .ecall(dec_ecall),
       .ebreak(dec_ebreak),
       .mret(dec_mret),
+      .sret(dec_sret),
+      .is_sfence(dec_is_sfence),
       .is_fence_i(dec_is_fence_i)
   );
 
@@ -187,6 +193,8 @@ module rv32_id_stage (
       idex_ecall <= 1'b0;
       idex_ebreak <= 1'b0;
       idex_mret <= 1'b0;
+      idex_sret <= 1'b0;
+      idex_is_sfence <= 1'b0;
       idex_is_fence_i <= 1'b0;
     end else if (halt || hold) begin
       // Frozen while MEM owns the bus.
@@ -227,6 +235,8 @@ module rv32_id_stage (
       idex_ecall <= dec_ecall;
       idex_ebreak <= dec_ebreak;
       idex_mret <= dec_mret;
+      idex_sret <= dec_sret;
+      idex_is_sfence <= dec_is_sfence;
       idex_is_fence_i <= dec_is_fence_i;
     end
   end

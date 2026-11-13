@@ -160,7 +160,7 @@ jalr_target:
   csrr t2, mhartid
   bne t2, zero, fail_17
   csrr t3, misa
-  li t4, 0x40000100
+  li t4, 0x40140100
   bne t3, t4, fail_17
 
   # 18: ECALL trap and MRET

@@ -48,6 +48,8 @@ module rv32_ex_stage (
   input logic idex_ecall,
   input logic idex_ebreak,
   input logic idex_mret,
+  input logic idex_sret,
+  input logic idex_is_sfence,
   input logic idex_is_fence_i,
   input logic fence_hold,
   input logic idex_pred_taken,
@@ -66,6 +68,16 @@ module rv32_ex_stage (
   output logic ex_lu_valid,
   // Word address of the lookup: the byte offset never matters to a cache.
   output logic [31:2] ex_lu_addr,
+  /* Privilege and translation state. */
+  output logic [1:0] priv,
+  output logic [31:0] satp,
+  output logic mstatus_mprv,
+  output logic mstatus_sum,
+  output logic mstatus_mxr,
+  output logic mstatus_tvm,
+  output logic mstatus_tsr,
+  output logic [1:0] mstatus_mpp,
+  output logic sfence,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -112,13 +124,28 @@ module rv32_ex_stage (
   logic [31:0] ex_wbval;
   logic [31:0] csr_rdata;
   logic csr_exists;
-  logic csr_writable;
+  logic csr_read_ok;
+  logic csr_write_ok;
   logic [31:0] csr_src;
   logic csr_write_intent;
   logic [31:0] csr_wdata;
   logic csr_wr_en;
-  logic [31:0] mtvec;
-  logic [31:0] mepc;
+  logic [31:0] csr_trap_vector;
+  logic [31:0] csr_mtvec;
+  logic [31:0] csr_stvec;
+  logic [31:0] csr_mepc;
+  logic [31:0] csr_sepc;
+  logic [1:0] csr_priv;
+  logic csr_mprv;
+  logic csr_sum;
+  logic csr_mxr;
+  logic csr_tvm;
+  logic csr_tsr;
+  logic [1:0] csr_mpp;
+  logic ex_priv_illegal;
+  logic [31:0] ex_ecall_cause;
+  logic csr_mret_en;
+  logic csr_sret_en;
 
   // ------------------------------------------------------------- Forwarding
   assign rs1_fwd = ({32{idex_rs1_from_mem}} & exmem_wbval) |
@@ -177,7 +204,8 @@ module rv32_ex_stage (
       .raddr(idex_csr_addr),
       .rdata(csr_rdata),
       .exists(csr_exists),
-      .writable(csr_writable),
+      .read_ok(csr_read_ok),
+      .write_ok(csr_write_ok),
       .wr_en(csr_wr_en),
       .wr_addr(idex_csr_addr),
       .wr_data(csr_wdata),
@@ -185,17 +213,42 @@ module rv32_ex_stage (
       .trap_pc(idex_pc),
       .trap_cause(ex_trap_cause),
       .trap_tval(ex_trap_tval),
-      .mret_en(ex_redirect_en && idex_mret),
+      .mret_en(csr_mret_en),
+      .sret_en(csr_sret_en),
       .retire(retire),
-      .mtvec(mtvec),
-      .mepc(mepc)
+      .priv(csr_priv),
+      .mtvec(csr_mtvec),
+      .stvec(csr_stvec),
+      .trap_vector(csr_trap_vector),
+      .mepc(csr_mepc),
+      .sepc(csr_sepc),
+      .satp(satp),
+      .mstatus_mprv(csr_mprv),
+      .mstatus_sum(csr_sum),
+      .mstatus_mxr(csr_mxr),
+      .mstatus_tvm(csr_tvm),
+      .mstatus_tsr(csr_tsr),
+      .mstatus_mpp(csr_mpp)
   );
+
+  assign priv = csr_priv;
+  assign mstatus_mprv = csr_mprv;
+  assign mstatus_sum = csr_sum;
+  assign mstatus_mxr = csr_mxr;
+  assign mstatus_tvm = csr_tvm;
+  assign mstatus_tsr = csr_tsr;
+  assign mstatus_mpp = csr_mpp;
+  assign csr_mret_en = ex_redirect_en && idex_mret && !ex_trap;
+  assign csr_sret_en = ex_redirect_en && idex_sret && !ex_trap;
+  assign sfence = idex_valid && idex_is_sfence && !ex_trap && !fence_hold && !halt && !rst;
 
   assign csr_src = idex_csr_uimm ? {27'd0, idex_rs1} : rs1_fwd;
   assign csr_write_intent = idex_is_csr && ((idex_csr_op == `RV32_CSR_RW) || (csr_src != 32'd0));
-  assign ex_csr_illegal = idex_is_csr && (!csr_exists || (csr_write_intent && !csr_writable));
+  assign ex_csr_illegal = idex_is_csr &&
+                          (!csr_exists || !csr_read_ok ||
+                           (csr_write_intent && !csr_write_ok));
   assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
-                     csr_writable && !ex_trap && !fence_hold && !halt && !rst;
+                     csr_write_ok && !ex_trap && !fence_hold && !halt && !rst;
 
   always_comb begin
     case (idex_csr_op)
@@ -209,6 +262,36 @@ module rv32_ex_stage (
         csr_wdata = csr_rdata & ~csr_src;
       end
     endcase
+  end
+
+  // ------------------------------------ Privilege and exception selection
+  always_comb begin
+    ex_priv_illegal = 1'b0;
+    ex_ecall_cause = `RV32_CAUSE_ECALL_M;
+    if (idex_valid) begin
+      if (idex_mret && (csr_priv != `RV32_PRIV_M)) begin
+        ex_priv_illegal = 1'b1;
+      end
+      if (idex_sret &&
+          ((csr_priv == `RV32_PRIV_U) || ((csr_priv == `RV32_PRIV_S) && csr_tsr))) begin
+        ex_priv_illegal = 1'b1;
+      end
+      if (idex_is_sfence &&
+          ((csr_priv == `RV32_PRIV_U) || ((csr_priv == `RV32_PRIV_S) && csr_tvm))) begin
+        ex_priv_illegal = 1'b1;
+      end
+      case (csr_priv)
+        `RV32_PRIV_U: begin
+          ex_ecall_cause = `RV32_CAUSE_ECALL_U;
+        end
+        `RV32_PRIV_S: begin
+          ex_ecall_cause = `RV32_CAUSE_ECALL_S;
+        end
+        default: begin
+          ex_ecall_cause = `RV32_CAUSE_ECALL_M;
+        end
+      endcase
+    end
   end
 
   // ---------------------------------------- Branch, trap, redirect, MRET
@@ -271,7 +354,7 @@ module rv32_ex_stage (
         ex_target_misaligned = ex_jump_target[1];
       end
 
-      if (idex_illegal || ex_csr_illegal) begin
+      if (idex_illegal || ex_csr_illegal || ex_priv_illegal) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_ILLEGAL;
         ex_trap_tval = idex_instr;
@@ -280,7 +363,7 @@ module rv32_ex_stage (
         ex_trap_cause = `RV32_CAUSE_BREAKPOINT;
       end else if (idex_ecall) begin
         ex_trap = 1'b1;
-        ex_trap_cause = `RV32_CAUSE_ECALL_M;
+        ex_trap_cause = ex_ecall_cause;
       end else if (ex_target_misaligned) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_INSTR_MISALIGNED;
@@ -302,10 +385,16 @@ module rv32_ex_stage (
 
       if (ex_trap) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc = mtvec;
+        ex_redirect_pc = csr_trap_vector;
       end else if (idex_mret) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc = mepc;
+        ex_redirect_pc = csr_mepc;
+      end else if (idex_sret) begin
+        ex_redirect = 1'b1;
+        ex_redirect_pc = csr_sepc;
+      end else if (idex_is_sfence) begin
+        ex_redirect = 1'b1;
+        ex_redirect_pc = idex_pc + 32'd4;
       end else if (branch_mispredict) begin
         ex_redirect = 1'b1;
         if (idex_is_branch) begin

@@ -31,6 +31,16 @@
 `define RV32_CAUSE_BREAKPOINT 32'd3
 `define RV32_CAUSE_LOAD_MISALIGNED 32'd4
 `define RV32_CAUSE_STORE_MISALIGNED 32'd6
+`define RV32_CAUSE_ECALL_U 32'd8
+`define RV32_CAUSE_ECALL_S 32'd9
 `define RV32_CAUSE_ECALL_M 32'd11
+`define RV32_CAUSE_INSTR_PAGE_FAULT 32'd12
+`define RV32_CAUSE_LOAD_PAGE_FAULT 32'd13
+`define RV32_CAUSE_STORE_PAGE_FAULT 32'd15
+
+// Privilege mode encoding (RISC-V two-bit values).
+`define RV32_PRIV_U 2'b00
+`define RV32_PRIV_S 2'b01
+`define RV32_PRIV_M 2'b11
 
 `endif

@@ -107,7 +107,18 @@ module rv32_core (
   logic idex_ecall;
   logic idex_ebreak;
   logic idex_mret;
+  logic idex_sret;
+  logic idex_is_sfence;
   logic idex_is_fence_i;
+  logic [1:0] priv;
+  logic [31:0] satp;
+  logic mstatus_mprv;
+  logic mstatus_sum;
+  logic mstatus_mxr;
+  logic mstatus_tvm;
+  logic mstatus_tsr;
+  logic [1:0] mstatus_mpp;
+  logic core_sfence;
 
   logic ex_redirect_en;
   logic [31:0] ex_redirect_pc;
@@ -248,6 +259,8 @@ module rv32_core (
       .idex_ecall(idex_ecall),
       .idex_ebreak(idex_ebreak),
       .idex_mret(idex_mret),
+      .idex_sret(idex_sret),
+      .idex_is_sfence(idex_is_sfence),
       .idex_is_fence_i(idex_is_fence_i)
   );
 
@@ -291,6 +304,8 @@ module rv32_core (
       .idex_ecall(idex_ecall),
       .idex_ebreak(idex_ebreak),
       .idex_mret(idex_mret),
+      .idex_sret(idex_sret),
+      .idex_is_sfence(idex_is_sfence),
       .idex_is_fence_i(idex_is_fence_i),
       .fence_hold(fence_req),
       .wb_data(wb_data),
@@ -304,6 +319,15 @@ module rv32_core (
       .btb_target(btb_target),
       .ex_lu_valid(ex_lu_valid),
       .ex_lu_addr(ex_lu_addr),
+      .priv(priv),
+      .satp(satp),
+      .mstatus_mprv(mstatus_mprv),
+      .mstatus_sum(mstatus_sum),
+      .mstatus_mxr(mstatus_mxr),
+      .mstatus_tvm(mstatus_tvm),
+      .mstatus_tsr(mstatus_tsr),
+      .mstatus_mpp(mstatus_mpp),
+      .sfence(core_sfence),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),

@@ -33,6 +33,8 @@ module rv32_decoder (
   output logic ecall,
   output logic ebreak,
   output logic mret,
+  output logic sret,
+  output logic is_sfence,
   output logic is_fence_i
 );
 
@@ -61,6 +63,8 @@ module rv32_decoder (
     ecall = 1'b0;
     ebreak = 1'b0;
     mret = 1'b0;
+    sret = 1'b0;
+    is_sfence = 1'b0;
     is_fence_i = 1'b0;
 
     case (instr[6:0])
@@ -242,11 +246,18 @@ module rv32_decoder (
             12'h001: begin
               ebreak = 1'b1;
             end
+            12'h102: begin
+              sret = 1'b1;
+            end
             12'h302: begin
               mret = 1'b1;
             end
             default: begin
-              illegal = 1'b1;
+              if (instr[31:25] == 7'b0001001) begin
+                is_sfence = 1'b1;
+              end else begin
+                illegal = 1'b1;
+              end
             end
           endcase
         end else if (instr[14:12] == 3'b100) begin

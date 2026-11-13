@@ -43,6 +43,7 @@ module rv32_csr (
   output logic [31:0] mepc,
   output logic [31:0] sepc,
   output logic [31:0] satp,
+  output logic satp_write,
   output logic mstatus_mprv,
   output logic mstatus_sum,
   output logic mstatus_mxr,
@@ -103,6 +104,9 @@ module rv32_csr (
   assign mepc = mepc_q;
   assign sepc = sepc_q;
   assign satp = satp_q;
+  // A satp write starts a new address space; flush the TLB rather than
+  // tagging entries with the ASID.
+  assign satp_write = wr_en && (wr_addr == 12'h180);
   assign mstatus_mprv = mstatus_mprv_q;
   assign mstatus_sum = mstatus_sum_q;
   assign mstatus_mxr = mstatus_mxr_q;

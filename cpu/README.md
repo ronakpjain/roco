@@ -1,8 +1,8 @@
 # roco CPU
 
 A five-stage pipelined RV32I processor with instruction and data caches,
-an SDRAM controller, a UART bootloader and a small memory-mapped
-peripheral set, targeting the roco Rev A board (Lattice LFE5U-45F-6BG381C,
+an Sv32 memory-management unit, an SDRAM controller, a UART bootloader
+and a small memory-mapped peripheral set, targeting the roco Rev A board (Lattice LFE5U-45F-6BG381C,
 16-bit SDR SDRAM, FT2232H UART).
 
 The design is plain SystemVerilog with no vendor primitives below the
@@ -20,17 +20,20 @@ Editable source: [docs/roco-cpu.drawio](docs/roco-cpu.drawio).
 instantiates `roco_soc`. Inside the SoC:
 
 - `rv32_core` is the five-stage pipeline (IF, ID, EX, MEM, WB), built
-  from the stage modules listed below.
-- `icache` and `dcache` connect to `mem_arbiter`, which shares
-  `sdram_ctrl` with the UART image loader.
+  from the stage modules listed below. It contains the Sv32 MMU.
+- `icache` and `dcache` are physically addressed and connect to
+  `mem_arbiter`, which shares `sdram_ctrl` with the UART image loader and
+  the MMU page-table walker.
 - The uncached path decodes the UART, timer, LED, button, cache-counter,
-  boot-status and `tohost` registers.
+  boot-status and `tohost` registers at physical addresses.
 
 Pipeline: IF, ID, EX, MEM, WB. The I-cache streams one instruction per
 cycle into a four-entry fetch queue; a 32-entry bimodal 2-bit predictor
 with a BTB predicts taken branches so correctly predicted control
-transfers do not flush the pipeline. Branches, jumps, traps and MRET
-resolve in EX; a mispredict flushes two slots.
+transfers do not flush the pipeline. Branches, jumps, traps, MRET and
+SRET resolve in EX; a mispredict flushes two slots. Instruction fetches
+are translated before the I-cache; data addresses are translated in EX
+before the D-cache lookup and are carried to MEM as physical addresses.
 
 The D-cache is looked up in EX and its data is available in MEM, so a
 cache-hit load or store costs no extra cycle. Load data is forwarded
@@ -48,24 +51,64 @@ register:
 | `rv32_mem_stage.sv` | Data memory request, load alignment, MEM/WB |
 | `rv32_wb_stage.sv` | Writeback select |
 | `rv32_branch_predictor.sv` | Bimodal counters and BTB |
+| `rv32_mmu.sv` | Sv32 TLBs, page-table walker, permission checks |
 
 ## Implemented ISA
 
 - RV32I base integer instructions.
 - Zicsr: `CSRRW/CSRRS/CSRRC` and immediate forms.
-- Machine-mode traps: illegal instruction, `ECALL`, `EBREAK`, misaligned
-  load/store, misaligned instruction address; `MRET`.
+- M/S/U privilege modes, trap delegation through `medeleg`, and
+  `MRET`/`SRET`.
+- Sv32 virtual memory: 4 KiB pages, 4 MiB superpages, ASID and global
+  mappings, `MPRV`/`SUM`/`MXR`, `SFENCE.VMA`, and instruction, load and
+  store page faults.
+- Traps: illegal instruction, `ECALL`, `EBREAK`, misaligned load/store,
+  misaligned instruction address, instruction/load/store page faults.
 - `FENCE` is a NOP; `FENCE.I` writes back the D-cache, invalidates the
-  I-cache and flushes younger instructions.
-- CSRs: `mstatus`, `mtvec`, `mepc`, `mcause`, `mtval`, `mscratch`,
-  `mie`/`mip` (stored, no sources), `misa`, `mhartid`, `mcycle[h]`,
-  `minstret[h]`.
+  I-cache and flushes younger instructions. `SFENCE.VMA` additionally
+  invalidates both TLBs.
+- CSRs: `mstatus`, `misa`, `medeleg`, `mideleg`, `mie`/`mip`, `mtvec`,
+  `mepc`, `mcause`, `mtval`, `mscratch`, `mcounteren`, `mcycle[h]`,
+  `minstret[h]`; `sstatus`, `sie`/`sip`, `stvec`, `sepc`, `scause`,
+  `stval`, `sscratch`, `scounteren`, `satp`, `mhartid`.
 
-Not implemented: M/A/F/D/C extensions, interrupts, user/supervisor mode,
-PMP, MMU, debug module. Misaligned loads and stores trap precisely; the
-official `rv32ui/ma_data` test (which requires hardware misaligned
-access) is therefore excluded, and the directed test checks the trap
-path instead.
+Not implemented: M/A/F/D/C extensions, interrupts, PMP, debug module,
+`WFI`, hardware A/D-bit updates and ASID-selective `SFENCE.VMA`.
+Misaligned loads and stores trap precisely; the official `rv32ui/ma_data`
+test (which requires hardware misaligned access) is therefore excluded,
+and the directed test checks the trap path instead.
+
+## Privilege and virtual memory
+
+Reset starts in M mode. Traps enter M mode at `mtvec`, or S mode at
+`stvec` when the exception is enabled in `medeleg` and the trap did not
+come from M mode. `ECALL` causes 8/9/11 distinguish U/S/M callers.
+`MRET`/`SRET` restore the saved privilege and interrupt-enable state.
+`mstatus` implements `MPRV`, `SUM`, `MXR`, `TVM` and `TSR`; `satp`
+implements Sv32 mode with a 9-bit ASID.
+
+The MMU has separate 16-entry direct-mapped ITLB and DTLB, tagged by
+virtual page number. The ASID field is accepted, but a `satp` write or
+`SFENCE.VMA` flushes both TLBs, so ASIDs do not tag the fast lookup
+path. A shared hardware walker reads two PTEs through a dedicated
+physical SDRAM-arbiter port. Superpages and 4 KiB pages are supported;
+a superpage access is cached as the specific 4 KiB translation that
+caused the walk. A/D bits are software-managed: a PTE with A=0, or D=0
+for a store, raises a page fault. Page tables must reside in the 32 MiB
+SDRAM window; physical addresses are the 32-bit subset of the Sv32
+physical address space, so PPN bits 21:20 are zero.
+
+M-mode instruction fetch bypasses translation; M-mode data accesses
+translate only when `mstatus.MPRV` selects S or U. Page faults report
+the faulting virtual address in `mtval`/`stval` and use causes 12, 13 and
+15.
+
+The walker reads SDRAM directly rather than through the D-cache, so
+`SFENCE.VMA` first writes back the whole D-cache (the same sequence as
+`FENCE.I`), invalidates the I-cache, and then invalidates both TLBs.
+Software that updates a PTE must execute `SFENCE.VMA` before relying on
+the new mapping. The address and ASID operands are decoded but ignored:
+every `SFENCE.VMA` performs a complete flush.
 
 ## Caches and memory
 
@@ -82,8 +125,9 @@ The D-cache data array is split into four byte-lane memories so ECP5
 block RAMs implement byte enables. A dirty victim is written back before
 the new line is fetched; a store miss fetches the line and then merges
 the store bytes so partial writes never fabricate data. A single
-word request from the bootloader shares the SDRAM controller through
-`mem_arbiter.sv` with round-robin priority.
+word request from the bootloader and single-word PTE reads from the MMU
+walker share the SDRAM controller through `mem_arbiter.sv` with
+round-robin priority.
 
 `sdram_ctrl.sv` drives the IS42S16160J at 48 MHz with BL=2 and CL=3.
 Transactions move 32-bit words (two halfword beats), reads are pipelined
@@ -112,8 +156,11 @@ auto-refresh are implemented. A timing-checking behavioural model
 | `0x8000_0108` | W | Restart the bootloader |
 | `0x8000_1000` | R/W | `tohost`: write halts the core, value is the exit code |
 
-Instruction fetch outside SDRAM returns instruction 0 (illegal), which
-traps through `mtvec`. Programs must be linked at `0x1000_0000`.
+These are physical addresses. With paging enabled, virtual pages are
+mapped onto them; page tables must live in SDRAM. Instruction fetch
+outside SDRAM returns instruction 0 (illegal), which traps through the
+current trap vector. Initially M-mode programs are linked at
+`0x1000_0000`.
 
 ## Boot protocol
 
@@ -147,8 +194,10 @@ RISC-V ELF toolchain (`riscv64-elf-gcc` on `PATH`, or pass
 for a bitstream.
 
 ```sh
-make lint        # Verilator lint of the core and SDRAM controller
+make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test-core   # directed pipeline smoke test
+make test-mm     # MMU unit test: translation, permissions, faults
+make test-vm     # Sv32 software test on the core and through the SoC
 make test-sdram  # SDRAM controller: bursts, refresh, retention
 make test-soc    # same program through caches, arbiter and SDRAM
 make test-isa    # official riscv-tests rv32ui on the bare core
@@ -167,32 +216,31 @@ syntax of staged SystemVerilog.
 Simulation (2026-11, Icarus Verilog 13):
 
 - Directed smoke test: 20/20 checks.
+- MMU unit test: bypass, two-level walk, TLB hit, 4 MiB superpage,
+  permission faults, fetch fault and `SFENCE.VMA` invalidate pass.
+- `sw/tests/vm.S`: MPRV translation, PTE remap after `SFENCE.VMA`,
+  U-mode execution, load/store/instruction page faults, S-mode execution,
+  delegated `ECALL` and `SRET` pass on the bare core and through the SoC.
 - `riscv-tests` rv32ui: 41/41 on the bare core and 41/41 through the
   cached SoC. `ma_data` is excluded by design (see above).
 - SDRAM controller: bursts, row/bank changes, refresh and data
   retention pass with zero timing-check violations.
 - Hello program: PASS through the backdoor preload and through the
   UART bootloader.
-- The hello cache benchmark (64 passes over a 4 KiB array) measures
-  262,594 cycles for 262,341 retired instructions: **CPI ≈ 1.00**.
-  Before the fetch queue, predictor and EX-stage D-cache lookup the
-  same loop measured about 6 cycles per instruction.
-
-Yosys `synth_ecp5 -top roco_top` (LFE5U-45F): 9009 LUT4, 4099
-flip-flops, 8 DP16KD, 422 CCU2C, 1 EHXPLLL. This is synthesis only; the
-design has not been placed, routed, constrained for I/O timing or run on
-hardware. The SDRAM clock-to-pin delay, board skew and 48 MHz margin
-remain bring-up checks, as noted in `pcb/docs/rev-a-design.md`.
 
 ## Known limitations and next steps
 
 - The branch predictor is small (32 entries, bimodal) and JALR always
   mispredicts. A larger BTB and a return-address stack are the next
   steps.
-- The D-cache is blocking on misses and has no write buffer; the
-  benchmark's steady state only measures hits.
+- The D-cache is blocking on misses and has no write buffer.
 - There is no cache coherence: `FENCE.I` flushes the D-cache and
-  invalidates the I-cache; there is no DMA or second master.
+  invalidates the I-cache, and `SFENCE.VMA` uses the same flush before
+  invalidating the TLBs. There is no DMA or second master.
+- The TLBs are 16-entry direct mapped and share one walker, so a
+  conflict or concurrent I/D miss costs a page-table walk.
+- A/D bits are software-managed, and `SFENCE.VMA` always flushes
+  everything rather than a single address or ASID.
 - Boot is over UART only. Booting from the W25Q128 flash needs an SPI
   controller and a flash-resident loader.
 - `mtvec` supports direct mode only and interrupts are not wired to the
@@ -206,13 +254,13 @@ remain bring-up checks, as noted in `pcb/docs/rev-a-design.md`.
 |---|---|
 | `rtl/roco_top.sv` | Board top: PLL, reset, buttons, pins |
 | `rtl/roco_soc.sv` | CPU, caches, memory, peripherals, bootloader |
-| `rtl/core/` | Pipeline stages, decoder, ALU, CSR, regfile |
+| `rtl/core/` | Pipeline stages, decoder, ALU, CSR, regfile, MMU |
 | `rtl/mem/` | I/D caches, arbiter, SDRAM controller |
 | `rtl/periph/` | UART and UART image loader |
 | `rtl/common/` | Shared RV32 control encodings |
 | `constraints/roco.lpf` | ECP5 pin locations and clock constraint |
 | `sim/` | Testbenches and the SDRAM behavioural model |
-| `sw/` | crt0, linker script, hello/cache demo |
+| `sw/` | crt0, linker script, hello/cache demo, VM tests |
 | `tests/` | riscv-tests environment and linker script |
 | `scripts/` | ISA runner, image converter, host bootloader |
 | `docs/` | Block diagram source and preview |

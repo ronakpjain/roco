@@ -123,6 +123,8 @@ module rv32_core (
   logic if_fault;
   logic [1:0] priv;
   logic [31:0] satp;
+  logic satp_write;
+  logic mmu_flush;
   logic mstatus_mprv;
   logic mstatus_sum;
   logic mstatus_mxr;
@@ -375,6 +377,7 @@ module rv32_core (
       .ex_lu_we(ex_lu_we),
       .priv(priv),
       .satp(satp),
+      .satp_write(satp_write),
       .mstatus_mprv(mstatus_mprv),
       .mstatus_sum(mstatus_sum),
       .mstatus_mxr(mstatus_mxr),
@@ -400,7 +403,7 @@ module rv32_core (
   rv32_mmu u_mmu (
       .clk(clk),
       .rst(rst),
-      .flush(mmu_sfence),
+      .flush(mmu_flush),
       .iflush(ex_redirect_en || mem_redirect),
       .satp(satp),
       .priv_fetch(priv),
@@ -439,6 +442,7 @@ module rv32_core (
   // The external instruction port is physical; the MMU owns virtual
   // fetch responses and page-fault reporting.
   assign mmu_sfence = mem_redirect && exmem_is_sfence;
+  assign mmu_flush = mmu_sfence || satp_write;
   assign imem_req = mmu_ic_req;
   assign imem_addr = mmu_ic_addr;
   assign if_imem_rsp_valid = mmu_i_rsp_valid;

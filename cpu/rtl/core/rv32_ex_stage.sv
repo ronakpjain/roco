@@ -78,6 +78,7 @@ module rv32_ex_stage (
   /* Privilege and translation state. */
   output logic [1:0] priv,
   output logic [31:0] satp,
+  output logic satp_write,
   output logic mstatus_mprv,
   output logic mstatus_sum,
   output logic mstatus_mxr,
@@ -230,6 +231,7 @@ module rv32_ex_stage (
       .mepc(csr_mepc),
       .sepc(csr_sepc),
       .satp(satp),
+      .satp_write(satp_write),
       .mstatus_mprv(csr_mprv),
       .mstatus_sum(csr_sum),
       .mstatus_mxr(csr_mxr),

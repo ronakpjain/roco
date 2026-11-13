@@ -126,7 +126,6 @@ module rv32_mmu #(
 
   logic i_translate;
   logic d_translate;
-  logic [19:0] i_vpn;
   logic [19:0] d_vpn;
   logic [IDX_BITS-1:0] i_idx;
   logic [IDX_BITS-1:0] d_idx;
@@ -143,7 +142,6 @@ module rv32_mmu #(
   logic d_perm_fault;
   logic [31:0] i_phys;
   logic [31:0] d_phys;
-  logic [31:0] root_pte_addr;
   logic [31:0] level0_pte_addr;
   logic [19:0] pte_ppn;
   logic [19:0] leaf_ppn_4k;
@@ -155,10 +153,15 @@ module rv32_mmu #(
   result_t walk_result;
   logic [31:0] i_req_vaddr;
   logic i_rsp_armed;
+  logic [10:0] unused_satp_asid_ppn;
+  logic unused_p_rlast;
+  logic [8:0] unused_pte_addr_bits;
+  assign unused_satp_asid_ppn = satp[30:20];
+  assign unused_p_rlast = p_rlast;
+  assign unused_pte_addr_bits = {w_pte_addr[31:25], w_pte_addr[1:0]};
 
   assign i_translate = satp[31] && (priv_fetch != PRIV_M);
   assign d_translate = satp[31] && (priv_data != PRIV_M);
-  assign i_vpn = i_vaddr[31:12];
   assign d_vpn = d_vaddr[31:12];
   assign i_idx = i_vaddr[IDX_BITS+11:12];
   assign d_idx = d_vaddr[IDX_BITS+11:12];
@@ -205,6 +208,8 @@ module rv32_mmu #(
   function automatic logic pte_perm_ok(logic [31:0] pte, logic is_fetch, logic is_store,
                                        logic [1:0] priv, logic sum, logic mxr);
     logic ok;
+    logic [25:0] unused_pte_bits;
+    unused_pte_bits = {pte[31:8], pte[5], pte[0]};
     ok = pte[6];
     if (is_fetch) begin
       ok = ok && pte[3];
@@ -280,9 +285,8 @@ module rv32_mmu #(
   assign p_req = (wstate == W_PTE1_REQ) || (wstate == W_PTE0_REQ);
   assign p_word_addr = w_pte_addr[24:2];
 
-  assign root_pte_addr = {satp[19:0], 12'b0} + {w_vaddr[31:22], 2'b00};
   assign pte_ppn = p_rdata[29:10];
-  assign level0_pte_addr = {pte_ppn, 12'b0} + {w_vaddr[21:12], 2'b00};
+  assign level0_pte_addr = {pte_ppn, w_vaddr[21:12], 2'b00};
   assign leaf_ppn_4k = p_rdata[29:10];
   assign leaf_ppn_4m = {p_rdata[29:20], w_vaddr[21:12]};
   assign pte_range_ok = in_sdram(level0_pte_addr);
@@ -405,8 +409,8 @@ module rv32_mmu #(
               w_is_store <= d_we;
               w_vaddr <= d_vaddr;
               w_priv <= priv_data;
-              w_pte_addr <= {satp[19:0], 12'b0} + {d_vaddr[31:22], 2'b00};
-              if (in_sdram({satp[19:0], 12'b0} + {d_vaddr[31:22], 2'b00})) begin
+              w_pte_addr <= {satp[19:0], d_vaddr[31:22], 2'b00};
+              if (in_sdram({satp[19:0], d_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
                 d_miss_pending <= 1'b0;
@@ -419,8 +423,8 @@ module rv32_mmu #(
               w_is_store <= 1'b0;
               w_vaddr <= i_vaddr;
               w_priv <= priv_fetch;
-              w_pte_addr <= {satp[19:0], 12'b0} + {i_vaddr[31:22], 2'b00};
-              if (in_sdram({satp[19:0], 12'b0} + {i_vaddr[31:22], 2'b00})) begin
+              w_pte_addr <= {satp[19:0], i_vaddr[31:22], 2'b00};
+              if (in_sdram({satp[19:0], i_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
                 i_miss_pending <= 1'b0;

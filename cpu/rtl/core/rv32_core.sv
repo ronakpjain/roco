@@ -124,12 +124,15 @@ module rv32_core (
   logic [1:0] priv;
   logic [31:0] satp;
   logic satp_write;
+  logic [31:0] unused_imem_rsp_addr;
+  assign unused_imem_rsp_addr = imem_rsp_addr;
+
   logic mmu_flush;
   logic mstatus_mprv;
   logic mstatus_sum;
   logic mstatus_mxr;
-  logic mstatus_tvm;
-  logic mstatus_tsr;
+  logic unused_mstatus_tvm;
+  logic unused_mstatus_tsr;
   logic [1:0] mstatus_mpp;
   logic mmu_sfence;
 
@@ -145,7 +148,7 @@ module rv32_core (
   logic [31:0] if_imem_fault_addr;
   logic mmu_ic_req;
   logic [31:0] mmu_ic_addr;
-  logic mmu_i_hit;
+  logic unused_mmu_i_hit;
   logic mmu_i_miss;
   logic mmu_i_busy;
   logic mmu_i_fault;
@@ -159,6 +162,8 @@ module rv32_core (
   logic ex_lu_we;
   logic mmu_d_hit;
   logic mmu_d_fault;
+  logic d_fault_q;
+  logic [3:0] d_fault_cause_q;
   logic [3:0] mmu_d_fault_cause;
   logic [31:0] mmu_d_paddr;
   logic ex_lu_hit;
@@ -213,7 +218,19 @@ module rv32_core (
   assign ex_lu_hit = mmu_d_hit && dmem_lu_hit;
   assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
   assign dmem_lu_addr = mmu_d_paddr[31:2];
-  assign dmem_lu_stall = ex_lu_valid && !mmu_d_fault && !ex_lu_hit;
+  // Hold the faulting instruction while registering the MMU response.
+  // Trap delegation and fetch redirection then start from a register.
+  assign dmem_lu_stall = ex_lu_valid && !d_fault_q && !ex_lu_hit;
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      d_fault_q <= 1'b0;
+      d_fault_cause_q <= '0;
+    end else begin
+      d_fault_q <= mmu_d_fault;
+      d_fault_cause_q <= mmu_d_fault_cause;
+    end
+  end
   assign stall = dmem_lu_stall || fence_req;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign trace_valid = commit_valid;
@@ -361,8 +378,8 @@ module rv32_core (
       .idex_is_fence_i(idex_is_fence_i),
       .fence_hold(fence_req),
       .wb_data(wb_data),
-      .dmem_lu_fault(mmu_d_fault),
-      .dmem_lu_fault_cause(mmu_d_fault_cause),
+      .dmem_lu_fault(d_fault_q),
+      .dmem_lu_fault_cause(d_fault_cause_q),
       .dmem_lu_paddr(mmu_d_paddr),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
@@ -381,8 +398,8 @@ module rv32_core (
       .mstatus_mprv(mstatus_mprv),
       .mstatus_sum(mstatus_sum),
       .mstatus_mxr(mstatus_mxr),
-      .mstatus_tvm(mstatus_tvm),
-      .mstatus_tsr(mstatus_tsr),
+      .mstatus_tvm(unused_mstatus_tvm),
+      .mstatus_tsr(unused_mstatus_tsr),
       .mstatus_mpp(mstatus_mpp),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
@@ -412,7 +429,7 @@ module rv32_core (
       .mstatus_mxr(mstatus_mxr),
       .i_req(if_imem_req),
       .i_vaddr(if_imem_addr),
-      .i_hit(mmu_i_hit),
+      .i_hit(unused_mmu_i_hit),
       .i_miss(mmu_i_miss),
       .i_busy(mmu_i_busy),
       .i_fault(mmu_i_fault),

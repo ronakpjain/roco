@@ -54,6 +54,10 @@ _start:
   la t3, leaf
   sw t1, 0(t3)
 
+  # Leaf entry 1 aliases remap_a read-only for a TLB-hit store fault.
+  andi t1, t1, -5
+  sw t1, 4(t3)
+
   la t0, root
   srli t0, t0, 12
   li t1, 0x80000000
@@ -94,11 +98,14 @@ _start:
 
   # ----------------------------------------------------------- U-mode
   li s7, 0
+  li s10, 0
   la t0, u_entry
   csrw mepc, t0
   mret
 
 m_after_u:
+  li t0, 3
+  bne s10, t0, fail
   li t0, 0x00001234
   bne s4, t0, fail
 
@@ -132,6 +139,11 @@ u_entry:
   sw s3, 0(s2)
   lw s4, 0(s2)
   bne s3, s4, u_fail
+
+  # Fill a readable TLB entry, then fault on its write permission.
+  li s5, 0x20001000
+  lw s6, 0(s5)
+  sw s6, 0(s5)
 
   li s5, 0x30000000
   lw s6, 0(s5)     # load page fault; handler skips the instruction
@@ -184,9 +196,17 @@ m_trap:
   j fail
 
 trap_mem:
+  addi s10, s10, 1
   csrr t2, mtval
+  li t3, 0x20001000
+  bne t2, t3, trap_mem_unmapped
+  li t3, 15
+  bne t0, t3, fail
+  j trap_mem_resume
+trap_mem_unmapped:
   li t3, 0x30000000
   bne t2, t3, fail
+trap_mem_resume:
   csrr t4, mepc
   addi t4, t4, 4
   csrw mepc, t4

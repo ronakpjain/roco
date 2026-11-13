@@ -139,8 +139,8 @@ module rv32_ex_stage (
   logic [31:0] csr_wdata;
   logic csr_wr_en;
   logic [31:0] csr_trap_vector;
-  logic [31:0] csr_mtvec;
-  logic [31:0] csr_stvec;
+  logic [31:0] unused_csr_mtvec;
+  logic [31:0] unused_csr_stvec;
   logic [31:0] csr_mepc;
   logic [31:0] csr_sepc;
   logic [1:0] csr_priv;
@@ -225,8 +225,8 @@ module rv32_ex_stage (
       .sret_en(csr_sret_en),
       .retire(retire),
       .priv(csr_priv),
-      .mtvec(csr_mtvec),
-      .stvec(csr_stvec),
+      .mtvec(unused_csr_mtvec),
+      .stvec(unused_csr_stvec),
       .trap_vector(csr_trap_vector),
       .mepc(csr_mepc),
       .sepc(csr_sepc),

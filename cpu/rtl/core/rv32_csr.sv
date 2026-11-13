@@ -96,6 +96,9 @@ module rv32_csr (
   logic addr_writable;
   logic counter_cycle_ok;
   logic counter_instret_ok;
+  logic [1:0] unused_trap_pc_offset;
+  assign unused_trap_pc_offset = trap_pc[1:0];
+
   logic trap_to_s;
 
   assign priv = priv_q;

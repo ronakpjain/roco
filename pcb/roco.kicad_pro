@@ -430,13 +430,21 @@
         "uuid": "4f145421-0158-43a7-b58f-b53bbe95a52c"
       }
     ],
-    "used_designators": "#PWR1-7,U1",
+    "used_designators": "#PWR1-8,#PWR17-19,R4,U1,U3",
     "variants": []
   },
   "sheets": [
     [
       "4f145421-0158-43a7-b58f-b53bbe95a52c",
       "roco"
+    ],
+    [
+      "670842ae-ee3a-4009-87f2-ce8dd8cede54",
+      "Power"
+    ],
+    [
+      "c6e5dea1-5f7f-48bc-bd9f-699d039314a4",
+      "FPGA"
     ],
     [
       "72f782e0-8708-4d70-b1f3-63434465d88c",
@@ -473,6 +481,26 @@
     [
       "cb72f760-8541-425f-8edf-099dfc1840e7",
       "Power and Ground"
+    ],
+    [
+      "dcefd2ed-1bd2-43da-9ba3-7b5154670a0b",
+      "Memory"
+    ],
+    [
+      "66d37696-5680-4189-9ab9-ec55dfa2b913",
+      "USB-C Debug / Programming"
+    ],
+    [
+      "cbe5e3e8-48b7-4ec4-b358-ffa8c7b5d778",
+      "USB Full-Speed Host"
+    ],
+    [
+      "c47ca17b-9c4d-49cf-b9e4-c2859e14e900",
+      "Debug / Controls"
+    ],
+    [
+      "a5995ebe-a45b-4669-8658-9fe687307888",
+      "Expansion"
     ]
   ],
   "text_variables": {},

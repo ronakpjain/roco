@@ -1,2 +1,11 @@
-(kicad_sch (version 20260306) (generator "eeschema") (generator_version "10.0")
-(uuid "8c43f879-a21b-4c30-9d07-b46a84710f8d") (paper "A4") (title_block (title "Expansion")) (lib_symbols) (embedded_fonts no))
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "8c43f879-a21b-4c30-9d07-b46a84710f8d")
+	(paper "A4")
+	(title_block
+		(title "Expansion")
+	)
+	(lib_symbols)
+)

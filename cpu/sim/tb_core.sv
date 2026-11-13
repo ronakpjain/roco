@@ -38,6 +38,12 @@ module tb_core;
   logic [31:0] dmem_wdata;
   logic [3:0] dmem_be;
   logic [31:0] dmem_rsp_data;
+  logic ptw_req;
+  logic [22:0] ptw_word_addr;
+  logic ptw_ready;
+  logic ptw_rvalid;
+  logic [31:0] ptw_rdata;
+  logic ptw_rlast;
   logic trace_valid;
   logic [31:0] trace_pc;
   logic [31:0] trace_instr;
@@ -93,6 +99,12 @@ module tb_core;
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
+      .ptw_req(ptw_req),
+      .ptw_word_addr(ptw_word_addr),
+      .ptw_ready(ptw_ready),
+      .ptw_rvalid(ptw_rvalid),
+      .ptw_rdata(ptw_rdata),
+      .ptw_rlast(ptw_rlast),
       .trace_valid(trace_valid),
       .trace_pc(trace_pc),
       .trace_instr(trace_instr),
@@ -133,6 +145,22 @@ module tb_core;
       im_rsp_valid_q <= imem_req;
       im_rsp_addr_q <= imem_addr;
       im_rsp_data_q <= imem_rdata;
+    end
+  end
+
+  // Page-table walker memory: one-cycle read from the same physical image.
+  assign ptw_ready = 1'b1;
+  assign ptw_rlast = 1'b1;
+
+  always @(posedge clk) begin
+    if (rst) begin
+      ptw_rvalid <= 1'b0;
+      ptw_rdata <= '0;
+    end else begin
+      ptw_rvalid <= ptw_req && ptw_ready;
+      if (ptw_req && ptw_ready) begin
+        ptw_rdata <= mem[ptw_word_addr[13:0]];
+      end
     end
   end
 

@@ -30,7 +30,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-sdram test-soc test-isa-soc test-boot synth timing bitstream
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-sdram test-soc test-isa-soc test-boot synth timing bitstream
 
 all: format-check syntax lint
 
@@ -74,6 +74,16 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 	$(RISCV)-objcopy -O binary $< $@
 
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/vm.elf: sw/tests/vm.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vm.bin: $(BUILD_DIR)/vm.elf
+	$(RISCV)-objcopy -O binary -j .text -j .data $< $@
+
+$(BUILD_DIR)/vm.hex: $(BUILD_DIR)/vm.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
 $(BUILD_DIR)/hello.elf: sw/crt0.S sw/hello/main.c sw/hello/roco_io.h sw/link.ld | build
@@ -125,6 +135,10 @@ test-boot: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex
+
+test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vm.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vm.hex
 
 test-isa: $(BUILD_DIR)/tb_core.vvp
 	./scripts/get-riscv-tests.sh

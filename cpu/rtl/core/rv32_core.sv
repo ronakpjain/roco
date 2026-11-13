@@ -7,6 +7,7 @@
 //   rv32_mem_stage  data memory request, load alignment, MEM/WB register
 //   rv32_wb_stage   register-file write data and retire trace
 //   rv32_branch_predictor  bimodal predictor and BTB
+//   rv32_mmu        Sv32 TLBs and hardware page-table walker
 //
 // Branches and jumps resolve in EX, so a taken control transfer costs two
 // flushed slots. Full EX/MEM and MEM/WB forwarding is used; the only
@@ -14,9 +15,10 @@
 // blocking request/response memory interface; responses carry the request
 // address so that stale responses from a redirected fetch are ignored.
 //
-// Implemented: RV32I base integer instructions, Zicsr, machine-mode traps
-// for illegal instructions, ECALL/EBREAK, misaligned load/store and
-// misaligned instruction addresses, plus MRET. No interrupts.
+// Implemented: RV32I base integer instructions, Zicsr, M/S/U privilege
+// modes, trap delegation, Sv32 virtual memory, and traps for illegal
+// instructions, ECALL/EBREAK, misaligned addresses and page faults.
+// No interrupts.
 
 `default_nettype none
 
@@ -25,7 +27,7 @@ module rv32_core (
   input logic rst,
   input logic [31:0] boot_addr,
   input logic halt,
-  /* Instruction memory port: hold req/addr until rsp_valid. */
+  /* Physical instruction memory port: hold req/addr until rsp_valid. */
   output logic imem_req,
   output logic [31:0] imem_addr,
   input logic imem_rsp_valid,
@@ -33,7 +35,7 @@ module rv32_core (
   input logic [31:0] imem_rsp_data,
   input logic imem_miss,
   input logic imem_busy,
-  /* Data memory: lookup in EX, commit in MEM, data returns combinationally. */
+  /* Physical data memory: lookup in EX, commit in MEM. */
   output logic dmem_lu_valid,
   output logic [31:2] dmem_lu_addr,
   input logic dmem_lu_hit,
@@ -43,6 +45,13 @@ module rv32_core (
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
+  /* Physical page-table walker port. */
+  output logic ptw_req,
+  output logic [22:0] ptw_word_addr,
+  input logic ptw_ready,
+  input logic ptw_rvalid,
+  input logic [31:0] ptw_rdata,
+  input logic ptw_rlast,
   /* Retire trace, for simulation only. */
   output logic trace_valid,
   output logic [31:0] trace_pc,
@@ -110,6 +119,8 @@ module rv32_core (
   logic idex_sret;
   logic idex_is_sfence;
   logic idex_is_fence_i;
+  logic idex_ifault;
+  logic if_fault;
   logic [1:0] priv;
   logic [31:0] satp;
   logic mstatus_mprv;
@@ -118,7 +129,38 @@ module rv32_core (
   logic mstatus_tvm;
   logic mstatus_tsr;
   logic [1:0] mstatus_mpp;
-  logic core_sfence;
+  logic mmu_sfence;
+
+  // IF-side translation.
+  logic if_imem_req;
+  logic [31:0] if_imem_addr;
+  logic if_imem_rsp_valid;
+  logic [31:0] if_imem_rsp_addr;
+  logic [31:0] if_imem_rsp_data;
+  logic if_imem_miss;
+  logic if_imem_busy;
+  logic if_imem_fault;
+  logic [31:0] if_imem_fault_addr;
+  logic mmu_ic_req;
+  logic [31:0] mmu_ic_addr;
+  logic mmu_i_hit;
+  logic mmu_i_miss;
+  logic mmu_i_busy;
+  logic mmu_i_fault;
+  logic [31:0] mmu_i_fault_addr;
+  logic mmu_i_rsp_valid;
+  logic [31:0] mmu_i_rsp_addr;
+  logic [31:0] mmu_i_rsp_data;
+
+  // Data-side translation.
+  logic [31:0] ex_lu_vaddr;
+  logic ex_lu_we;
+  logic mmu_d_hit;
+  logic mmu_d_fault;
+  logic [3:0] mmu_d_fault_cause;
+  logic [31:0] mmu_d_paddr;
+  logic ex_lu_hit;
+  logic [1:0] priv_data;
 
   logic ex_redirect_en;
   logic [31:0] ex_redirect_pc;
@@ -135,6 +177,7 @@ module rv32_core (
   logic exmem_regwrite;
   logic exmem_is_load;
   logic exmem_is_store;
+  logic exmem_is_sfence;
   logic exmem_is_fence_i;
 
   logic memwb_valid;
@@ -150,7 +193,6 @@ module rv32_core (
   logic dmem_lu_stall;
   logic stall;
   logic ex_lu_valid;
-  logic [31:2] ex_lu_addr;
   logic mem_redirect;
   logic retire;
   logic if_consume;
@@ -166,10 +208,12 @@ module rv32_core (
                     ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                      (dec_use_rs2 && dec_rs2 == idex_rd));
   assign if_consume = if_valid && !stall && !load_use && !ex_redirect_en && !mem_redirect;
-  assign dmem_lu_valid = ex_lu_valid;
-  assign dmem_lu_addr = ex_lu_addr;
-  assign dmem_lu_stall = ex_lu_valid && !dmem_lu_hit;
+  assign ex_lu_hit = mmu_d_hit && dmem_lu_hit;
+  assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
+  assign dmem_lu_addr = mmu_d_paddr[31:2];
+  assign dmem_lu_stall = ex_lu_valid && !mmu_d_fault && !ex_lu_hit;
   assign stall = dmem_lu_stall || fence_req;
+  assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign trace_valid = commit_valid;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
@@ -188,16 +232,19 @@ module rv32_core (
       .pred_target(pred_target),
       .if_consume(if_consume),
       .redirect_pc(mem_redirect ? (exmem_pc + 32'd4) : ex_redirect_pc),
-      .imem_req(imem_req),
-      .imem_addr(imem_addr),
-      .imem_rsp_valid(imem_rsp_valid),
-      .imem_rsp_addr(imem_rsp_addr),
-      .imem_rsp_data(imem_rsp_data),
-      .imem_miss(imem_miss),
-      .imem_busy(imem_busy),
+      .imem_req(if_imem_req),
+      .imem_addr(if_imem_addr),
+      .imem_rsp_valid(if_imem_rsp_valid),
+      .imem_rsp_addr(if_imem_rsp_addr),
+      .imem_rsp_data(if_imem_rsp_data),
+      .imem_miss(if_imem_miss),
+      .imem_busy(if_imem_busy),
+      .imem_fault(if_imem_fault),
+      .imem_fault_addr(if_imem_fault_addr),
       .if_valid(if_valid),
       .if_pc(if_pc),
       .if_instr(if_instr),
+      .if_fault(if_fault),
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
       .fetch_pc(fetch_pc)
@@ -210,6 +257,7 @@ module rv32_core (
       .if_valid(if_valid),
       .if_pc(if_pc),
       .if_instr(if_instr),
+      .if_fault(if_fault),
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
       .hold(stall),
@@ -258,6 +306,7 @@ module rv32_core (
       .idex_illegal(idex_illegal),
       .idex_ecall(idex_ecall),
       .idex_ebreak(idex_ebreak),
+      .idex_ifault(idex_ifault),
       .idex_mret(idex_mret),
       .idex_sret(idex_sret),
       .idex_is_sfence(idex_is_sfence),
@@ -303,12 +352,16 @@ module rv32_core (
       .idex_illegal(idex_illegal),
       .idex_ecall(idex_ecall),
       .idex_ebreak(idex_ebreak),
+      .idex_ifault(idex_ifault),
       .idex_mret(idex_mret),
       .idex_sret(idex_sret),
       .idex_is_sfence(idex_is_sfence),
       .idex_is_fence_i(idex_is_fence_i),
       .fence_hold(fence_req),
       .wb_data(wb_data),
+      .dmem_lu_fault(mmu_d_fault),
+      .dmem_lu_fault_cause(mmu_d_fault_cause),
+      .dmem_lu_paddr(mmu_d_paddr),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
       .btb_update(btb_update),
@@ -318,7 +371,8 @@ module rv32_core (
       .btb_taken(btb_taken),
       .btb_target(btb_target),
       .ex_lu_valid(ex_lu_valid),
-      .ex_lu_addr(ex_lu_addr),
+      .ex_lu_vaddr(ex_lu_vaddr),
+      .ex_lu_we(ex_lu_we),
       .priv(priv),
       .satp(satp),
       .mstatus_mprv(mstatus_mprv),
@@ -327,7 +381,6 @@ module rv32_core (
       .mstatus_tvm(mstatus_tvm),
       .mstatus_tsr(mstatus_tsr),
       .mstatus_mpp(mstatus_mpp),
-      .sfence(core_sfence),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),
@@ -340,8 +393,61 @@ module rv32_core (
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
+      .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i)
   );
+
+  rv32_mmu u_mmu (
+      .clk(clk),
+      .rst(rst),
+      .flush(mmu_sfence),
+      .iflush(ex_redirect_en || mem_redirect),
+      .satp(satp),
+      .priv_fetch(priv),
+      .priv_data(priv_data),
+      .mstatus_sum(mstatus_sum),
+      .mstatus_mxr(mstatus_mxr),
+      .i_req(if_imem_req),
+      .i_vaddr(if_imem_addr),
+      .i_hit(mmu_i_hit),
+      .i_miss(mmu_i_miss),
+      .i_busy(mmu_i_busy),
+      .i_fault(mmu_i_fault),
+      .i_fault_addr(mmu_i_fault_addr),
+      .ic_req(mmu_ic_req),
+      .ic_addr(mmu_ic_addr),
+      .ic_rsp_valid(imem_rsp_valid),
+      .ic_rsp_data(imem_rsp_data),
+      .i_rsp_valid(mmu_i_rsp_valid),
+      .i_rsp_addr(mmu_i_rsp_addr),
+      .i_rsp_data(mmu_i_rsp_data),
+      .d_req(ex_lu_valid),
+      .d_vaddr(ex_lu_vaddr),
+      .d_we(ex_lu_we),
+      .d_hit(mmu_d_hit),
+      .d_fault(mmu_d_fault),
+      .d_fault_cause(mmu_d_fault_cause),
+      .d_paddr(mmu_d_paddr),
+      .p_req(ptw_req),
+      .p_word_addr(ptw_word_addr),
+      .p_ready(ptw_ready),
+      .p_rvalid(ptw_rvalid),
+      .p_rdata(ptw_rdata),
+      .p_rlast(ptw_rlast)
+  );
+
+  // The external instruction port is physical; the MMU owns virtual
+  // fetch responses and page-fault reporting.
+  assign mmu_sfence = mem_redirect && exmem_is_sfence;
+  assign imem_req = mmu_ic_req;
+  assign imem_addr = mmu_ic_addr;
+  assign if_imem_rsp_valid = mmu_i_rsp_valid;
+  assign if_imem_rsp_addr = mmu_i_rsp_addr;
+  assign if_imem_rsp_data = mmu_i_rsp_data;
+  assign if_imem_miss = imem_miss || mmu_i_miss;
+  assign if_imem_busy = mmu_i_busy || imem_busy;
+  assign if_imem_fault = mmu_i_fault;
+  assign if_imem_fault_addr = mmu_i_fault_addr;
 
   rv32_branch_predictor u_bp (
       .clk(clk),
@@ -376,6 +482,7 @@ module rv32_core (
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
+      .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),

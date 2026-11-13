@@ -1,10 +1,11 @@
 // Memory arbiter.
 //
 // Shares the single SDRAM controller between the instruction cache, the
-// data cache and the UART boot loader. One transaction is granted at a
-// time and the grant is held until the last read or write beat, so a
-// cache fill or writeback is never interleaved with another client.
-// Round-robin priority prevents the front end from starving the caches.
+// data cache, the UART boot loader and the MMU page-table walker. One
+// transaction is granted at a time and the grant is held until the last
+// read or write beat, so a cache fill or writeback is never interleaved
+// with another client. Round-robin priority prevents any client from
+// starving the others.
 
 `default_nettype none
 
@@ -46,6 +47,13 @@ module mem_arbiter (
   input logic b_wvalid,
   input logic [31:0] b_wdata,
   input logic [3:0] b_wbe,
+  /* Page-table walker: read-only, one word per transaction. */
+  input logic p_req,
+  input logic [22:0] p_word_addr,
+  output logic p_ready,
+  output logic p_rvalid,
+  output logic [31:0] p_rdata,
+  output logic p_rlast,
   /* SDRAM controller. */
   output logic c_req,
   input logic c_ready,
@@ -61,15 +69,16 @@ module mem_arbiter (
   input logic c_rlast
 );
 
-  localparam logic [1:0] OWN_NONE = 2'd0;
-  localparam logic [1:0] OWN_I = 2'd1;
-  localparam logic [1:0] OWN_D = 2'd2;
-  localparam logic [1:0] OWN_B = 2'd3;
+  localparam logic [2:0] OWN_NONE = 3'd0;
+  localparam logic [2:0] OWN_I = 3'd1;
+  localparam logic [2:0] OWN_D = 3'd2;
+  localparam logic [2:0] OWN_B = 3'd3;
+  localparam logic [2:0] OWN_P = 3'd4;
 
-  logic [1:0] owner;
-  logic [1:0] pick;
-  logic [1:0] sel;
-  logic [1:0] rr;
+  logic [2:0] owner;
+  logic [2:0] pick;
+  logic [2:0] sel;
+  logic [2:0] rr;
   logic locked;
   logic [3:0] wr_rem;
 
@@ -78,31 +87,59 @@ module mem_arbiter (
   always_comb begin
     pick = OWN_NONE;
     case (rr)
-      2'd0: begin
+      3'd0: begin
         if (i_req) begin
           pick = OWN_I;
         end else if (d_req) begin
           pick = OWN_D;
+        end else if (p_req) begin
+          pick = OWN_P;
         end else if (b_req) begin
           pick = OWN_B;
         end
       end
-      2'd1: begin
+      3'd1: begin
         if (d_req) begin
           pick = OWN_D;
+        end else if (p_req) begin
+          pick = OWN_P;
         end else if (b_req) begin
           pick = OWN_B;
         end else if (i_req) begin
           pick = OWN_I;
         end
       end
-      default: begin
+      3'd2: begin
+        if (p_req) begin
+          pick = OWN_P;
+        end else if (b_req) begin
+          pick = OWN_B;
+        end else if (i_req) begin
+          pick = OWN_I;
+        end else if (d_req) begin
+          pick = OWN_D;
+        end
+      end
+      3'd3: begin
         if (b_req) begin
           pick = OWN_B;
         end else if (i_req) begin
           pick = OWN_I;
         end else if (d_req) begin
           pick = OWN_D;
+        end else if (p_req) begin
+          pick = OWN_P;
+        end
+      end
+      default: begin
+        if (i_req) begin
+          pick = OWN_I;
+        end else if (d_req) begin
+          pick = OWN_D;
+        end else if (p_req) begin
+          pick = OWN_P;
+        end else if (b_req) begin
+          pick = OWN_B;
         end
       end
     endcase
@@ -127,6 +164,10 @@ module mem_arbiter (
     d_rlast = 1'b0;
     b_ready = 1'b0;
     b_wready = 1'b0;
+    p_ready = 1'b0;
+    p_rvalid = 1'b0;
+    p_rdata = 32'd0;
+    p_rlast = 1'b0;
     case (sel)
       OWN_I: begin
         c_req = i_req;
@@ -166,6 +207,19 @@ module mem_arbiter (
         b_ready = c_ready;
         b_wready = c_wready;
       end
+      OWN_P: begin
+        c_req = p_req;
+        c_we = 1'b0;
+        c_word_addr = p_word_addr;
+        c_len = 4'd0;
+        c_wvalid = 1'b0;
+        c_wdata = 32'd0;
+        c_wbe = 4'd0;
+        p_ready = c_ready;
+        p_rvalid = c_rvalid;
+        p_rdata = c_rdata;
+        p_rlast = c_rlast;
+      end
       default: begin
       end
     endcase
@@ -175,20 +229,30 @@ module mem_arbiter (
     if (rst) begin
       locked <= 1'b0;
       owner <= OWN_NONE;
-      rr <= 2'd0;
+      rr <= 3'd0;
       wr_rem <= 4'd0;
     end else if (!locked) begin
       if (c_req && c_ready) begin
         locked <= 1'b1;
         owner <= sel;
         wr_rem <= c_len;
-        if (sel == OWN_I) begin
-          rr <= 2'd1;
-        end else if (sel == OWN_D) begin
-          rr <= 2'd2;
-        end else if (sel == OWN_B) begin
-          rr <= 2'd0;
-        end
+        case (sel)
+          OWN_I: begin
+            rr <= 3'd1;
+          end
+          OWN_D: begin
+            rr <= 3'd2;
+          end
+          OWN_B: begin
+            rr <= 3'd3;
+          end
+          OWN_P: begin
+            rr <= 3'd4;
+          end
+          default: begin
+            rr <= 3'd0;
+          end
+        endcase
       end
     end else begin
       if (c_rvalid && c_rlast) begin

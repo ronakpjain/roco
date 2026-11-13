@@ -15,6 +15,7 @@ module rv32_id_stage (
   input logic if_valid,
   input logic [31:0] if_pc,
   input logic [31:0] if_instr,
+  input logic if_fault,
   input logic if_pred_taken,
   input logic [31:0] if_pred_target,
   input logic hold,
@@ -36,6 +37,7 @@ module rv32_id_stage (
   output logic idex_valid,
   output logic [31:0] idex_pc,
   output logic [31:0] idex_instr,
+  output logic idex_ifault,
   output logic idex_pred_taken,
   output logic [31:0] idex_pred_target,
   output logic [31:0] idex_rs1_val,
@@ -162,6 +164,7 @@ module rv32_id_stage (
       idex_valid <= 1'b0;
       idex_pc <= '0;
       idex_instr <= 32'h0000_0013;
+      idex_ifault <= 1'b0;
       idex_pred_taken <= 1'b0;
       idex_pred_target <= '0;
       idex_rs1_val <= '0;
@@ -204,6 +207,7 @@ module rv32_id_stage (
       idex_valid <= if_valid && !flush && !bubble;
       idex_pc <= if_pc;
       idex_instr <= if_instr;
+      idex_ifault <= if_fault;
       idex_pred_taken <= if_pred_taken;
       idex_pred_target <= if_pred_target;
       idex_rs1_val <= rf_rdata1;

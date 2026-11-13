@@ -1,10 +1,12 @@
 // Execute stage.
 //
 // Owns operand forwarding, the ALU, branch/jump resolution, trap
-// detection, the machine-mode CSR file and the EX/MEM pipeline register.
-// A redirect is emitted only when the pipeline is not stalled, so older
-// instructions always commit first. The CSR file is written from WB;
-// trap entry and MRET use the redirect that this stage generates.
+// detection, the machine/supervisor CSR file and the EX/MEM pipeline
+// register. A redirect is emitted only when the pipeline is not stalled,
+// so older instructions always commit first. The CSR file is written from
+// WB; trap entry, MRET and SRET use the redirect this stage generates.
+// Data-cache lookup addresses come from the MMU translation of the
+// virtual address computed here; a page fault is resolved as a trap.
 
 `default_nettype none
 `include "rv32_defs.svh"
@@ -47,6 +49,7 @@ module rv32_ex_stage (
   input logic idex_illegal,
   input logic idex_ecall,
   input logic idex_ebreak,
+  input logic idex_ifault,
   input logic idex_mret,
   input logic idex_sret,
   input logic idex_is_sfence,
@@ -56,6 +59,10 @@ module rv32_ex_stage (
   input logic [31:0] idex_pred_target,
   /* Writeback forwarding. */
   input logic [31:0] wb_data,
+  /* Data translation result from the MMU. */
+  input logic dmem_lu_fault,
+  input logic [3:0] dmem_lu_fault_cause,
+  input logic [31:0] dmem_lu_paddr,
   /* Redirect to fetch. */
   output logic ex_redirect_en,
   output logic [31:0] ex_redirect_pc,
@@ -66,8 +73,8 @@ module rv32_ex_stage (
   output logic btb_taken,
   output logic [31:0] btb_target,
   output logic ex_lu_valid,
-  // Word address of the lookup: the byte offset never matters to a cache.
-  output logic [31:2] ex_lu_addr,
+  output logic [31:0] ex_lu_vaddr,
+  output logic ex_lu_we,
   /* Privilege and translation state. */
   output logic [1:0] priv,
   output logic [31:0] satp,
@@ -77,7 +84,6 @@ module rv32_ex_stage (
   output logic mstatus_tvm,
   output logic mstatus_tsr,
   output logic [1:0] mstatus_mpp,
-  output logic sfence,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -91,6 +97,7 @@ module rv32_ex_stage (
   output logic exmem_regwrite,
   output logic exmem_is_load,
   output logic exmem_is_store,
+  output logic exmem_is_sfence,
   output logic exmem_is_fence_i
 );
 
@@ -191,7 +198,7 @@ module rv32_ex_stage (
       ({32{idex_rs1_from_wb}} & (wb_data + idex_imm)) |
       ({32{idex_rs1_from_rf}} & (idex_rs1_val + idex_imm));
   assign memory_addr_held = stall_active ? stall_alu : memory_addr;
-  assign ex_addr = (idex_is_load || idex_is_store) ? memory_addr_held : ex_alu_result;
+  assign ex_addr = (idex_is_load || idex_is_store) ? dmem_lu_paddr : ex_alu_result;
   assign ex_st = stall_active ? stall_store_data : ex_store_data;
   assign ex_be = stall_active ? stall_be : ex_store_be;
   assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
@@ -240,7 +247,6 @@ module rv32_ex_stage (
   assign mstatus_mpp = csr_mpp;
   assign csr_mret_en = ex_redirect_en && idex_mret && !ex_trap;
   assign csr_sret_en = ex_redirect_en && idex_sret && !ex_trap;
-  assign sfence = idex_valid && idex_is_sfence && !ex_trap && !fence_hold && !halt && !rst;
 
   assign csr_src = idex_csr_uimm ? {27'd0, idex_rs1} : rs1_fwd;
   assign csr_write_intent = idex_is_csr && ((idex_csr_op == `RV32_CSR_RW) || (csr_src != 32'd0));
@@ -354,7 +360,11 @@ module rv32_ex_stage (
         ex_target_misaligned = ex_jump_target[1];
       end
 
-      if (idex_illegal || ex_csr_illegal || ex_priv_illegal) begin
+      if (idex_ifault) begin
+        ex_trap = 1'b1;
+        ex_trap_cause = `RV32_CAUSE_INSTR_PAGE_FAULT;
+        ex_trap_tval = idex_pc;
+      end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_ILLEGAL;
         ex_trap_tval = idex_instr;
@@ -368,10 +378,14 @@ module rv32_ex_stage (
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_INSTR_MISALIGNED;
         ex_trap_tval = ex_branch_target;
+      end else if (dmem_lu_fault) begin
+        ex_trap = 1'b1;
+        ex_trap_cause = {28'd0, dmem_lu_fault_cause};
+        ex_trap_tval = memory_addr_held;
       end else if (ex_mem_misaligned) begin
         ex_trap = 1'b1;
         ex_trap_cause = idex_is_store ? `RV32_CAUSE_STORE_MISALIGNED : `RV32_CAUSE_LOAD_MISALIGNED;
-        ex_trap_tval = ex_addr;
+        ex_trap_tval = memory_addr_held;
       end
 
       if (idex_is_branch) begin
@@ -392,9 +406,6 @@ module rv32_ex_stage (
       end else if (idex_sret) begin
         ex_redirect = 1'b1;
         ex_redirect_pc = csr_sepc;
-      end else if (idex_is_sfence) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc = idex_pc + 32'd4;
       end else if (branch_mispredict) begin
         ex_redirect = 1'b1;
         if (idex_is_branch) begin
@@ -415,9 +426,10 @@ module rv32_ex_stage (
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
   assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) &&
-                       !idex_illegal && !ex_mem_misaligned &&
+                       !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
                        !rst && !halt && !fence_hold;
-  assign ex_lu_addr = memory_addr_held[31:2];
+  assign ex_lu_vaddr = memory_addr_held;
+  assign ex_lu_we = idex_is_store;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
@@ -459,6 +471,7 @@ module rv32_ex_stage (
       exmem_regwrite <= 1'b0;
       exmem_is_load <= 1'b0;
       exmem_is_store <= 1'b0;
+      exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
@@ -477,6 +490,7 @@ module rv32_ex_stage (
       exmem_regwrite <= idex_regwrite;
       exmem_is_load <= idex_is_load;
       exmem_is_store <= idex_is_store;
+      exmem_is_sfence <= idex_is_sfence;
       exmem_is_fence_i <= idex_is_fence_i;
     end
   end

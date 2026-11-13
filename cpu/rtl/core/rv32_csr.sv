@@ -93,7 +93,8 @@ module rv32_csr (
 
   logic priv_read_ok;
   logic addr_writable;
-  logic counter_read_ok;
+  logic counter_cycle_ok;
+  logic counter_instret_ok;
   logic trap_to_s;
 
   assign priv = priv_q;
@@ -113,9 +114,12 @@ module rv32_csr (
   assign addr_writable = (raddr[11:10] != 2'b11);
   // User-level cycle/instret are readable only when enabled by the
   // privilege level above (mcounteren, then scounteren).
-  assign counter_read_ok = (priv_q == PRIV_M) ||
-                           ((priv_q == PRIV_S) && mcounteren_q[0]) ||
-                           ((priv_q == PRIV_U) && mcounteren_q[0] && scounteren_q[0]);
+  assign counter_cycle_ok = (priv_q == PRIV_M) ||
+                            ((priv_q == PRIV_S) && mcounteren_q[0]) ||
+                            ((priv_q == PRIV_U) && mcounteren_q[0] && scounteren_q[0]);
+  assign counter_instret_ok = (priv_q == PRIV_M) ||
+                              ((priv_q == PRIV_S) && mcounteren_q[2]) ||
+                              ((priv_q == PRIV_U) && mcounteren_q[2] && scounteren_q[2]);
   assign trap_to_s = (priv_q != PRIV_M) && (trap_cause[31:5] == 27'd0) &&
                      medeleg_q[trap_cause[4:0]];
   assign trap_vector = trap_to_s ? stvec_q : mtvec_q;
@@ -232,12 +236,12 @@ module rv32_csr (
       end
       12'hC00: begin
         rdata = mcycle_lo;
-        read_ok = counter_read_ok;
+        read_ok = counter_cycle_ok;
         write_ok = 1'b0;
       end
       12'hC02: begin
         rdata = minstret_lo;
-        read_ok = counter_read_ok;
+        read_ok = counter_instret_ok;
         write_ok = 1'b0;
       end
       12'hF11, 12'hF12, 12'hF13, 12'hF14: begin

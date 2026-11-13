@@ -3,7 +3,8 @@
 // Issues the single blocking data-memory request, extracts the requested
 // lane from the returned word, and owns the MEM/WB pipeline register.
 // Stores are complete when the response returns, so a store miss in the
-// D-cache simply stretches mem_wait.
+// D-cache simply stretches mem_wait. FENCE.I and SFENCE.VMA hold the
+// pipeline here while the SoC flushes the caches and the MMU.
 
 `default_nettype none
 
@@ -25,6 +26,7 @@ module rv32_mem_stage (
   input logic exmem_regwrite,
   input logic exmem_is_load,
   input logic exmem_is_store,
+  input logic exmem_is_sfence,
   input logic exmem_is_fence_i,
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
@@ -64,8 +66,8 @@ module rv32_mem_stage (
   assign commit_instr = exmem_instr;
   assign commit_rd = exmem_rd;
   assign commit_wdata = exmem_is_load ? load_data : exmem_wbval;
-  assign fence_req = exmem_valid && exmem_is_fence_i && !fence_done;
-  assign mem_redirect = exmem_valid && exmem_is_fence_i && fence_done;
+  assign fence_req = exmem_valid && (exmem_is_fence_i || exmem_is_sfence) && !fence_done;
+  assign mem_redirect = exmem_valid && (exmem_is_fence_i || exmem_is_sfence) && fence_done;
 
   assign load_byte = 8'(dmem_rsp_data >> {exmem_alu[1:0], 3'b000});
   assign load_half = 16'(dmem_rsp_data >> {exmem_alu[1], 4'b0000});

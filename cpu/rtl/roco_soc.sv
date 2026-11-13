@@ -1,7 +1,8 @@
 // roco system-on-chip.
 //
-// RV32I core + I/D caches + SDRAM controller + UART + bootloader +
-// memory-mapped timer, LEDs, buttons, cache counters and boot status.
+// RV32I core with an Sv32 MMU + I/D caches + SDRAM controller + UART +
+// bootloader + memory-mapped timer, LEDs, buttons, cache counters and
+// boot status. The MMU page-table walker is a fourth SDRAM arbiter client.
 //
 // Memory map
 //   0x1000_0000  SDRAM, 32 MiB (cached)
@@ -74,6 +75,12 @@ module roco_soc #(
   logic [31:0] dmem_wdata;
   logic [3:0] dmem_be;
   logic [31:0] dmem_rsp_data;
+  logic ptw_req;
+  logic [22:0] ptw_word_addr;
+  logic ptw_ready;
+  logic ptw_rvalid;
+  logic [31:0] ptw_rdata;
+  logic ptw_rlast;
   logic core_fence_req;
   logic fence_done;
   logic dcache_flush;
@@ -227,6 +234,12 @@ module roco_soc #(
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
+      .ptw_req(ptw_req),
+      .ptw_word_addr(ptw_word_addr),
+      .ptw_ready(ptw_ready),
+      .ptw_rvalid(ptw_rvalid),
+      .ptw_rdata(ptw_rdata),
+      .ptw_rlast(ptw_rlast),
       .fence_req(core_fence_req),
       .fence_done(fence_done),
       .trace_valid(trace_valid),
@@ -332,6 +345,12 @@ module roco_soc #(
       .b_wvalid(boot_mem_wvalid),
       .b_wdata(boot_mem_wdata),
       .b_wbe(boot_mem_wbe),
+      .p_req(ptw_req),
+      .p_word_addr(ptw_word_addr),
+      .p_ready(ptw_ready),
+      .p_rvalid(ptw_rvalid),
+      .p_rdata(ptw_rdata),
+      .p_rlast(ptw_rlast),
       .c_req(c_req),
       .c_ready(c_ready),
       .c_we(c_we),

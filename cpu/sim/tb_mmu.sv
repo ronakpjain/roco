@@ -107,7 +107,7 @@ module tb_mmu;
   end
 
   // Page-table memory: one-cycle read latency.
-  assign p_ready = 1'b1;
+  initial p_ready = 1'b1;
   assign p_rlast = 1'b1;
   always_ff @(posedge clk) begin
     p_rvalid <= p_req && p_ready;
@@ -125,8 +125,7 @@ module tb_mmu;
 
   task automatic check(input logic condition, input string message);
     if (!condition) begin
-      $display("tb_mmu: FAIL: %s", message);
-      $finish;
+      $fatal(1, "tb_mmu: FAIL: %s", message);
     end
   endtask
 
@@ -167,6 +166,71 @@ module tb_mmu;
       k = k + 1;
     end
     check(i_hit, "fetch translation did not become ready");
+  endtask
+
+  task automatic cancel_walk(input logic fetch, input logic redirect, input int target_state,
+                             input logic blocked = 1'b0, input logic invalid_pte = 1'b0);
+    int unsigned k;
+    // Drive cancellation between clock edges, including on request
+    // acceptance, each PTE response and the TLB installation edge.
+    @(negedge clk);
+    i_req = 1'b0;
+    d_req = 1'b0;
+    flush = 1'b1;
+    @(negedge clk);
+    flush = 1'b0;
+    pte_mem[23'h400] = (LEAF_PPN << 10) | 32'h1;
+    pte_mem[23'h800] = (DATA_PPN << 10) | 32'hdf;
+    if (invalid_pte) begin
+      if (target_state == 2) pte_mem[23'h400] = '0;
+      else pte_mem[23'h800] = '0;
+    end
+    i_vaddr = 32'h0000_0010;
+    d_vaddr = 32'h0000_0010;
+    d_we = 1'b0;
+    i_req = fetch;
+    d_req = !fetch;
+    k = 0;
+    while ((int'(u_mmu.wstate) != target_state) && (k < 40)) begin
+      @(negedge clk);
+      k = k + 1;
+    end
+    check(int'(u_mmu.wstate) == target_state, "walk did not reach cancellation point");
+    p_ready = !blocked;
+    flush = !redirect;
+    iflush = redirect;
+    i_req = 1'b0;
+    d_req = 1'b0;
+    @(negedge clk);
+    check(!i_fault && !d_fault, "cancellation edge reported a stale fault");
+    flush = 1'b0;
+    iflush = 1'b0;
+    p_ready = 1'b1;
+    repeat (4) begin
+      @(negedge clk);
+      check(!i_fault && !d_fault, "canceled walk reported a fault");
+    end
+    check(u_mmu.wstate == u_mmu.W_IDLE, "canceled walker failed to drain");
+    check(!i_fault && !d_fault, "canceled walk reported a fault");
+    check(fetch ? (u_mmu.i_valid == '0) : (u_mmu.d_valid == '0),
+          "canceled walk installed a stale translation");
+
+    // A fresh request must walk the updated table and complete.
+    pte_mem[23'h400] = (LEAF_PPN << 10) | 32'h1;
+    pte_mem[23'h800] = (20'h1_0003 << 10) | 32'hdf;
+    i_req = fetch;
+    d_req = !fetch;
+    k = 0;
+    while (!(fetch ? i_hit : d_hit) && (k < 40)) begin
+      @(negedge clk);
+      k = k + 1;
+    end
+    check(fetch ? i_hit : d_hit, "translation after cancellation did not complete");
+    check((fetch ? ic_addr : d_paddr) == 32'h1000_3010,
+          "translation after cancellation used stale page-table data");
+    i_req = 1'b0;
+    d_req = 1'b0;
+    pte_mem[23'h800] = (DATA_PPN << 10) | 32'hdf;
   endtask
 
   initial begin
@@ -306,6 +370,20 @@ module tb_mmu;
     wait_d_hit(20);
     check(walk_reads == 2, "sfence should force a new walk");
     d_req = 1'b0;
+
+    for (int state_index = 1; state_index <= 5; state_index++) begin
+      cancel_walk(1'b0, 1'b0, state_index);
+      cancel_walk(1'b1, 1'b0, state_index);
+      cancel_walk(1'b1, 1'b1, state_index);
+      if ((state_index == 1) || (state_index == 3)) begin
+        cancel_walk(1'b0, 1'b0, state_index, 1'b1);
+        cancel_walk(1'b1, 1'b0, state_index, 1'b1);
+      end
+      if ((state_index == 2) || (state_index == 4)) begin
+        cancel_walk(1'b1, 1'b0, state_index, 1'b0, 1'b1);
+        cancel_walk(1'b1, 1'b1, state_index, 1'b0, 1'b1);
+      end
+    end
 
     $display("tb_mmu: PASS (%0d walks)", walk_reads);
     $finish;

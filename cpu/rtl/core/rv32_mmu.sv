@@ -362,6 +362,25 @@ module rv32_mmu #(
         if (wstate != W_IDLE) begin
           w_discard <= 1'b1;
         end
+        // A request can be accepted, or its sole response can arrive, on
+        // the flush edge. Drain accepted requests even while discarding
+        // their translations so the walker never waits for a lost beat.
+        case (wstate)
+          W_PTE1_REQ: begin
+            if (p_ready) wstate <= W_PTE1_WAIT;
+            else wstate <= W_IDLE;
+          end
+          W_PTE0_REQ: begin
+            if (p_ready) wstate <= W_PTE0_WAIT;
+            else wstate <= W_IDLE;
+          end
+          W_PTE1_WAIT, W_PTE0_WAIT: begin
+            if (p_rvalid) begin
+              wstate <= W_IDLE;
+            end
+          end
+          default: wstate <= W_IDLE;
+        endcase
       end else begin
         if (iflush) begin
           i_miss_pending <= 1'b0;
@@ -373,7 +392,7 @@ module rv32_mmu #(
 
         // Capture translation misses. IF holds its PC until the walker
         // answers, so the address is stable for the whole walk.
-        if (i_req && i_translate && !i_tag_hit && !i_miss_pending && !i_fault_pending &&
+        if (i_req && !iflush && i_translate && !i_tag_hit && !i_miss_pending && !i_fault_pending &&
             !(w_is_if && (wstate != W_IDLE))) begin
           i_miss_pending <= 1'b1;
         end
@@ -389,7 +408,7 @@ module rv32_mmu #(
         end
 
         // Permission faults on a TLB hit are reported without a walk.
-        if (i_perm_fault && !i_fault_pending) begin
+        if (i_perm_fault && !iflush && !i_fault_pending) begin
           i_fault_pending <= 1'b1;
           i_fault_vaddr <= i_vaddr;
           i_miss_pending <= 1'b0;
@@ -418,7 +437,7 @@ module rv32_mmu #(
                 d_fault_vpn <= d_vaddr[31:12];
                 d_fault_cause_q <= d_we ? 4'd15 : 4'd13;
               end
-            end else if (i_miss_pending) begin
+            end else if (i_miss_pending && !iflush) begin
               w_is_if <= 1'b1;
               w_is_store <= 1'b0;
               w_vaddr <= i_vaddr;
@@ -441,9 +460,12 @@ module rv32_mmu #(
           W_PTE1_WAIT: begin
             if (p_rvalid) begin
               wstate <= W_IDLE;
-              if (w_discard) begin
-                i_miss_pending <= 1'b0;
-                d_miss_pending <= 1'b0;
+              if (w_discard || (iflush && w_is_if)) begin
+                if (w_is_if) begin
+                  i_miss_pending <= 1'b0;
+                end else begin
+                  d_miss_pending <= 1'b0;
+                end
               end else if (walk_result == R_INSTALL) begin
                 w_install_word <= {
                   p_rdata[1],
@@ -481,9 +503,12 @@ module rv32_mmu #(
           W_PTE0_WAIT: begin
             if (p_rvalid) begin
               wstate <= W_IDLE;
-              if (w_discard) begin
-                i_miss_pending <= 1'b0;
-                d_miss_pending <= 1'b0;
+              if (w_discard || (iflush && w_is_if)) begin
+                if (w_is_if) begin
+                  i_miss_pending <= 1'b0;
+                end else begin
+                  d_miss_pending <= 1'b0;
+                end
               end else if (walk_result == R_INSTALL) begin
                 w_install_word <= {
                   p_rdata[1],
@@ -533,7 +558,7 @@ module rv32_mmu #(
     if (rst || flush) begin
       i_valid <= '0;
       d_valid <= '0;
-    end else if ((wstate == W_INSTALL) && !w_discard) begin
+    end else if ((wstate == W_INSTALL) && !w_discard && !(iflush && w_is_if)) begin
       if (w_is_if) begin
         itlb[w_idx] <= w_install_word;
         i_valid[w_idx] <= 1'b1;

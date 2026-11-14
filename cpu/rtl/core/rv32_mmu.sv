@@ -581,10 +581,12 @@ module rv32_mmu #(
     if (rst || flush) begin
       i_valid <= '0;
       d_valid <= '0;
-    end else if ((wstate == W_INSTALL) && !w_discard && !(iflush && w_is_if)) begin
+    end else if ((wstate == W_INSTALL) && !w_discard) begin
       if (w_is_if) begin
+        // Redirect cancellation affects validity, not refill RAM data.
+        // The discarded payload is never visible to a translation hit.
         itlb[w_idx] <= w_install_word;
-        i_valid[w_idx] <= 1'b1;
+        i_valid[w_idx] <= !iflush;
       end else begin
         dtlb[w_idx] <= w_install_word;
         d_valid[w_idx] <= 1'b1;

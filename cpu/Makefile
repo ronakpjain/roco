@@ -195,6 +195,13 @@ $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/muldiv.hex
 
+$(BUILD_DIR)/tb_regfile.vvp: rtl/core/rv32_regfile.sv sim/tb_regfile.sv | build
+	$(IVERILOG) -g2012 -s tb_regfile -o $@ $^
+
+.PHONY: test-regfile
+test-regfile: $(BUILD_DIR)/tb_regfile.vvp
+	$(VVP) $<
+
 $(BUILD_DIR)/tb_vec_regs.vvp: rtl/core/rv32_vec.sv sim/tb_vec_regs.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_vec_regs -o $@ $^
 

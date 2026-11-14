@@ -22,26 +22,33 @@ module rv32_regfile (
   output logic [31:0] rdata2
 );
 
-  logic [31:0] regs[1:31];
-  integer i;
+  // A single physical write port can serve both writers. Keep reset
+  // validity separately so the data array can use distributed RAM.
+  logic [31:0] regs[0:31];
+  logic [31:0] valid_regs;
+  wire divider_write = dwe && (drd != 5'd0);
+  wire write_enable = divider_write || (we && (rd != 5'd0));
+  wire [4:0] write_reg = divider_write ? drd : rd;
+  wire [31:0] write_data = divider_write ? ddata : wdata;
 
   always_ff @(posedge clk) begin
+    if (!rst && write_enable) begin
+      regs[write_reg] <= write_data;
+    end
     if (rst) begin
-      for (i = 1; i < 32; i = i + 1) begin
-        regs[i] <= '0;
-      end
-    end else if (dwe && (drd != 5'd0)) begin
-      regs[drd] <= ddata;
-    end else if (we && (rd != 5'd0)) begin
-      regs[rd] <= wdata;
+      valid_regs <= '0;
+    end else if (write_enable) begin
+      valid_regs[write_reg] <= 1'b1;
     end
   end
 
   // The divider port needs no read bypass: the scoreboard holds a
   // dependent instruction until the write has landed.
   always_comb begin
-    rdata1 = (rs1 == 5'd0) ? 32'd0 : (we && (rd == rs1)) ? wdata : regs[rs1];
-    rdata2 = (rs2 == 5'd0) ? 32'd0 : (we && (rd == rs2)) ? wdata : regs[rs2];
+    rdata1 = (rs1 == 5'd0) ? 32'd0 : (we && (rd == rs1)) ? wdata :
+             valid_regs[rs1] ? regs[rs1] : 32'd0;
+    rdata2 = (rs2 == 5'd0) ? 32'd0 : (we && (rd == rs2)) ? wdata :
+             valid_regs[rs2] ? regs[rs2] : 32'd0;
   end
 
 endmodule

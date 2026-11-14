@@ -712,20 +712,37 @@ module rv32_ex_stage (
       .result(vec_raw)
   );
 
-  // Balanced reduction: independent lane selection followed by four
-  // adder levels, rather than sixteen dependent additions.
-  wire [31:0] reduce_tree[1:31];
+  // Compress the reduction operands without propagating carry between
+  // bits. Only the final addition uses a full-width carry chain.
+  wire [31:0] reduce_terms[0:6][0:16];
   for (genvar k = 0; k < 16; k = k + 1) begin : g_reduce_lane
     wire [31:0] element_value;
     assign element_value = (vec_sew_cur == 3'd0) ? {24'd0, vec_vs2_data[8*k+:8]} :
                            (vec_sew_cur == 3'd1) ? {16'd0, vec_vs2_data[16*(k%8)+:16]} :
                            vec_vs2_data[32*(k%4)+:32];
-    assign reduce_tree[16+k] = (5'(k) < vec_vl) ? element_value : 32'd0;
+    assign reduce_terms[0][k] = (5'(k) < vec_vl) ? element_value : 32'd0;
   end
-  for (genvar k = 1; k < 16; k = k + 1) begin : g_reduce_add
-    assign reduce_tree[k] = reduce_tree[2*k] + reduce_tree[2*k+1];
+  assign reduce_terms[0][16] = vec_vs1_data[31:0];
+  for (genvar level = 0; level < 6; level = level + 1) begin : g_reduce_level
+    localparam int INPUTS = (level == 0) ? 17 : (level == 1) ? 12 :
+                            (level == 2) ? 8 : (level == 3) ? 6 : (level == 4) ? 4 : 3;
+    localparam int GROUPS = INPUTS / 3;
+    localparam int OUTPUTS = 2 * GROUPS + INPUTS % 3;
+    for (genvar g = 0; g < GROUPS; g = g + 1) begin : g_compress
+      wire [31:0] a = reduce_terms[level][3*g];
+      wire [31:0] b = reduce_terms[level][3*g+1];
+      wire [31:0] c = reduce_terms[level][3*g+2];
+      assign reduce_terms[level+1][2*g] = a ^ b ^ c;
+      assign reduce_terms[level+1][2*g+1] = ((a & b) | (a & c) | (b & c)) << 1;
+    end
+    for (genvar k = 0; k < INPUTS % 3; k = k + 1) begin : g_remainder
+      assign reduce_terms[level+1][2*GROUPS+k] = reduce_terms[level][3*GROUPS+k];
+    end
+    for (genvar k = OUTPUTS; k < 17; k = k + 1) begin : g_unused
+      assign reduce_terms[level+1][k] = 32'd0;
+    end
   end
-  assign vec_reduce_sum = {96'd0, (vec_vs1_data[31:0] + reduce_tree[1])};
+  assign vec_reduce_sum = {96'd0, (reduce_terms[6][0] + reduce_terms[6][1])};
 
   assign vec_wr_vl = (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110) ?
                      5'd1 : vec_vl;

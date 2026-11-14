@@ -445,8 +445,12 @@ module rv32_ex_stage (
   assign ex_csr_illegal = idex_is_csr &&
                           (!csr_exists || !csr_read_ok ||
                            (csr_write_intent && !csr_write_ok));
+  // CSR instructions cannot branch or access memory. Qualify their
+  // own traps directly so branch comparison and alignment do not feed
+  // satp writes and the TLB flush/write-enable path.
   assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
-                     csr_write_ok && !ex_trap && !fence_hold && !halt && !rst;
+                     csr_read_ok && csr_write_ok && !idex_illegal && !idex_ifault &&
+                     !dmem_lu_fault && !fence_hold && !halt && !rst;
 
   always_comb begin
     case (idex_csr_op)

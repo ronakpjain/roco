@@ -97,6 +97,16 @@ $(BUILD_DIR)/vector.bin: $(BUILD_DIR)/vector.elf
 $(BUILD_DIR)/vector.hex: $(BUILD_DIR)/vector.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/vector-irq.elf: sw/tests/vector-irq.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vector-irq.bin: $(BUILD_DIR)/vector-irq.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vector-irq.hex: $(BUILD_DIR)/vector-irq.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
 $(BUILD_DIR)/atomic.elf: sw/tests/atomic.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
 		-T sw/link.ld -o $@ $<
@@ -187,6 +197,11 @@ test-vector: $(BUILD_DIR)/vector.hex $(BUILD_DIR)/tb_core.vvp
 
 test-vector-c: $(BUILD_DIR)/vector-c.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-c.hex
+
+.PHONY: test-vector-irq
+test-vector-irq: $(BUILD_DIR)/vector-irq.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-irq.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-irq.hex
 
 test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic.hex

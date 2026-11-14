@@ -613,11 +613,14 @@ module rv32_ex_stage (
   assign ex_redirect_int = ex_redirect && !fence_hold && !halt && !rst;
   assign ex_redirect_pc_int = ex_redirect_pc_stage;
 
-  // Interrupts are taken at an instruction boundary: no older redirect,
-  // no outstanding data access and no cache flush in flight. The saved PC
-  // is the instruction that would have executed next.
-  assign irq_take = irq_req && !ex_redirect_int && !lu_stall && !fence_hold && !halt && !rst &&
-                    !redirect_from_mem;
+  // Take interrupts at a non-memory instruction boundary. Decode these
+  // boundaries early instead of feeding cache-hit timing into redirects;
+  // this also lets a vector memory sequence finish before taking a trap.
+  // The saved PC is the instruction that would have executed next.
+  assign irq_take = irq_req && !ex_redirect_int &&
+                    !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
+                                     idex_is_lr || idex_is_sc || is_vec_mem)) &&
+                    !fence_hold && !halt && !rst && !redirect_from_mem;
   assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
   assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
   assign csr_trap_irq = irq_take;

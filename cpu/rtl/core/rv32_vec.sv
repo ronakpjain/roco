@@ -38,7 +38,6 @@ module rv32_vec (
   logic [127:0] regs[0:31];
   logic [127:0] elem_mask;
   logic [127:0] elem_wdata;
-  integer i;
 
   assign vs1_data = regs[vs1];
   assign vs2_data = regs[vs2];
@@ -65,15 +64,21 @@ module rv32_vec (
     endcase
   end
 
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      for (i = 0; i < 32; i = i + 1) begin
-        regs[i] <= '0;
+  // Update only the selected bytes. A whole-register read/merge/write
+  // would add another asynchronous read port and a large feedback mux.
+  for (genvar r = 0; r < 32; r = r + 1) begin : g_reg
+    for (genvar b = 0; b < 16; b = b + 1) begin : g_byte
+      always_ff @(posedge clk) begin
+        if (rst) begin
+          regs[r][8*b+:8] <= '0;
+        end else if (ex_we) begin
+          if (ex_wd == 5'(r)) begin
+            regs[r][8*b+:8] <= ex_wdata[8*b+:8];
+          end
+        end else if (mem_we && (mem_wd == 5'(r)) && elem_mask[8*b]) begin
+          regs[r][8*b+:8] <= elem_wdata[8*b+:8];
+        end
       end
-    end else if (ex_we) begin
-      regs[ex_wd] <= ex_wdata;
-    end else if (mem_we) begin
-      regs[mem_wd] <= (regs[mem_wd] & ~elem_mask) | elem_wdata;
     end
   end
 

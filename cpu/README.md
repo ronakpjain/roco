@@ -10,6 +10,9 @@ board top level, so it can be simulated with Icarus/Verilator and
 synthesized with Yosys. `rtl/roco_top.sv` is the only file that
 instantiates the ECP5 PLL.
 
+See [FPGA timing notes](docs/timing.md) for build reproduction, pipeline
+tradeoffs, and validation coverage.
+
 ## Block diagram
 
 ![roco CPU block diagram](docs/roco-cpu.png)

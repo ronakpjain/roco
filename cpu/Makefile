@@ -150,6 +150,7 @@ test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 test-isa: $(BUILD_DIR)/tb_core.vvp
 	./scripts/get-riscv-tests.sh
 	$(PYTHON) scripts/run_isa_tests.py --riscv-prefix $(RISCV)-
+	$(PYTHON) scripts/run_isa_tests.py --riscv-prefix $(RISCV)- --suite rv32um
 
 synth: $(BUILD_DIR)/roco.json
 

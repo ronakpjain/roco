@@ -21,9 +21,15 @@ ENV = ROOT / "tests" / "riscv-env"
 LINKER = ROOT / "tests" / "riscv-test.ld"
 SECTIONS = (".text", ".rodata", ".data")
 
+# Suites this core implements, with the matching compiler ISA string.
+SUITES = {
+    "rv32ui": "rv32i_zicsr_zifencei",
+    "rv32um": "rv32im_zicsr_zifencei",
+}
+
 # This core implements precise misaligned load/store traps (mcause 4/6).
 # rv32ui/ma_data instead requires hardware misaligned access support.
-EXCLUDED = {"ma_data"}
+EXCLUDED = {"rv32ui": {"ma_data"}}
 
 
 def default_prefix() -> str:
@@ -35,14 +41,15 @@ def default_prefix() -> str:
     return "riscv64-elf-"
 
 
-def build_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+def build_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path,
+               suite: str) -> tuple[pathlib.Path, pathlib.Path]:
     name = src.stem
     elf = BUILD / f"{name}.elf"
     binfile = BUILD / f"{name}.bin"
     hexfile = BUILD / f"{name}.hex"
     compile_cmd = [
         f"{prefix}gcc",
-        "-march=rv32i_zicsr_zifencei",
+        f"-march={SUITES[suite]}",
         "-mabi=ilp32",
         "-nostdlib",
         "-nostartfiles",
@@ -77,10 +84,10 @@ def build_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path) -> tuple
 
 
 def run_test(src: pathlib.Path, prefix: str, tests_dir: pathlib.Path, max_cycles: int,
-             sim_name: str) -> tuple[str, bool, str]:
+             sim_name: str, suite: str) -> tuple[str, bool, str]:
     name = src.stem
     try:
-        _, hexfile = build_test(src, prefix, tests_dir)
+        _, hexfile = build_test(src, prefix, tests_dir, suite)
         sim = "tb_soc.vvp" if sim_name == "soc" else "tb_core.vvp"
         result = subprocess.run(
             ["vvp", str(ROOT / "build" / sim), f"+hex={hexfile}", f"+max_cycles={max_cycles}"],
@@ -103,6 +110,7 @@ def main() -> int:
     parser.add_argument("--tests", nargs="*", help="only run these test names")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
     parser.add_argument("--sim", choices=("core", "soc"), default="core")
+    parser.add_argument("--suite", choices=tuple(SUITES), default="rv32ui")
     parser.add_argument("--max-cycles", type=int, default=2_000_000)
     parser.add_argument(
         "--tests-dir",
@@ -112,14 +120,15 @@ def main() -> int:
     args = parser.parse_args()
 
     tests_dir: pathlib.Path = args.tests_dir
-    suite = tests_dir / "isa" / "rv32ui"
+    suite = tests_dir / "isa" / args.suite
     if not suite.is_dir():
         print(f"riscv-tests not found at {tests_dir}", file=sys.stderr)
         print("run scripts/get-riscv-tests.sh first", file=sys.stderr)
         return 2
 
     BUILD.mkdir(parents=True, exist_ok=True)
-    sources = [path for path in sorted(suite.glob("*.S")) if path.stem not in EXCLUDED]
+    excluded = EXCLUDED.get(args.suite, set())
+    sources = [path for path in sorted(suite.glob("*.S")) if path.stem not in excluded]
     if args.tests:
         wanted = set(args.tests)
         sources = [path for path in sources if path.stem in wanted]
@@ -127,11 +136,12 @@ def main() -> int:
         print("no tests selected", file=sys.stderr)
         return 2
 
-    print(f"rv32ui: {len(sources)} tests")
+    print(f"{args.suite}: {len(sources)} tests")
     failures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = [
-            pool.submit(run_test, src, args.riscv_prefix, tests_dir, args.max_cycles, args.sim)
+            pool.submit(run_test, src, args.riscv_prefix, tests_dir, args.max_cycles, args.sim,
+                        args.suite)
             for src in sources
         ]
         for future in concurrent.futures.as_completed(futures):

@@ -758,7 +758,9 @@ module rv32_ex_stage (
     vec_vset_en = 1'b0;
     vec_vset_vl = vset_new_vl[4:0];
     vec_vset_vtype = vset_new_vtype;
-    if (idex_valid && idex_is_vec && !idex_illegal && !fence_hold && !halt && !rst && !lu_stall) begin
+    // Arithmetic/configuration instructions never issue a data lookup.
+    // Their write enable must not depend on the memory hit/stall path.
+    if (idex_valid && idex_is_vec && !idex_illegal && !fence_hold && !halt && !rst) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
         vec_scalar_wb = 1'b1;
@@ -879,7 +881,8 @@ module rv32_ex_stage (
         vmem_base <= memory_addr;
       end else if (!vmem_active) begin
         vmem_active <= 1'b1;
-        vmem_k <= 5'd1;
+        // Latch forwarding once, but retry element zero after a miss.
+        vmem_k <= lu_stall ? 5'd0 : 5'd1;
         vmem_base <= memory_addr;
       end else if (!lu_stall) begin
         vmem_k <= vmem_idx + 5'd1;

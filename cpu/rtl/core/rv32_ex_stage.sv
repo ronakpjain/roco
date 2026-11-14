@@ -244,6 +244,7 @@ module rv32_ex_stage (
   logic [2:0] vec_sew_cur;
   logic vec_vta_cur;
   logic is_vec_mem;
+  logic vec_fault;
   logic [7:0] vset_vt;
   logic vset_rsvd;
   logic [31:0] vset_new_vtype;
@@ -635,7 +636,11 @@ module rv32_ex_stage (
   assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
   assign csr_trap_irq = irq_take;
   assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
-  assign vec_mem_hold = (vmem_hold || reduce_hold) && !ex_trap && !redirect_from_mem;
+  // Vector instructions cannot branch or execute privileged system
+  // operations. Keep those trap cones off the front-end hold signal.
+  assign vec_fault = idex_ifault || idex_illegal || dmem_lu_fault ||
+                     (is_vec_mem && ex_mem_misaligned);
+  assign vec_mem_hold = (vmem_hold || reduce_hold) && !vec_fault && !redirect_from_mem;
   assign csr_trap_pc = irq_take ? irq_next_pc : idex_pc;
   assign csr_trap_cause = irq_take ? {1'b1, 26'd0, irq_code} : ex_trap_cause;
   assign csr_trap_tval = irq_take ? 32'd0 : ex_trap_tval;
@@ -738,8 +743,8 @@ module rv32_ex_stage (
     if (rst || redirect_from_mem) begin
       reduce_ready <= 1'b0;
     end else if (!halt && !fence_hold) begin
-      reduce_ready <= reduce_hold && !ex_trap;
-      if (reduce_hold && !ex_trap) begin
+      reduce_ready <= reduce_hold && !vec_fault;
+      if (reduce_hold && !vec_fault) begin
         for (int k = 0; k < 6; k = k + 1) begin
           reduce_pipe[k] <= reduce_terms[3][k];
         end
@@ -788,7 +793,7 @@ module rv32_ex_stage (
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !idex_illegal && !reduce_hold && !fence_hold && !halt && !rst &&
+    if (idex_valid && idex_is_vec && !vec_fault && !reduce_hold && !fence_hold && !halt && !rst &&
         !redirect_from_mem) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
@@ -852,7 +857,7 @@ module rv32_ex_stage (
   assign vmem_idx = vmem_active ? vmem_k : 5'd0;
   assign vmem_total = vec_vl;
   assign vmem_done = (vmem_total == 5'd0) || (vmem_active && (vmem_k >= vmem_total));
-  assign vmem_issue = is_vec_mem && idex_valid && !vmem_done && !ex_trap && !rst && !halt &&
+  assign vmem_issue = is_vec_mem && idex_valid && !vmem_done && !vec_fault && !rst && !halt &&
                       !fence_hold;
   assign vmem_hold = is_vec_mem && idex_valid && !vmem_done;
 

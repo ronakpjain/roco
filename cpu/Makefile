@@ -104,6 +104,20 @@ test-trap-pipeline: $(BUILD_DIR)/trap-pipeline.hex $(BUILD_DIR)/tb_core.vvp $(BU
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/trap-pipeline.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/trap-pipeline.hex
 
+$(BUILD_DIR)/satp-fetch.elf: sw/tests/satp-fetch.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/satp-fetch.bin: $(BUILD_DIR)/satp-fetch.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/satp-fetch.hex: $(BUILD_DIR)/satp-fetch.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+.PHONY: test-satp-fetch
+test-satp-fetch: $(BUILD_DIR)/satp-fetch.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
+
 $(BUILD_DIR)/csr-intent.elf: sw/tests/csr-intent.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
 

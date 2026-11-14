@@ -113,7 +113,8 @@ The walker reads SDRAM directly rather than through the D-cache, so
 `SFENCE.VMA` first writes back the whole D-cache (the same sequence as
 `FENCE.I`), invalidates the I-cache, and then invalidates both TLBs.
 Software that updates a PTE must execute `SFENCE.VMA` before relying on
-the new mapping. The address and ASID operands are decoded but ignored:
+the new mapping. SATP writes replay younger fetches from the next
+instruction so invalidation cannot drop an in-flight instruction. The address and ASID operands are decoded but ignored:
 every `SFENCE.VMA` performs a complete flush.
 
 ## Caches and memory

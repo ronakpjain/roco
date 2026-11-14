@@ -206,6 +206,7 @@ module rv32_ex_stage (
   logic csr_write_ok;
   logic [31:0] csr_src;
   logic csr_write_intent;
+  logic is_satp_write;
   logic [31:0] csr_wdata;
   logic csr_wr_en;
   logic [31:0] csr_trap_vector;
@@ -463,6 +464,7 @@ module rv32_ex_stage (
   assign csr_src = idex_csr_uimm ? {27'd0, idex_rs1} : rs1_fwd;
   // Zicsr suppresses CSRRS/CSRRC writes for encoded x0 (or uimm=0),
   // not for a non-x0 register whose value happens to be zero.
+  assign is_satp_write = idex_is_csr && csr_write_intent && (idex_csr_addr == 12'h180);
   assign csr_write_intent = idex_is_csr && ((idex_csr_op == `RV32_CSR_RW) || (idex_rs1 != 5'd0));
   assign ex_csr_illegal = idex_is_csr &&
                           (!csr_exists || !csr_read_ok ||
@@ -618,7 +620,7 @@ module rv32_ex_stage (
                              (rs1_fwd != idex_pred_jalr_next));
       end
 
-      ex_redirect = ex_trap || idex_mret || idex_sret || branch_mispredict;
+      ex_redirect = ex_trap || is_satp_write || idex_mret || idex_sret || branch_mispredict;
     end
   end
 
@@ -646,6 +648,7 @@ module rv32_ex_stage (
   // correctness and current trap validity. Pending traps have priority.
   assign ex_redirect_pc = trap_pending ? csr_trap_vector :
                           idex_mret ? csr_mepc : idex_sret ? csr_sepc :
+                          is_satp_write ? (idex_pc + 32'd4) :
                           idex_is_branch ? (ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4)) :
                           idex_is_jal ? ex_branch_target : ex_jump_target;
   assign ex_trap_taken = trap_pending;

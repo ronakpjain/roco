@@ -272,7 +272,7 @@ module rv32_ex_stage (
   logic vmem_done;
   logic [31:0] vmem_addr;
   logic [31:0] vmem_base;
-  logic [31:0] vmem_offset;
+  logic [31:0] vmem_stride;
   logic [31:0] vec_store_elem;
   logic [3:0] vmem_be;
   logic [31:0] vmem_store_data;
@@ -634,7 +634,7 @@ module rv32_ex_stage (
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
   assign ex_lu_valid = idex_valid &&
                        (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr ||
-                        idex_is_sc || is_vec_mem) &&
+                        idex_is_sc || (is_vec_mem && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
                        !rst && !halt && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
@@ -822,7 +822,7 @@ module rv32_ex_stage (
   // element.
   assign vmem_idx = vmem_active ? vmem_k : 5'd0;
   assign vmem_total = vec_vl;
-  assign vmem_done = vmem_active && (vmem_k >= vmem_total);
+  assign vmem_done = (vmem_total == 5'd0) || (vmem_active && (vmem_k >= vmem_total));
   assign vmem_issue = is_vec_mem && idex_valid && !vmem_done && !ex_trap && !rst && !halt &&
                       !fence_hold;
   assign vmem_hold = is_vec_mem && idex_valid && !vmem_done;
@@ -830,12 +830,11 @@ module rv32_ex_stage (
   // Element size in bytes: e8, e16 or e32.
   assign vmem_shift = (idex_instr[14:12] == 3'b000) ? 2'd0 :
                       (idex_instr[14:12] == 3'b101) ? 2'd1 : 2'd2;
-  assign vmem_offset = {27'd0, vmem_idx} << vmem_shift;
-  // The base address is latched on the first cycle: forwarding sources
-  // change while the sequence holds the pipeline.
-  // The first element has offset zero. Select it after the incrementer
-  // so the scalar address adder never feeds a second carry chain.
-  assign vmem_addr = vmem_active ? (vmem_base + vmem_offset) : memory_addr;
+  assign vmem_stride = 32'd1 << vmem_shift;
+  // Keep the current element address in a register. Increment it only
+  // after a successful lookup, keeping carry propagation off the cache
+  // lookup path and preserving the address across misses.
+  assign vmem_addr = vmem_active ? vmem_base : memory_addr;
 
   always_comb begin
     case (idex_instr[14:12])
@@ -883,9 +882,10 @@ module rv32_ex_stage (
         vmem_active <= 1'b1;
         // Latch forwarding once, but retry element zero after a miss.
         vmem_k <= lu_stall ? 5'd0 : 5'd1;
-        vmem_base <= memory_addr;
+        vmem_base <= lu_stall ? memory_addr : (memory_addr + vmem_stride);
       end else if (!lu_stall) begin
         vmem_k <= vmem_idx + 5'd1;
+        vmem_base <= vmem_base + vmem_stride;
       end
     end
   end

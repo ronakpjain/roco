@@ -125,6 +125,29 @@ _start:
   li t5, 16
   bne t4, t5, fail_9
 
+  # 10: byte elements crossing cache lines, including first/last lanes.
+  vsetivli zero, 16, e8, m1, ta, ma
+  la s4, vbuf_bytes
+  addi s4, s4, 1
+  la s5, vbuf_byte_out
+  addi s5, s5, 1
+  vle8.v v10, (s4)
+  vadd.vi v10, v10, 1
+  vse8.v v10, (s5)
+  lbu t4, 0(s5)
+  li t5, 1
+  bne t4, t5, fail_10
+  lbu t4, 15(s5)
+  li t5, 16
+  bne t4, t5, fail_10
+  li a5, 5
+  vmv.s.x v11, a5
+  vredsum.vs v12, v10, v11
+  vmv.x.s t4, v12
+  andi t4, t4, 255
+  li t5, 141
+  bne t4, t5, fail_10
+
   li a0, 1
   sw a0, 0(x31)
 1:
@@ -156,6 +179,9 @@ fail_8:
   j fail
 fail_9:
   li a0, 49
+  j fail
+fail_10:
+  li a0, 50
 fail:
   sw a0, 0(x31)
 1:
@@ -187,3 +213,10 @@ vbuf_h:
   .half 6
   .half 7
   .half 8
+
+.balign 16
+vbuf_bytes:
+  .byte 99, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+.balign 16
+vbuf_byte_out:
+  .space 32

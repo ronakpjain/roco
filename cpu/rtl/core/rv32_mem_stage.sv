@@ -86,6 +86,17 @@ module rv32_mem_stage (
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
+  wire [3:0] amo_lt, amo_eq;
+  wire amo_unsigned_lt, amo_less;
+  for (genvar b = 0; b < 4; b = b + 1) begin : g_amo_compare
+    assign amo_lt[b] = dmem_rsp_data[8*b+:8] < exmem_store_data[8*b+:8];
+    assign amo_eq[b] = dmem_rsp_data[8*b+:8] == exmem_store_data[8*b+:8];
+  end
+  assign amo_unsigned_lt = amo_lt[3] || (amo_eq[3] && amo_lt[2]) ||
+                           (amo_eq[3] && amo_eq[2] && amo_lt[1]) ||
+                           (amo_eq[3] && amo_eq[2] && amo_eq[1] && amo_lt[0]);
+  assign amo_less = (!exmem_amo_op[3] && (dmem_rsp_data[31] != exmem_store_data[31])) ?
+                    dmem_rsp_data[31] : amo_unsigned_lt;
   logic [31:0] amo_result_q;
   logic [31:0] amo_old_q;
   logic amo_ready;
@@ -127,19 +138,8 @@ module rv32_mem_stage (
       5'b01100: begin  // AMOAND
         amo_data = dmem_rsp_data & exmem_store_data;
       end
-      5'b10000: begin  // AMOMIN
-        amo_data = ($signed(dmem_rsp_data) < $signed(exmem_store_data)) ? dmem_rsp_data :
-            exmem_store_data;
-      end
-      5'b10100: begin  // AMOMAX
-        amo_data = ($signed(dmem_rsp_data) > $signed(exmem_store_data)) ? dmem_rsp_data :
-            exmem_store_data;
-      end
-      5'b11000: begin  // AMOMINU
-        amo_data = (dmem_rsp_data < exmem_store_data) ? dmem_rsp_data : exmem_store_data;
-      end
-      default: begin  // AMOMAXU
-        amo_data = (dmem_rsp_data > exmem_store_data) ? dmem_rsp_data : exmem_store_data;
+      default: begin  // Signed/unsigned MIN/MAX share the same comparison.
+        amo_data = (amo_less ^ exmem_amo_op[2]) ? dmem_rsp_data : exmem_store_data;
       end
     endcase
   end

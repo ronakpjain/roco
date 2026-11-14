@@ -142,6 +142,12 @@ module rv32_mmu #(
   logic d_perm_fault;
   logic [31:0] i_phys;
   logic [31:0] d_phys;
+  logic d_last_valid;
+  logic [19:0] d_last_vpn;
+  logic [19:0] d_last_ppn;
+  logic [4:0] d_last_context;
+  wire [4:0] d_context = {priv_data, mstatus_sum, mstatus_mxr, d_we};
+  wire d_cached_hit = d_last_valid && (d_last_vpn == d_vpn) && (d_last_context == d_context);
   logic [31:0] level0_pte_addr;
   logic [19:0] pte_ppn;
   logic [19:0] leaf_ppn_4k;
@@ -262,14 +268,14 @@ module rv32_mmu #(
       mstatus_mxr
   );
   assign i_perm_fault = i_translate && i_req && i_tag_hit && !i_perm_ok;
-  assign d_perm_fault = d_translate && d_req && d_tag_hit && !d_perm_ok;
+  assign d_perm_fault = d_translate && d_req && !d_cached_hit && d_tag_hit && !d_perm_ok;
 
   assign i_phys = {i_ent[TAG_BITS+19:TAG_BITS], i_vaddr[11:0]};
   assign d_phys = {d_ent[TAG_BITS+19:TAG_BITS], d_vaddr[11:0]};
 
   assign i_hit = !i_translate || (i_tag_hit && i_perm_ok);
   assign i_miss = i_translate && i_req && !i_tag_hit;
-  assign d_hit = !d_translate || (d_tag_hit && d_perm_ok);
+  assign d_hit = !d_translate || d_cached_hit;
   assign ic_req = i_req && i_hit;
   assign ic_addr = i_translate ? i_phys : i_vaddr;
   assign i_busy = i_fault_pending || i_miss_pending || ((wstate != W_IDLE) && w_is_if);
@@ -278,9 +284,26 @@ module rv32_mmu #(
   assign i_rsp_valid = ic_rsp_valid && i_rsp_armed;
   assign i_rsp_addr = i_req_vaddr;
   assign i_rsp_data = ic_rsp_data;
-  assign d_paddr = d_translate ? d_phys : d_vaddr;
-  assign d_fault = d_perm_fault || (d_fault_pending && d_req && (d_vpn == d_fault_vpn));
+  assign d_paddr = d_translate ? {d_last_ppn, d_vaddr[11:0]} : d_vaddr;
+  assign d_fault = !d_cached_hit &&
+                   (d_perm_fault || (d_fault_pending && d_req && (d_vpn == d_fault_vpn)));
   assign d_fault_cause = d_fault_pending ? d_fault_cause_q : (d_we ? 4'd15 : 4'd13);
+
+  // Registered last translation: the main TLB and data-cache tag
+  // comparison occupy separate cycles on a new page/context. Same-page
+  // accesses keep their throughput, including vector element bursts.
+  // Privilege, SUM, MXR and load/store permissions form part of the key;
+  // SFENCE.VMA and every satp write invalidate both translation levels.
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      d_last_valid <= 1'b0;
+    end else if (d_req && d_translate && !d_cached_hit && d_tag_hit && d_perm_ok) begin
+      d_last_valid <= 1'b1;
+      d_last_vpn <= d_vpn;
+      d_last_ppn <= d_phys[31:12];
+      d_last_context <= d_context;
+    end
+  end
 
   assign p_req = (wstate == W_PTE1_REQ) || (wstate == W_PTE0_REQ);
   assign p_word_addr = w_pte_addr[24:2];
@@ -396,7 +419,7 @@ module rv32_mmu #(
             !(w_is_if && (wstate != W_IDLE))) begin
           i_miss_pending <= 1'b1;
         end
-        if (d_req && d_translate && !d_tag_hit && !d_miss_pending && !d_fault_pending &&
+        if (d_req && d_translate && !d_cached_hit && !d_tag_hit && !d_miss_pending && !d_fault_pending &&
             !(!w_is_if && (wstate != W_IDLE))) begin
           d_miss_pending <= 1'b1;
         end

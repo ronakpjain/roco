@@ -259,6 +259,8 @@ module tb_mmu;
     pte_mem[23'h802] = (DATA_PPN << 10) | 32'hd3;
     // Leaf[3] -> supervisor-only page (U-mode must fault).
     pte_mem[23'h803] = (DATA_PPN << 10) | 32'hcf;
+    // Leaf[4] -> execute-only user page, readable only with MXR.
+    pte_mem[23'h804] = (DATA_PPN << 10) | 32'hd9;
     // Root[1] -> 4 MiB superpage for virtual 0x0040_0000.
     pte_mem[23'h401] = (20'h40 << 20) | 32'hdf;
 
@@ -288,8 +290,8 @@ module tb_mmu;
     // The TLB should now answer without another walk.
     d_req = 1'b1;
     d_vaddr = 32'h0000_0020;
-    @(posedge clk);
-    check(d_hit, "TLB hit after fill");
+    #1;
+    check(d_hit, "same-page translation should be immediately ready");
     check(d_paddr == 32'h1000_0020, "TLB hit address");
     check(walk_reads == 2, "TLB hit should not walk");
     d_req = 1'b0;
@@ -313,10 +315,17 @@ module tb_mmu;
     i_req = 1'b0;
     @(posedge clk);
 
-    // Read-only page: a store must fault with cause 15.
+    // Warm a read translation, then change access class on the same
+    // page: the registered read permission must not authorize a store.
+    @(negedge clk);
     d_req = 1'b1;
     d_vaddr = 32'h0000_2000;
+    d_we = 1'b0;
+    wait_d_hit(20);
+    @(negedge clk);
     d_we = 1'b1;
+    #1;
+    check(!d_hit, "cached read permission must not authorize a store");
     for (n = 0; (n < 20) && !d_fault; n = n + 1) begin
       @(posedge clk);
     end
@@ -325,10 +334,17 @@ module tb_mmu;
     d_req = 1'b0;
     @(posedge clk);
 
-    // U-mode access to a supervisor-only page must fault with cause 13.
+    // A cached S-mode translation must not authorize U-mode access.
+    @(negedge clk);
+    priv_data = 2'b01;
     d_req = 1'b1;
     d_vaddr = 32'h0000_3000;
     d_we = 1'b0;
+    wait_d_hit(20);
+    @(negedge clk);
+    priv_data = 2'b00;
+    #1;
+    check(!d_hit, "cached S permission must not authorize U mode");
     for (n = 0; (n < 20) && !d_fault; n = n + 1) begin
       @(posedge clk);
     end
@@ -336,6 +352,33 @@ module tb_mmu;
     check(d_fault_cause == 4'd13, "load page fault cause");
     d_req = 1'b0;
     @(posedge clk);
+
+    // SUM and MXR are part of the registered permission context.
+    @(negedge clk);
+    priv_data = 2'b01;
+    mstatus_sum = 1'b1;
+    d_req = 1'b1;
+    d_vaddr = 32'h0000_0030;
+    wait_d_hit(20);
+    @(negedge clk);
+    mstatus_sum = 1'b0;
+    #1;
+    check(!d_hit && d_fault, "clearing SUM must reject a cached user-page access");
+    check(d_fault_cause == 4'd13, "SUM fault cause");
+    d_req = 1'b0;
+    @(negedge clk);
+    priv_data = 2'b00;
+    mstatus_mxr = 1'b1;
+    d_req = 1'b1;
+    d_vaddr = 32'h0000_4000;
+    wait_d_hit(20);
+    @(negedge clk);
+    mstatus_mxr = 1'b0;
+    #1;
+    check(!d_hit && d_fault, "clearing MXR must reject a cached execute-only read");
+    check(d_fault_cause == 4'd13, "MXR fault cause");
+    d_req = 1'b0;
+    @(negedge clk);
 
     // 4 MiB superpage: root-level leaf with PPN[0] == 0.
     d_req = 1'b1;
@@ -359,14 +402,22 @@ module tb_mmu;
     i_req = 1'b0;
     @(posedge clk);
 
-    // sfence.vma drops the TLB; the next access must walk again.
-    walk_reads = 0;
-    flush = 1'b1;
-    @(posedge clk);
-    flush = 1'b0;
+    // Warm the exact page/context retried after SFENCE.VMA, so the
+    // test detects stale entries in either translation level.
+    @(negedge clk);
     d_req = 1'b1;
     d_vaddr = 32'h0000_0010;
     d_we = 1'b1;
+    wait_d_hit(20);
+    @(negedge clk);
+    d_req = 1'b0;
+    walk_reads = 0;
+    flush = 1'b1;
+    @(negedge clk);
+    flush = 1'b0;
+    d_req = 1'b1;
+    #1;
+    check(!d_hit, "sfence must invalidate the registered last translation");
     wait_d_hit(20);
     check(walk_reads == 2, "sfence should force a new walk");
     d_req = 1'b0;

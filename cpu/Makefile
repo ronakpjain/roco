@@ -127,6 +127,15 @@ $(BUILD_DIR)/atomic.bin: $(BUILD_DIR)/atomic.elf
 $(BUILD_DIR)/atomic.hex: $(BUILD_DIR)/atomic.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/atomic-mmio.elf: sw/tests/atomic-mmio.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32ia -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/atomic-mmio.bin: $(BUILD_DIR)/atomic-mmio.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/atomic-mmio.hex: $(BUILD_DIR)/atomic-mmio.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
 $(BUILD_DIR)/interrupt.elf: sw/tests/interrupt.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
 		-T sw/link.ld -o $@ $<
@@ -227,8 +236,13 @@ test-vector-fence: $(BUILD_DIR)/vector-fence.hex $(BUILD_DIR)/tb_core.vvp $(BUIL
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-fence.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-fence.hex
 
-test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp
+test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic.hex
+
+.PHONY: test-atomic-mmio
+test-atomic-mmio: $(BUILD_DIR)/atomic-mmio.hex $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-mmio.hex
 
 test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300
@@ -246,6 +260,8 @@ test-soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_soc.vvp
 test-isa-soc: $(BUILD_DIR)/tb_soc.vvp
 	./scripts/get-riscv-tests.sh
 	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)-
+	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)- --suite rv32um
+	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)- --suite rv32ua
 
 $(BUILD_DIR)/tb_soc_boot.vvp: $(RTL_SV) sim/tb_soc_boot.sv sim/sdram_model.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \

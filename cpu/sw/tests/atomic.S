@@ -108,6 +108,14 @@ _start:
   li t2, 0x5678
   bne t1, t2, fail_9
 
+  # A younger instruction must retain an older WB forwarding value
+  # across the extra AMO capture cycle.
+  li s4, 37
+  amoadd.w zero, zero, (s1)
+  addi t0, s4, 1
+  li t1, 38
+  bne t0, t1, fail_2
+
   # 10: a misaligned AMO traps with cause 6 and the right mepc
   la t0, trap_handler
   csrw mtvec, t0

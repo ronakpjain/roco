@@ -62,6 +62,7 @@ module rv32_mem_stage (
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
   output logic fence_req,
+  output logic amo_hold,
   output logic mem_redirect,
   /* One-cycle commit strobe for minstret and the retire trace. */
   output logic commit_valid,
@@ -83,6 +84,9 @@ module rv32_mem_stage (
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
+  logic [31:0] amo_result_q;
+  logic [31:0] amo_old_q;
+  logic amo_ready;
   logic sc_ok;
   logic [31:0] sc_result;
   logic res_valid;
@@ -101,9 +105,9 @@ module rv32_mem_stage (
       .result(mul_data)
   );
 
-  // Atomic memory operations read the word the EX lookup fetched and
-  // write the computed result in the same memory cycle, which is atomic
-  // for a single hart with no interrupts in flight.
+  // Atomic operations use the word fetched by EX. Capture their result
+  // in the first MEM cycle, then commit in the second while younger
+  // instructions and interrupts wait for the atomic operation.
   always_comb begin
     case (exmem_amo_op)
       5'b00000: begin  // AMOADD
@@ -138,8 +142,22 @@ module rv32_mem_stage (
     endcase
   end
 
-  assign result_data = exmem_is_sc ? sc_result :
-                       (exmem_is_load || exmem_is_lr || exmem_is_amo) ? load_data :
+  // Capture the RMW result before driving cache or MMIO write ports.
+  // EX/MEM is held for this first cycle; the second cycle commits once.
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      amo_ready <= 1'b0;
+    end else if (!halt) begin
+      amo_ready <= amo_hold;
+      if (amo_hold) begin
+        amo_result_q <= amo_data;
+        amo_old_q <= dmem_rsp_data;
+      end
+    end
+  end
+
+  assign result_data = exmem_is_sc ? sc_result : exmem_is_amo ? amo_old_q :
+                       (exmem_is_load || exmem_is_lr) ? load_data :
                        exmem_from_mul ? mul_data : exmem_wbval;
 
   assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||
@@ -147,11 +165,13 @@ module rv32_mem_stage (
   assign dmem_addr = exmem_alu;
   assign sc_ok = res_valid && (res_addr == exmem_alu[31:2]);
   assign sc_result = {31'd0, !sc_ok};
-  assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
-  assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
+  assign dmem_we = exmem_is_store || (exmem_is_amo && amo_ready) ||
+                   (exmem_is_sc && sc_ok) || exmem_is_vstore;
+  assign dmem_wdata = exmem_is_amo ? amo_result_q : exmem_store_data;
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
-  assign dmem_req = !rst && !halt && exmem_valid && is_memory_op;
-  assign commit_valid = !rst && !halt && exmem_valid && !fence_req;
+  assign amo_hold = !rst && !halt && exmem_valid && exmem_is_amo && !amo_ready;
+  assign dmem_req = commit_valid && is_memory_op;
+  assign commit_valid = !rst && !halt && exmem_valid && !fence_req && (!exmem_is_amo || amo_ready);
   assign commit_now = commit_valid;
   // A vector load writes one element per cycle; those commits must not
   // count as retired instructions.
@@ -223,8 +243,12 @@ module rv32_mem_stage (
       memwb_regwrite <= 1'b0;
     end else if (halt || fence_req) begin
       // Hold for the FENCE.I cache flush.
+    end else if (amo_hold) begin
+      // Preserve the previous WB value for the younger EX instruction
+      // while it is held, without repeating its register-file write.
+      memwb_valid <= 1'b0;
     end else begin
-      memwb_valid <= exmem_valid;
+      memwb_valid <= commit_valid;
       // Register the selected result so WB forwarding starts at a flop.
       memwb_data <= commit_wdata;
       memwb_rd <= exmem_rd;

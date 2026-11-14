@@ -38,7 +38,10 @@ seed 4. Tool versions used for this work were Yosys 0.71+post
   that context avoid the TLB-to-cache combinational path. Bare accesses do
   not incur this translation cycle. SFENCE and SATP writes invalidate it.
 - Branch target prediction is checked in ID; branches still resolve in EX.
-  Predictor training is registered one cycle after resolution. Trap-vector
+  Redirects reach fetch one cycle after EX resolution, adding one recovery
+  cycle. The pending redirect cancels younger EX side effects, including
+  CSR/vector writes and divider starts. Predictor training is registered
+  one cycle after resolution. Trap-vector
   candidates compute before interrupt arbitration. Fetch flushes invalidate
   queue pointers independently of speculative payload writes.
 
@@ -48,7 +51,8 @@ seed 4. Tool versions used for this work were Yosys 0.71+post
 scalar/vector register reset and write collisions, randomized register
 updates, cache refill/eviction/forwarding, MMU permissions and canceled
 walks, and multiply/divide arithmetic. Directed core and cached-SoC programs
-cover vector memory/reduction, interrupts, FENCE redirects, atomics including
+cover vector memory/reduction, interrupts, FENCE redirects, canceled
+younger redirect side effects, atomics including
 MMIO, and CSR write intent. The official ISA suites run 41 RV32UI, 8 RV32UM,
 and 10 RV32UA tests on each of the core and SoC testbenches (118 total).
 The SDRAM and UART boot paths have separate simulations.

@@ -9,16 +9,16 @@
 //   rv32_branch_predictor  bimodal predictor and BTB
 //   rv32_mmu        Sv32 TLBs and hardware page-table walker
 //
-// Branches and jumps resolve in EX, so a taken control transfer costs two
-// flushed slots. Full EX/MEM and MEM/WB forwarding is used; the only
-// interlock is load-use, which inserts one bubble. Loads and stores use a
-// blocking request/response memory interface; responses carry the request
-// address so that stale responses from a redirected fetch are ignored.
+// Branches and jumps resolve in EX. A registered redirect reaches fetch
+// one cycle later and cancels the younger EX instruction. Full EX/MEM
+// and MEM/WB forwarding is used. Data lookups occur in EX and commit in
+// MEM; cache misses hold MEM until the requested word is ready. Fetch
+// responses carry addresses so redirected stale responses are ignored.
 //
 // Implemented: RV32I base integer instructions, Zicsr, M/S/U privilege
 // modes, trap delegation, Sv32 virtual memory, and traps for illegal
 // instructions, ECALL/EBREAK, misaligned addresses and page faults.
-// No interrupts.
+// Machine timer/external and software interrupts are supported.
 
 `default_nettype none
 
@@ -188,8 +188,9 @@ module rv32_core (
   logic ex_lu_hit;
   logic [1:0] priv_data;
 
-  logic ex_redirect_en;
-  logic [31:0] ex_redirect_pc;
+  logic ex_redirect_en, ex_redirect_raw;
+  logic [31:0] ex_redirect_pc, ex_redirect_pc_raw;
+
 
   logic exmem_valid;
   logic [31:0] exmem_pc;
@@ -278,6 +279,14 @@ module rv32_core (
                     (idex_rd != 5'd0) && if_valid &&
                     ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                      (dec_use_rs2 && dec_rs2 == idex_rd));
+  // Register EX redirects before distributing them through the front end.
+  // The pending redirect cancels the one younger EX instruction below.
+  always_ff @(posedge clk) begin
+    ex_redirect_pc <= ex_redirect_pc_raw;
+    if (rst || mem_redirect) ex_redirect_en <= 1'b0;
+    else ex_redirect_en <= ex_redirect_raw;
+  end
+
   assign if_consume = if_valid && !stall && !bubble && !ex_redirect_en && !mem_redirect;
   assign ex_lu_hit = mmu_d_hit;
   assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
@@ -498,7 +507,7 @@ module rv32_core (
       .irq_next_pc(if_valid ? if_pc : fetch_pc),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
-      .redirect_from_mem(mem_redirect),
+      .redirect_from_mem(mem_redirect || ex_redirect_en),
       .wb_data(wb_data),
       .wb_we(wb_we),
       .dmem_lu_fault(d_fault_q),
@@ -506,8 +515,8 @@ module rv32_core (
       .dmem_lu_paddr(mmu_d_paddr),
       .ex_trap_taken(ex_trap_taken),
       .vec_mem_hold(vec_mem_hold),
-      .ex_redirect_en(ex_redirect_en),
-      .ex_redirect_pc(ex_redirect_pc),
+      .ex_redirect_en(ex_redirect_raw),
+      .ex_redirect_pc(ex_redirect_pc_raw),
       .btb_update(btb_update),
       .btb_is_branch(btb_is_branch),
       .btb_is_jal(btb_is_jal),

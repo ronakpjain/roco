@@ -34,7 +34,8 @@ Pipeline: IF, ID, EX, MEM, WB. The I-cache streams one instruction per
 cycle into a four-entry fetch queue; a 32-entry bimodal 2-bit predictor
 with a BTB predicts taken branches so correctly predicted control
 transfers do not flush the pipeline. Branches, jumps, traps, MRET and
-SRET resolve in EX; a mispredict flushes two slots. Instruction fetches
+SRET resolve in EX; a registered redirect cancels the younger EX
+instruction and flushes fetch/decode one cycle later. Instruction fetches
 are translated before the I-cache; data addresses are translated in EX
 before the D-cache lookup and are carried to MEM as physical addresses.
 

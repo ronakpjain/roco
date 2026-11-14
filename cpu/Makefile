@@ -76,6 +76,20 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/redirect.elf: sw/tests/redirect.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/redirect.bin: $(BUILD_DIR)/redirect.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/redirect.hex: $(BUILD_DIR)/redirect.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+.PHONY: test-redirect
+test-redirect: $(BUILD_DIR)/redirect.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/redirect.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/redirect.hex
+
 $(BUILD_DIR)/csr-intent.elf: sw/tests/csr-intent.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
 

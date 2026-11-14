@@ -32,6 +32,15 @@ module rv32_csr (
   /* Highest-priority enabled interrupt, offered to EX. */
   output logic irq_req,
   output logic [4:0] irq_code,
+  /* vsetvl writes the vector configuration CSRs. */
+  input logic vset_en,
+  input logic [4:0] vset_vl,
+  input logic [31:0] vset_vtype,
+  /* Vector configuration state for the vector unit. */
+  output logic [4:0] vl,
+  output logic vtype_vta,
+  output logic [2:0] vtype_sew,
+  output logic [31:0] vstart_out,
   /* Trap entry and return (used in EX, highest priority). */
   input logic trap_en,
   input logic [31:0] trap_pc,
@@ -61,7 +70,7 @@ module rv32_csr (
   localparam logic [1:0] PRIV_U = `RV32_PRIV_U;
   localparam logic [1:0] PRIV_S = `RV32_PRIV_S;
   localparam logic [1:0] PRIV_M = `RV32_PRIV_M;
-  localparam logic [31:0] MISA_VALUE = 32'h4014_1101;
+  localparam logic [31:0] MISA_VALUE = 32'h4034_1101;
   localparam logic [31:0] MEDELEG_MASK = 32'h0000_b35d;
   // Implemented interrupt bits: SSIP, MSIP, STIP, MTIP, SEIP, MEIP.
   localparam logic [31:0] MIE_MASK = 32'h0000_0aaa;
@@ -88,6 +97,9 @@ module rv32_csr (
   logic [31:0] mcounteren_q;
   logic [31:0] scounteren_q;
   logic [31:0] satp_q;
+  logic [31:0] vl_q;
+  logic [31:0] vtype_q;
+  logic [31:0] vstart_q;
   logic mstatus_mie;
   logic mstatus_mpie;
   logic mstatus_sie;
@@ -126,6 +138,10 @@ module rv32_csr (
   assign mepc = mepc_q;
   assign sepc = sepc_q;
   assign satp = satp_q;
+  assign vl = vl_q[4:0];
+  assign vtype_vta = vtype_q[6];
+  assign vtype_sew = vtype_q[5:3];
+  assign vstart_out = vstart_q;
   // A satp write starts a new address space; flush the TLB rather than
   // tagging entries with the ASID.
   assign satp_write = wr_en && (wr_addr == 12'h180);
@@ -198,6 +214,9 @@ module rv32_csr (
       12'h104: begin  // sie: the delegated view of mie
         rdata = mie_q & mideleg_q;
       end
+      12'h008: begin  // vstart
+        rdata = vstart_q;
+      end
       12'h105: begin  // stvec
         rdata = stvec_q;
       end
@@ -218,6 +237,16 @@ module rv32_csr (
       end
       12'h144: begin  // sip: the delegated view of mip
         rdata = mip_value & mideleg_q;
+      end
+      12'hC20: begin  // vl
+        rdata = vl_q;
+      end
+      12'hC21: begin  // vtype
+        rdata = vtype_q;
+      end
+      12'hC22: begin  // vlenb: VLEN / 8
+        rdata = 32'd16;
+        write_ok = 1'b0;
       end
       12'h180: begin  // satp
         rdata = satp_q;
@@ -333,6 +362,9 @@ module rv32_csr (
       mcounteren_q <= '0;
       scounteren_q <= '0;
       satp_q <= '0;
+      vl_q <= '0;
+      vtype_q <= '0;
+      vstart_q <= '0;
       mstatus_mie <= 1'b0;
       mstatus_mpie <= 1'b0;
       mstatus_sie <= 1'b0;
@@ -395,8 +427,17 @@ module rv32_csr (
           12'h143: begin
             stval_q <= wr_data;
           end
+          12'h008: begin
+            vstart_q <= {27'd0, wr_data[4:0]};
+          end
           12'h180: begin
             satp_q <= wr_data[31] ? wr_data : 32'd0;
+          end
+          12'hC20: begin
+            vl_q <= {27'd0, wr_data[4:0]};
+          end
+          12'hC21: begin
+            vtype_q <= wr_data;
           end
           12'h300: begin
             mstatus_mie <= wr_data[3];
@@ -463,6 +504,13 @@ module rv32_csr (
           default: begin
           end
         endcase
+      end
+
+      // vsetvl commits the new configuration alongside any software
+      // write; it is always the instruction in EX.
+      if (vset_en) begin
+        vl_q <= {27'd0, vset_vl};
+        vtype_q <= vset_vtype;
       end
 
       // Trap entry overrides any software write in flight.

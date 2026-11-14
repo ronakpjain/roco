@@ -28,6 +28,11 @@ module rv32_decoder (
   output logic is_lr,
   output logic is_sc,
   output logic [4:0] amo_op,
+  output logic is_vec,
+  output logic is_vset,
+  output logic is_vload,
+  output logic is_vstore,
+  output logic [5:0] vec_funct6,
   output logic is_branch,
   output logic is_jal,
   output logic is_jalr,
@@ -64,6 +69,11 @@ module rv32_decoder (
     is_lr = 1'b0;
     is_sc = 1'b0;
     amo_op = instr[31:27];
+    is_vec = 1'b0;
+    is_vset = 1'b0;
+    is_vload = 1'b0;
+    is_vstore = 1'b0;
+    vec_funct6 = instr[31:26];
     is_branch = 1'b0;
     is_jal = 1'b0;
     is_jalr = 1'b0;
@@ -157,6 +167,62 @@ module rv32_decoder (
           illegal = 1'b1;
         end else begin
           is_store = 1'b1;
+        end
+      end
+      7'b1010111: begin  // OP-V
+        is_vec = 1'b1;
+        imm = {{27{instr[19]}}, instr[19:15]};
+        case (instr[14:12])
+          3'b111: begin  // vsetvli / vsetivli / vsetvl
+            is_vset = 1'b1;
+            regwrite = 1'b1;
+            // The asynchronous form takes its AVL from rs1.
+            use_rs1 = !instr[31];
+            alu_op = `RV32_ALU_ADD;
+          end
+          3'b000: begin  // .vv
+          end
+          3'b011: begin  // .vi
+            use_rs1 = 1'b1;
+          end
+          3'b100: begin  // .vx
+            use_rs1 = 1'b1;
+          end
+          3'b010: begin  // vmv.x.s / vredsum
+            if (instr[31:26] == `RV32_VOP_SCALAR) begin
+              regwrite = 1'b1;
+            end
+            use_rs1 = 1'b1;
+          end
+          3'b110: begin  // vmv.s.x
+            use_rs1 = 1'b1;
+          end
+          default: begin
+            illegal = 1'b1;
+          end
+        endcase
+        if (!illegal && (instr[14:12] != 3'b111) && (instr[25] == 1'b0)) begin
+          // Masked forms are not implemented yet.
+          illegal = 1'b1;
+        end
+      end
+      7'b0000111, 7'b0100111: begin  // vector load and store
+        // Only unmasked unit-stride accesses are implemented.
+        if ((instr[14:12] != 3'b000) && (instr[14:12] != 3'b101) && (instr[14:12] != 3'b110)) begin
+          illegal = 1'b1;
+        end else if ((instr[31:29] != 3'b000) || (instr[28] != 1'b0) ||
+                     (instr[27:26] != 2'b00) || (instr[25] != 1'b1) ||
+                     (instr[24:20] != 5'd0)) begin
+          illegal = 1'b1;
+        end else begin
+          use_rs1 = 1'b1;
+          alu_b_imm = 1'b1;
+          alu_op = `RV32_ALU_ADD;
+          if (instr[6:0] == 7'b0000111) begin
+            is_vload = 1'b1;
+          end else begin
+            is_vstore = 1'b1;
+          end
         end
       end
       7'b0101111: begin  // AMO

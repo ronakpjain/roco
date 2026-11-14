@@ -30,6 +30,17 @@ module rv32_mem_stage (
   input logic exmem_is_lr,
   input logic exmem_is_sc,
   input logic [4:0] exmem_amo_op,
+  input logic exmem_is_vload,
+  input logic exmem_is_vstore,
+  input logic [3:0] exmem_vec_elem,
+  input logic [2:0] exmem_vec_sew,
+  /* Element write port into the vector register file. */
+  output logic vec_mem_we,
+  output logic [4:0] vec_mem_wd,
+  output logic [3:0] vec_mem_elem,
+  output logic [2:0] vec_mem_sew,
+  output logic [31:0] vec_mem_wdata,
+  output logic vec_element_commit,
   /* Any trap this cycle cancels a reservation. */
   input logic trap_taken,
   input logic exmem_is_sfence,
@@ -132,16 +143,24 @@ module rv32_mem_stage (
                        exmem_from_mul ? mul_data : exmem_wbval;
 
   assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||
-                        exmem_is_sc;
+                        exmem_is_sc || exmem_is_vload || exmem_is_vstore;
   assign dmem_addr = exmem_alu;
   assign sc_ok = res_valid && (res_addr == exmem_alu[31:2]);
   assign sc_result = {31'd0, !sc_ok};
-  assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok);
+  assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
   assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
   assign dmem_req = !rst && !halt && exmem_valid && is_memory_op;
   assign commit_valid = !rst && !halt && exmem_valid && !fence_req;
   assign commit_now = commit_valid;
+  // A vector load writes one element per cycle; those commits must not
+  // count as retired instructions.
+  assign vec_element_commit = commit_valid && (exmem_is_vload || exmem_is_vstore);
+  assign vec_mem_we = commit_valid && exmem_is_vload;
+  assign vec_mem_wd = exmem_rd;
+  assign vec_mem_elem = exmem_vec_elem;
+  assign vec_mem_sew = exmem_vec_sew;
+  assign vec_mem_wdata = dmem_rsp_data >> {exmem_alu[1:0], 3'b000};
   assign store_now = commit_valid && exmem_valid && dmem_we && is_memory_op;
   assign commit_pc = exmem_pc;
   assign commit_instr = exmem_instr;

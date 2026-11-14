@@ -119,6 +119,11 @@ module rv32_core (
   logic idex_is_lr;
   logic idex_is_sc;
   logic [4:0] idex_amo_op;
+  logic idex_is_vec;
+  logic idex_is_vset;
+  logic idex_is_vload;
+  logic idex_is_vstore;
+  logic [5:0] idex_vec_funct6;
   logic idex_is_branch;
   logic idex_is_jal;
   logic idex_is_jalr;
@@ -203,6 +208,23 @@ module rv32_core (
   logic exmem_is_sc;
   logic [4:0] exmem_amo_op;
   logic ex_trap_taken;
+  logic vec_mem_hold;
+  logic vec_ex_we;
+  logic [4:0] vec_ex_wd;
+  logic [127:0] vec_ex_wdata;
+  logic [127:0] vec_vs1_data;
+  logic [127:0] vec_vs2_data;
+  logic [127:0] vec_vd_data;
+  logic exmem_is_vload;
+  logic exmem_is_vstore;
+  logic [3:0] exmem_vec_elem;
+  logic [2:0] exmem_vec_sew;
+  logic vec_mem_we;
+  logic [4:0] vec_mem_wd;
+  logic [3:0] vec_mem_elem;
+  logic [2:0] vec_mem_sew;
+  logic [31:0] vec_mem_wdata;
+  logic vec_element_commit;
   logic exmem_is_sfence;
   logic exmem_is_fence_i;
   logic [31:0] exmem_mul_p0;
@@ -244,7 +266,7 @@ module rv32_core (
   logic [4:0] commit_rd;
   logic [31:0] commit_wdata;
 
-  assign retire = commit_valid;
+  assign retire = commit_valid && !vec_element_commit;
   // Keep a dependent instruction in ID until the load reaches WB.
   // Multiply completes in MEM, so a dependent instruction waits one cycle
   // exactly like a load-use dependency.
@@ -281,7 +303,7 @@ module rv32_core (
                            (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
                            (dec_regwrite && (dec_rd == div_pending_rd)))));
   assign bubble = load_use || div_conflict;
-  assign stall = dmem_lu_stall || fence_req;
+  assign stall = dmem_lu_stall || fence_req || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
@@ -379,6 +401,11 @@ module rv32_core (
       .idex_is_lr(idex_is_lr),
       .idex_is_sc(idex_is_sc),
       .idex_amo_op(idex_amo_op),
+      .idex_is_vec(idex_is_vec),
+      .idex_is_vset(idex_is_vset),
+      .idex_is_vload(idex_is_vload),
+      .idex_is_vstore(idex_is_vstore),
+      .idex_vec_funct6(idex_vec_funct6),
       .idex_is_branch(idex_is_branch),
       .idex_is_jal(idex_is_jal),
       .idex_is_jalr(idex_is_jalr),
@@ -436,6 +463,17 @@ module rv32_core (
       .idex_is_lr(idex_is_lr),
       .idex_is_sc(idex_is_sc),
       .idex_amo_op(idex_amo_op),
+      .idex_is_vec(idex_is_vec),
+      .idex_is_vset(idex_is_vset),
+      .idex_is_vload(idex_is_vload),
+      .idex_is_vstore(idex_is_vstore),
+      .idex_vec_funct6(idex_vec_funct6),
+      .vec_vs1_data(vec_vs1_data),
+      .vec_vs2_data(vec_vs2_data),
+      .vec_vd_data(vec_vd_data),
+      .vec_ex_we(vec_ex_we),
+      .vec_ex_wd(vec_ex_wd),
+      .vec_ex_wdata(vec_ex_wdata),
       .idex_is_branch(idex_is_branch),
       .idex_is_jal(idex_is_jal),
       .idex_is_jalr(idex_is_jalr),
@@ -461,6 +499,7 @@ module rv32_core (
       .dmem_lu_fault_cause(d_fault_cause_q),
       .dmem_lu_paddr(mmu_d_paddr),
       .ex_trap_taken(ex_trap_taken),
+      .vec_mem_hold(vec_mem_hold),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
       .btb_update(btb_update),
@@ -497,6 +536,10 @@ module rv32_core (
       .exmem_is_lr(exmem_is_lr),
       .exmem_is_sc(exmem_is_sc),
       .exmem_amo_op(exmem_amo_op),
+      .exmem_is_vload(exmem_is_vload),
+      .exmem_is_vstore(exmem_is_vstore),
+      .exmem_vec_elem(exmem_vec_elem),
+      .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
       .exmem_mul_p0(exmem_mul_p0),
@@ -507,6 +550,25 @@ module rv32_core (
       .exmem_mul_sub_b(exmem_mul_sub_b),
       .exmem_mul_variant(exmem_mul_variant),
       .exmem_from_mul(exmem_from_mul)
+  );
+
+  rv32_vec u_vec (
+      .clk(clk),
+      .rst(rst),
+      .vs1(idex_instr[19:15]),
+      .vs2(idex_instr[24:20]),
+      .vd(idex_instr[11:7]),
+      .vs1_data(vec_vs1_data),
+      .vs2_data(vec_vs2_data),
+      .vd_data(vec_vd_data),
+      .ex_we(vec_ex_we && !stall),
+      .ex_wd(vec_ex_wd),
+      .ex_wdata(vec_ex_wdata),
+      .mem_we(vec_mem_we),
+      .mem_wd(vec_mem_wd),
+      .mem_elem(vec_mem_elem),
+      .mem_sew(vec_mem_sew),
+      .mem_wdata(vec_mem_wdata)
   );
 
   rv32_mmu u_mmu (
@@ -599,6 +661,10 @@ module rv32_core (
       .exmem_is_lr(exmem_is_lr),
       .exmem_is_sc(exmem_is_sc),
       .exmem_amo_op(exmem_amo_op),
+      .exmem_is_vload(exmem_is_vload),
+      .exmem_is_vstore(exmem_is_vstore),
+      .exmem_vec_elem(exmem_vec_elem),
+      .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
       .exmem_mul_p0(exmem_mul_p0),
@@ -610,6 +676,12 @@ module rv32_core (
       .exmem_mul_variant(exmem_mul_variant),
       .exmem_from_mul(exmem_from_mul),
       .trap_taken(ex_trap_taken || satp_write),
+      .vec_mem_we(vec_mem_we),
+      .vec_mem_wd(vec_mem_wd),
+      .vec_mem_elem(vec_mem_elem),
+      .vec_mem_sew(vec_mem_sew),
+      .vec_mem_wdata(vec_mem_wdata),
+      .vec_element_commit(vec_element_commit),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),

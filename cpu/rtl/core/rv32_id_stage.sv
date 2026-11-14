@@ -71,6 +71,11 @@ module rv32_id_stage (
   output logic idex_is_lr,
   output logic idex_is_sc,
   output logic [4:0] idex_amo_op,
+  output logic idex_is_vec,
+  output logic idex_is_vset,
+  output logic idex_is_vload,
+  output logic idex_is_vstore,
+  output logic [5:0] idex_vec_funct6,
   output logic idex_is_branch,
   output logic idex_is_jal,
   output logic idex_is_jalr,
@@ -100,6 +105,11 @@ module rv32_id_stage (
   logic dec_is_lr;
   logic dec_is_sc;
   logic [4:0] dec_amo_op;
+  logic dec_is_vec;
+  logic dec_is_vset;
+  logic dec_is_vload;
+  logic dec_is_vstore;
+  logic [5:0] dec_vec_funct6;
   logic dec_is_branch;
   logic dec_is_jal;
   logic dec_is_jalr;
@@ -162,6 +172,11 @@ module rv32_id_stage (
       .is_lr(dec_is_lr),
       .is_sc(dec_is_sc),
       .amo_op(dec_amo_op),
+      .is_vec(dec_is_vec),
+      .is_vset(dec_is_vset),
+      .is_vload(dec_is_vload),
+      .is_vstore(dec_is_vstore),
+      .vec_funct6(dec_vec_funct6),
       .is_branch(dec_is_branch),
       .is_jal(dec_is_jal),
       .is_jalr(dec_is_jalr),
@@ -225,6 +240,11 @@ module rv32_id_stage (
       idex_is_lr <= 1'b0;
       idex_is_sc <= 1'b0;
       idex_amo_op <= '0;
+      idex_is_vec <= 1'b0;
+      idex_is_vset <= 1'b0;
+      idex_is_vload <= 1'b0;
+      idex_is_vstore <= 1'b0;
+      idex_vec_funct6 <= '0;
       idex_is_branch <= 1'b0;
       idex_is_jal <= 1'b0;
       idex_is_jalr <= 1'b0;
@@ -274,6 +294,11 @@ module rv32_id_stage (
       idex_is_lr <= dec_is_lr;
       idex_is_sc <= dec_is_sc;
       idex_amo_op <= dec_amo_op;
+      idex_is_vec <= dec_is_vec;
+      idex_is_vset <= dec_is_vset;
+      idex_is_vload <= dec_is_vload;
+      idex_is_vstore <= dec_is_vstore;
+      idex_vec_funct6 <= dec_vec_funct6;
       idex_is_branch <= dec_is_branch;
       idex_is_jal <= dec_is_jal;
       idex_is_jalr <= dec_is_jalr;

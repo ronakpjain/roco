@@ -953,11 +953,9 @@ module rv32_ex_stage (
       exmem_from_mul <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
-    end else if (lu_stall || reduce_hold || redirect_from_mem) begin
-      exmem_valid <= 1'b0;
     end else if (is_vec_mem && idex_valid) begin
       // One element per cycle; the last cycle issues nothing.
-      exmem_valid <= vmem_issue;
+      exmem_valid <= vmem_issue && !lu_stall && !redirect_from_mem;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= dmem_lu_paddr;
@@ -988,7 +986,10 @@ module rv32_ex_stage (
       exmem_mul_variant <= `RV32_MD_MUL;
       exmem_from_mul <= 1'b0;
     end else begin
-      exmem_valid <= idex_valid && !ex_trap;
+      // Invalid payload may advance during a lookup miss or the first
+      // reduction cycle. Miss operands are already saved separately;
+      // only validity needs the late cache-hit signal.
+      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !reduce_hold && !redirect_from_mem;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= ex_addr;

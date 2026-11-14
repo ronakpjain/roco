@@ -214,7 +214,7 @@ module rv32_ex_stage (
   logic csr_write_intent;
   logic [31:0] csr_wdata;
   logic csr_wr_en;
-  logic [31:0] csr_trap_vector;
+  logic [31:0] csr_sync_trap_vector, csr_irq_trap_vector;
   logic [31:0] unused_csr_mtvec;
   logic [31:0] unused_csr_stvec;
   logic [31:0] csr_mepc;
@@ -421,6 +421,7 @@ module rv32_ex_stage (
       .trap_en(csr_trap_irq || (ex_redirect_int && ex_trap)),
       .trap_pc(csr_trap_pc),
       .trap_cause(csr_trap_cause),
+      .sync_trap_cause(ex_trap_cause),
       .trap_tval(csr_trap_tval),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
@@ -432,7 +433,8 @@ module rv32_ex_stage (
       .priv(csr_priv),
       .mtvec(unused_csr_mtvec),
       .stvec(unused_csr_stvec),
-      .trap_vector(csr_trap_vector),
+      .sync_trap_vector(csr_sync_trap_vector),
+      .irq_trap_vector(csr_irq_trap_vector),
       .mepc(csr_mepc),
       .sepc(csr_sepc),
       .satp(satp),
@@ -621,15 +623,15 @@ module rv32_ex_stage (
 
       if (ex_trap) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc_stage = csr_trap_vector;
+        ex_redirect_pc_stage = csr_sync_trap_vector;
       end else if (idex_mret) begin
         ex_redirect = 1'b1;
         ex_redirect_pc_stage = csr_mepc;
       end else if (idex_sret) begin
         ex_redirect = 1'b1;
         ex_redirect_pc_stage = csr_sepc;
-      end else if (branch_mispredict) begin
-        ex_redirect = 1'b1;
+      end else begin
+        ex_redirect = branch_mispredict;
         if (idex_is_branch) begin
           ex_redirect_pc_stage = ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4);
         end else if (idex_is_jal) begin
@@ -655,7 +657,7 @@ module rv32_ex_stage (
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
                     !reduce_hold && !fence_hold && !halt && !rst && !redirect_from_mem;
   assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
-  assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
+  assign ex_redirect_pc = irq_take ? csr_irq_trap_vector : ex_redirect_pc_int;
   assign csr_trap_irq = irq_take;
   assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
   // Vector instructions cannot branch or execute privileged system

@@ -45,6 +45,7 @@ module rv32_csr (
   input logic trap_en,
   input logic [31:0] trap_pc,
   input logic [31:0] trap_cause,
+  input logic [31:0] sync_trap_cause,
   input logic [31:0] trap_tval,
   input logic mret_en,
   input logic sret_en,
@@ -54,7 +55,8 @@ module rv32_csr (
   output logic [1:0] priv,
   output logic [31:0] mtvec,
   output logic [31:0] stvec,
-  output logic [31:0] trap_vector,
+  output logic [31:0] sync_trap_vector,
+  output logic [31:0] irq_trap_vector,
   output logic [31:0] mepc,
   output logic [31:0] sepc,
   output logic [31:0] satp,
@@ -195,7 +197,10 @@ module rv32_csr (
       irq_code = 5'd5;
     end
   end
-  assign trap_vector = trap_to_s ? stvec_q : mtvec_q;
+  // Compute both candidates before EX decides whether to take an interrupt.
+  assign sync_trap_vector = ((priv_q != PRIV_M) && medeleg_q[sync_trap_cause[4:0]]) ?
+                            stvec_q : mtvec_q;
+  assign irq_trap_vector = mideleg_q[irq_code] ? stvec_q : mtvec_q;
 
   always_comb begin
     exists = 1'b1;

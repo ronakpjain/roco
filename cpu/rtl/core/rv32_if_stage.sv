@@ -50,11 +50,14 @@ module rv32_if_stage (
 
   logic [31:0] pc_if;
   logic [31:0] last_req;
-  logic [31:0] q_pc[0:DEPTH-1];
-  logic [31:0] q_instr[0:DEPTH-1];
-  logic q_fault[0:DEPTH-1];
-  logic q_pred_taken[0:DEPTH-1];
-  logic [31:0] q_pred_target[0:DEPTH-1];
+  // Four-entry queues are shallow muxes, not RAMs with registered read
+  // addresses. Keep the ID payload registers near EX so backend hold
+  // does not drive a distant RAM read-address feedback path.
+  (* mem2reg *) logic [31:0] q_pc[0:DEPTH-1];
+  (* mem2reg *) logic [31:0] q_instr[0:DEPTH-1];
+  (* mem2reg *) logic q_fault[0:DEPTH-1];
+  (* mem2reg *) logic q_pred_taken[0:DEPTH-1];
+  (* mem2reg *) logic [31:0] q_pred_target[0:DEPTH-1];
   logic [1:0] q_head;
   logic [1:0] q_tail;
   logic [2:0] q_count;

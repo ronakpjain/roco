@@ -45,7 +45,6 @@ module rv32_csr (
   input logic trap_en,
   input logic [31:0] trap_pc,
   input logic [31:0] trap_cause,
-  input logic [4:0] sync_trap_cause,
   input logic [31:0] trap_tval,
   input logic mret_en,
   input logic sret_en,
@@ -55,8 +54,7 @@ module rv32_csr (
   output logic [1:0] priv,
   output logic [31:0] mtvec,
   output logic [31:0] stvec,
-  output logic [31:0] sync_trap_vector,
-  output logic [31:0] irq_trap_vector,
+  output logic [31:0] trap_vector,
   output logic [31:0] mepc,
   output logic [31:0] sepc,
   output logic [31:0] satp,
@@ -170,8 +168,8 @@ module rv32_csr (
                               ((priv_q == PRIV_S) && mcounteren_q[2]) ||
                               ((priv_q == PRIV_U) && mcounteren_q[2] && scounteren_q[2]);
   // Interrupt traps follow mideleg, exception traps medeleg.
-  assign trap_to_s = trap_cause[31] ? mideleg_q[irq_code] :
-                     (priv_q != PRIV_M) && medeleg_q[sync_trap_cause];
+  assign trap_to_s = trap_cause[31] ? mideleg_q[trap_cause[4:0]] :
+                     (priv_q != PRIV_M) && medeleg_q[trap_cause[4:0]];
 
   assign mip_value = mip_q | (irq_timer ? 32'h0000_0080 : 32'd0) |
                      (irq_external ? 32'h0000_0800 : 32'd0);
@@ -203,8 +201,7 @@ module rv32_csr (
     end
   end
   // Compute both candidates before EX decides whether to take an interrupt.
-  assign sync_trap_vector = ((priv_q != PRIV_M) && medeleg_q[sync_trap_cause]) ? stvec_q : mtvec_q;
-  assign irq_trap_vector = mideleg_q[irq_code] ? stvec_q : mtvec_q;
+  assign trap_vector = trap_to_s ? stvec_q : mtvec_q;
 
   always_comb begin
     exists = 1'b1;

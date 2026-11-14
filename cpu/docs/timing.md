@@ -80,3 +80,8 @@ Vector loads and stores increment `minstret` once, when their final element
 commits. VL-zero memory instructions retire once without issuing a request.
 Counter reads include the older instruction committing in MEM on that edge.
 Run `make test-vector-retire` to check counts on the core and cached SoC.
+
+Trap entry records PC, cause and trap value before updating the CSR state
+and selecting the handler vector. Pending traps cancel younger EX side
+effects. `make test-trap-pipeline` checks trap payloads, reservation clearing
+and cancellation of younger stores, scalar, CSR and vector writes.

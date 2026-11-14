@@ -190,10 +190,10 @@ module rv32_ex_stage (
   logic [31:0] ex_trap_cause;
   logic ex_redirect;
   logic ex_redirect_int;
-  logic [31:0] ex_redirect_pc_int;
-  logic [31:0] ex_redirect_pc_stage;
   logic irq_take;
-  logic csr_trap_irq;
+  logic trap_pending;
+  logic cancel_ex;
+  logic trap_capture;
   logic [31:0] csr_trap_pc;
   logic [31:0] csr_trap_cause;
   logic [31:0] csr_trap_tval;
@@ -219,7 +219,7 @@ module rv32_ex_stage (
   logic csr_write_intent;
   logic [31:0] csr_wdata;
   logic csr_wr_en;
-  logic [31:0] csr_sync_trap_vector, csr_irq_trap_vector;
+  logic [31:0] csr_trap_vector;
   logic [31:0] unused_csr_mtvec;
   logic [31:0] unused_csr_stvec;
   logic [31:0] csr_mepc;
@@ -310,7 +310,7 @@ module rv32_ex_stage (
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst &&
-                     !redirect_from_mem;
+                     !cancel_ex;
 
   rv32_divider u_divider (
       .clk(clk),
@@ -418,10 +418,9 @@ module rv32_ex_stage (
       .wr_en(csr_wr_en),
       .wr_addr(idex_csr_addr),
       .wr_data(csr_wdata),
-      .trap_en(csr_trap_irq || (ex_redirect_int && ex_trap)),
+      .trap_en(trap_pending && !halt && !rst),
       .trap_pc(csr_trap_pc),
       .trap_cause(csr_trap_cause),
-      .sync_trap_cause(ex_trap_cause[4:0]),
       .trap_tval(csr_trap_tval),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
@@ -433,8 +432,7 @@ module rv32_ex_stage (
       .priv(csr_priv),
       .mtvec(unused_csr_mtvec),
       .stvec(unused_csr_stvec),
-      .sync_trap_vector(csr_sync_trap_vector),
-      .irq_trap_vector(csr_irq_trap_vector),
+      .trap_vector(csr_trap_vector),
       .mepc(csr_mepc),
       .sepc(csr_sepc),
       .satp(satp),
@@ -461,8 +459,8 @@ module rv32_ex_stage (
   assign mstatus_tvm = csr_tvm;
   assign mstatus_tsr = csr_tsr;
   assign mstatus_mpp = csr_mpp;
-  assign csr_mret_en = ex_redirect_en && idex_mret && !ex_trap;
-  assign csr_sret_en = ex_redirect_en && idex_sret && !ex_trap;
+  assign csr_mret_en = ex_redirect_int && idex_mret && !ex_trap;
+  assign csr_sret_en = ex_redirect_int && idex_sret && !ex_trap;
 
   assign csr_src = idex_csr_uimm ? {27'd0, idex_rs1} : rs1_fwd;
   // Zicsr suppresses CSRRS/CSRRC writes for encoded x0 (or uimm=0),
@@ -476,7 +474,7 @@ module rv32_ex_stage (
   // satp writes and the TLB flush/write-enable path.
   assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
                      csr_read_ok && csr_write_ok && !idex_illegal && !idex_ifault &&
-                     !dmem_lu_fault && !fence_hold && !halt && !rst && !redirect_from_mem;
+                     !dmem_lu_fault && !fence_hold && !halt && !rst && !cancel_ex;
 
   always_comb begin
     case (idex_csr_op)
@@ -532,7 +530,6 @@ module rv32_ex_stage (
     ex_trap_tval = 32'd0;
     ex_redirect = 1'b0;
     branch_mispredict = 1'b0;
-    ex_redirect_pc_stage = 32'd0;
     if (idex_valid) begin
       if (idex_is_branch) begin
         case (idex_funct3)
@@ -600,7 +597,7 @@ module rv32_ex_stage (
       end else if (ex_target_misaligned) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_INSTR_MISALIGNED;
-        ex_trap_tval = ex_branch_target;
+        ex_trap_tval = idex_is_jalr ? ex_jump_target : ex_branch_target;
       end else if (dmem_lu_fault) begin
         ex_trap = 1'b1;
         ex_trap_cause = {28'd0, dmem_lu_fault_cause};
@@ -623,55 +620,35 @@ module rv32_ex_stage (
                              (rs1_fwd != idex_pred_jalr_next));
       end
 
-      if (ex_trap) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc_stage = csr_sync_trap_vector;
-      end else if (idex_mret) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc_stage = csr_mepc;
-      end else if (idex_sret) begin
-        ex_redirect = 1'b1;
-        ex_redirect_pc_stage = csr_sepc;
-      end else begin
-        ex_redirect = branch_mispredict;
-        if (idex_is_branch) begin
-          ex_redirect_pc_stage = ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4);
-        end else if (idex_is_jal) begin
-          ex_redirect_pc_stage = ex_branch_target;
-        end else begin
-          ex_redirect_pc_stage = ex_jump_target;
-        end
-      end
+      ex_redirect = ex_trap || idex_mret || idex_sret || branch_mispredict;
     end
   end
 
-  // A redirecting instruction cannot issue a cache lookup. Only an older
-  // FENCE.I can hold it; do not feed the data-cache hit path into redirects.
-  assign ex_redirect_int = ex_redirect && !fence_hold && !halt && !rst && !redirect_from_mem;
-  assign ex_redirect_pc_int = ex_redirect_pc_stage;
-
-  // Take interrupts at a non-memory instruction boundary. Decode these
-  // boundaries early instead of feeding cache-hit timing into redirects;
-  // this also lets a vector memory sequence finish before taking a trap.
-  // The saved PC is the instruction that would have executed next.
+  // Register trap entry and payload; cancel younger EX side effects while
+  // the pending trap selects its vector and updates privilege state.
+  assign cancel_ex = redirect_from_mem || trap_pending;
+  assign ex_redirect_int = ex_redirect && !ex_trap && !fence_hold && !halt && !rst && !cancel_ex;
   assign irq_take = irq_req && !ex_redirect &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
-                    !fence_hold && !halt && !rst && !redirect_from_mem;
-  assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
-  // The address is consumed only when redirect is enabled. Select it
-  // before the late hold controls used by interrupt arbitration.
-  assign ex_redirect_pc = ex_redirect ? ex_redirect_pc_int : csr_irq_trap_vector;
-  assign csr_trap_irq = irq_take;
-  assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
-  // Vector instructions cannot branch or execute privileged system
-  // operations. Keep those trap cones off the front-end hold signal.
+                    !fence_hold && !halt && !rst && !cancel_ex;
+  assign trap_capture = (irq_take || ex_trap) && !fence_hold && !halt && !rst && !cancel_ex;
+  always_ff @(posedge clk) begin
+    if (rst) trap_pending <= 1'b0;
+    else trap_pending <= trap_capture;
+    csr_trap_pc <= ex_trap ? idex_pc : irq_next_pc;
+    csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
+    csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
+  end
+  assign ex_redirect_en = (ex_redirect_int || trap_pending) && !halt && !rst;
+  assign ex_redirect_pc = trap_pending ? csr_trap_vector :
+                          idex_mret ? csr_mepc : idex_sret ? csr_sepc :
+                          idex_is_branch ? (ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4)) :
+                          idex_is_jal ? ex_branch_target : ex_jump_target;
+  assign ex_trap_taken = trap_pending;
   assign vec_fault = idex_ifault || idex_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
-  assign vec_mem_hold = (vmem_hold) && !vec_fault && !redirect_from_mem;
-  assign csr_trap_pc = ex_trap ? idex_pc : irq_next_pc;
-  assign csr_trap_cause = ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
-  assign csr_trap_tval = ex_trap ? ex_trap_tval : 32'd0;
+  assign vec_mem_hold = vmem_hold && !vec_fault && !cancel_ex;
   // The decoder makes memory operations mutually exclusive with branches,
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
@@ -679,11 +656,11 @@ module rv32_ex_stage (
                        (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr ||
                         idex_is_sc || (is_vec_mem && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
-                       !rst && !halt && !redirect_from_mem;
+                       !rst && !halt && !cancel_ex;
   assign ex_lu_valid = ex_lu_present && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
   assign ex_lu_we = idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
-  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst && !redirect_from_mem &&
+  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst && !cancel_ex &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
   assign btb_is_jal = idex_is_jal;
@@ -781,8 +758,7 @@ module rv32_ex_stage (
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !vec_fault && !fence_hold && !halt && !rst &&
-        !redirect_from_mem) begin
+    if (idex_valid && idex_is_vec && !vec_fault && !fence_hold && !halt && !rst && !cancel_ex) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
         vec_scalar_wb = 1'b1;
@@ -899,7 +875,7 @@ module rv32_ex_stage (
       vmem_active <= 1'b0;
       vmem_k <= '0;
       vmem_base <= '0;
-    end else if (redirect_from_mem) begin
+    end else if (cancel_ex) begin
       vmem_active <= 1'b0;
       vmem_k <= '0;
     end else if (!halt && !fence_hold) begin
@@ -954,7 +930,7 @@ module rv32_ex_stage (
     end else if (is_vec_mem && idex_valid) begin
       // One element per cycle; the last cycle issues nothing.
       // VL zero retires a no-op; nonzero vectors retire their final element.
-      exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_total == 5'd0)) && !redirect_from_mem;
+      exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_total == 5'd0)) && !cancel_ex;
       exmem_vec_last <= (vmem_total == 5'd0) || (vmem_idx + 5'd1 == vmem_total);
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
@@ -989,7 +965,7 @@ module rv32_ex_stage (
       // Invalid payload may advance during a lookup miss or the first
       // reduction cycle. Miss operands are already saved separately;
       // only validity needs the late cache-hit signal.
-      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !redirect_from_mem;
+      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !cancel_ex;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= ex_addr;

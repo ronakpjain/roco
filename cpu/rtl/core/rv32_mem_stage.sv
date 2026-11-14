@@ -62,6 +62,7 @@ module rv32_mem_stage (
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
+  input logic [31:0] dmem_forward_data,
   input logic dmem_ready,
   output logic mem_wait,
   output logic fence_req,
@@ -72,6 +73,7 @@ module rv32_mem_stage (
   output logic [31:0] commit_instr,
   output logic [4:0] commit_rd,
   output logic [31:0] commit_wdata,
+  output logic [31:0] forward_data,
   /* MEM/WB pipeline register. */
   output logic memwb_valid,
   output logic [31:0] memwb_data,
@@ -146,6 +148,14 @@ module rv32_mem_stage (
   assign result_data = exmem_is_sc ? sc_result : exmem_is_amo ? dmem_rsp_data :
                        (exmem_is_load || exmem_is_lr) ? load_data :
                        exmem_from_mul ? mul_data : exmem_wbval;
+
+  // Cached loads are already aligned before the early read register.
+  assign forward_data =
+      ({32{exmem_is_sc}} & sc_result) |
+      ({32{exmem_is_amo || exmem_is_load || exmem_is_lr}} & dmem_forward_data) |
+      ({32{exmem_from_mul}} & mul_data) |
+      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr || exmem_from_mul)}} &
+       exmem_wbval);
 
   assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||
                         exmem_is_sc || exmem_is_vload || exmem_is_vstore;

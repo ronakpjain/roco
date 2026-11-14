@@ -38,13 +38,12 @@ used for this work were Yosys 0.71+post
   MEM. A miss delays both the write and retirement until data is available.
   LR/SC retain their existing path. Held MEM operations preserve older
   writeback data needed by forwarding.
-- Data-cache bank comparisons are registered alongside the EX lookup data,
-  preserving EX-to-MEM hit latency. Combining the registered bank results
-  adds one cycle to miss detection. Misses hold MEM until refill recovery
-  has read the requested word. A pending response persists until commit.
-  Lookup tag read ports are preserved independently of eviction/flush,
-  preventing synthesis from putting lookup controls ahead of SDRAM
-  request addresses through resource sharing.
+- The data cache registers tag reads in EX and compares them in MEM.
+  A LUT-RAM data mirror registers aligned scalar load values for immediate
+  forwarding; block RAM supplies committed data and writeback. Stores and
+  refills update both copies. Miss responses persist until commit, and
+  same-edge store bytes are merged into younger lookups. Uncached read
+  dependencies use registered WB to preserve peripheral side-effect timing.
 - The data MMU retains the most recent translation and permission context.
   A new translated page or context adds one EX cycle; repeated accesses in
   that context avoid the TLB-to-cache combinational path. Bare accesses do

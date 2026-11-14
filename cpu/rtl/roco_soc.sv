@@ -68,6 +68,8 @@ module roco_soc #(
   logic [31:0] imem_rsp_data;
   logic dmem_lu_valid;
   logic [31:2] dmem_lu_addr;
+  logic [1:0] dmem_lu_offset;
+  logic [2:0] dmem_lu_funct3;
   logic dmem_ready;
   logic dmem_req;
   logic dmem_we;
@@ -75,6 +77,8 @@ module roco_soc #(
   logic [31:0] dmem_wdata;
   logic [3:0] dmem_be;
   logic [31:0] dmem_rsp_data;
+  logic [31:0] dmem_forward_data;
+  logic [31:0] dc_forward_data;
   logic ptw_req;
   logic [22:0] ptw_word_addr;
   logic ptw_ready;
@@ -95,7 +99,6 @@ module roco_soc #(
   logic i_unc_rsp;
   logic [31:0] i_unc_rsp_addr;
   logic [31:0] i_unc_rsp_data;
-  logic unused_dc_lu_hit;
   logic dc_cm_ready;
   logic [31:0] dc_cm_rdata;
 
@@ -230,6 +233,8 @@ module roco_soc #(
       .imem_busy(imem_busy),
       .dmem_lu_valid(dmem_lu_valid),
       .dmem_lu_addr(dmem_lu_addr),
+      .dmem_lu_offset(dmem_lu_offset),
+      .dmem_lu_funct3(dmem_lu_funct3),
       .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
@@ -237,6 +242,7 @@ module roco_soc #(
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
+      .dmem_forward_data(dmem_forward_data),
       .ptw_req(ptw_req),
       .ptw_word_addr(ptw_word_addr),
       .ptw_ready(ptw_ready),
@@ -289,13 +295,15 @@ module roco_soc #(
       .flush_done(dcache_flush_done),
       .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
       .lu_addr(dmem_lu_addr[24:2]),
-      .lu_hit(unused_dc_lu_hit),
+      .lu_offset(dmem_lu_offset),
+      .lu_funct3(dmem_lu_funct3),
       .cm_valid(dmem_req && dmem_in_sdram),
       .cm_we(dmem_we),
       .cm_addr(dmem_addr[24:2]),
       .cm_wdata(dmem_wdata),
       .cm_be(dmem_be),
       .cm_rdata(dc_cm_rdata),
+      .cm_forward_data(dc_forward_data),
       .cm_ready(dc_cm_ready),
       .mem_req(dc_mem_req),
       .mem_we(dc_mem_we),
@@ -669,6 +677,9 @@ module roco_soc #(
   assign imem_rsp_addr = imem_in_sdram ? ic_cpu_rsp_addr : i_unc_rsp_addr;
   assign imem_rsp_data = imem_in_sdram ? ic_cpu_rsp_data : i_unc_rsp_data;
   assign dmem_rsp_data = dmem_in_sdram ? dc_cm_rdata : mmio_rdata;
+  // Only cached reads use immediate MEM-to-EX forwarding. Uncached
+  // dependencies wait for WB, keeping peripheral decode off the early bus.
+  assign dmem_forward_data = dc_forward_data;
 
   assign leds = led_reg;
 

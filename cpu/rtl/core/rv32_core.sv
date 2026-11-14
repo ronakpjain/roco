@@ -41,6 +41,8 @@ module rv32_core (
   /* Physical data memory: lookup in EX, commit in MEM. */
   output logic dmem_lu_valid,
   output logic [31:2] dmem_lu_addr,
+  output logic [1:0] dmem_lu_offset,
+  output logic [2:0] dmem_lu_funct3,
   input logic dmem_ready,
   output logic dmem_req,
   output logic dmem_we,
@@ -48,6 +50,7 @@ module rv32_core (
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
+  input logic [31:0] dmem_forward_data,
   /* Physical page-table walker port. */
   output logic ptw_req,
   output logic [22:0] ptw_word_addr,
@@ -252,6 +255,7 @@ module rv32_core (
   logic div_busy;
   logic div_conflict;
   logic bubble;
+  logic uncached_dependency;
   logic [4:0] div_rd;
   logic [4:0] div_pending_rd;
   logic div_wb_en;
@@ -270,6 +274,7 @@ module rv32_core (
   logic [31:0] commit_instr;
   logic [4:0] commit_rd;
   logic [31:0] commit_wdata;
+  logic [31:0] mem_forward_data;
 
   assign retire = commit_valid && !vec_element_commit;
   // Final MEM results forward directly into a dependent EX instruction.
@@ -285,6 +290,8 @@ module rv32_core (
   assign ex_lu_hit = mmu_d_hit;
   assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
   assign dmem_lu_addr = mmu_d_paddr[31:2];
+  assign dmem_lu_offset = ex_lu_vaddr[1:0];
+  assign dmem_lu_funct3 = idex_funct3;
   // Hold the faulting instruction while registering the MMU response.
   // Trap delegation and fetch redirection then start from a register.
   // MEM holds already stall the pipeline directly. Qualify an EX
@@ -310,7 +317,13 @@ module rv32_core (
                           ((dec_use_rs1 && (dec_rs1 == div_pending_rd)) ||
                            (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
                            (dec_regwrite && (dec_rd == div_pending_rd)))));
-  assign bubble = div_conflict;
+  // Peripheral reads retain their MEM side-effect timing and use WB.
+  assign uncached_dependency = idex_valid &&
+                               (idex_is_load || idex_is_lr || idex_is_amo) &&
+                               (mmu_d_paddr[31:25] != 7'd8) && (idex_rd != 5'd0) && if_valid &&
+                               ((dec_use_rs1 && dec_rs1 == idex_rd) ||
+                                (dec_use_rs2 && dec_rs2 == idex_rd));
+  assign bubble = div_conflict || uncached_dependency;
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
@@ -507,7 +520,7 @@ module rv32_core (
       .irq_timer(irq_timer),
       .irq_external(irq_external),
       .redirect_from_mem(mem_redirect || ex_redirect_en),
-      .mem_data(commit_wdata),
+      .mem_data(mem_forward_data),
       .wb_data(wb_data),
       .wb_we(wb_we),
       .dmem_lu_fault(d_fault_q),
@@ -728,6 +741,7 @@ module rv32_core (
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
+      .dmem_forward_data(dmem_forward_data),
       .dmem_ready(dmem_ready),
       .mem_wait(mem_wait),
       .fence_req(fence_req),
@@ -737,6 +751,7 @@ module rv32_core (
       .commit_instr(commit_instr),
       .commit_rd(commit_rd),
       .commit_wdata(commit_wdata),
+      .forward_data(mem_forward_data),
       .memwb_valid(memwb_valid),
       .memwb_data(memwb_data),
       .memwb_rd(memwb_rd),

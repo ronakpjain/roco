@@ -6,11 +6,13 @@ module tb_dcache;
   always #5 clk = ~clk;
   logic rst = 1'b1;
   logic flush = 1'b0, flush_done;
-  logic lu_valid = 1'b0, lu_hit;
+  logic lu_valid = 1'b0;
   logic [24:2] lu_addr = '0;
+  logic [1:0] lu_offset = 0;
+  logic [2:0] lu_funct3 = 3'b010;
   logic cm_valid = 1'b0, cm_we = 1'b0, cm_ready;
   logic [24:2] cm_addr = '0;
-  logic [31:0] cm_wdata = '0, cm_rdata;
+  logic [31:0] cm_wdata = '0, cm_rdata, cm_forward_data;
   logic [3:0] cm_be = 4'hf;
   logic mem_req, mem_we, mem_ready, mem_wvalid, mem_wready;
   logic [22:0] mem_word_addr;
@@ -69,6 +71,11 @@ module tb_dcache;
         else transfer_beat <= transfer_beat + 1;
       end
     end
+  end
+
+  always @(negedge clk) begin
+    if (!rst && cm_ready && (cm_rdata !== cm_forward_data))
+      $fatal(1, "cache forwarding mirror differs from committed data");
   end
 
   task automatic lookup(input int word_addr);

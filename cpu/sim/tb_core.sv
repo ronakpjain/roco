@@ -9,6 +9,9 @@
 //   +hex=<file>        word image loaded at 0x1000_0000
 //   +trace             print every retired instruction
 //   +max_cycles=<n>    timeout, default 2_000_000
+//   +cpi_pc=<hex>      begin CPI=1 assertion at this retirement PC
+//   +cpi_skip=<n>      skip this many visits (predictor warmup)
+//   +cpi_count=<n>     require this many consecutive retirement cycles
 
 `timescale 1ns / 1ps
 
@@ -31,6 +34,9 @@ module tb_core;
   logic [31:0] imem_rsp_data;
   logic dmem_lu_valid;
   logic [31:2] dmem_lu_addr;
+  logic [1:0] dmem_lu_offset;
+  logic [2:0] dmem_lu_funct3;
+  logic [31:0] dmem_forward_data;
   logic dmem_ready;
   logic dmem_req;
   logic dmem_we;
@@ -97,6 +103,8 @@ module tb_core;
       .imem_busy(1'b0),
       .dmem_lu_valid(dmem_lu_valid),
       .dmem_lu_addr(dmem_lu_addr),
+      .dmem_lu_offset(dmem_lu_offset),
+      .dmem_lu_funct3(dmem_lu_funct3),
       .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
@@ -104,6 +112,7 @@ module tb_core;
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
+      .dmem_forward_data(dmem_forward_data),
       .ptw_req(ptw_req),
       .ptw_word_addr(ptw_word_addr),
       .ptw_ready(ptw_ready),
@@ -172,6 +181,22 @@ module tb_core;
   assign imem_rsp_valid = im_rsp_valid_q;
   assign imem_rsp_addr = im_rsp_addr_q;
   assign imem_rsp_data = im_rsp_data_q;
+
+  function automatic [31:0] forward_value(input logic [31:0] word_data, input logic [1:0] offset,
+                                          input logic [2:0] funct3);
+    logic [31:0] shifted;
+    shifted = word_data >> (8 * offset);
+    case (funct3)
+      0: forward_value = {{24{shifted[7]}}, shifted[7:0]};
+      1: forward_value = {{16{shifted[15]}}, shifted[15:0]};
+      4: forward_value = {24'd0, shifted[7:0]};
+      5: forward_value = {16'd0, shifted[15:0]};
+      default: forward_value = word_data;
+    endcase
+  endfunction
+  assign dmem_forward_data = forward_value(
+      dmem_rsp_data, u_core.exmem_alu[1:0], u_core.exmem_funct3
+  );
 
   // --------------------------------------------------------- D memory model
   assign dmem_ready = 1'b1;

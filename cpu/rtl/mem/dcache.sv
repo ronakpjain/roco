@@ -1,8 +1,8 @@
 // Write-back data cache with a lookup-in-EX pipeline.
 //
-// The EX stage presents the address of a load/store. Tags are compared
-// combinationally and the data RAM read is registered, so the hit data
-// is available in the MEM stage with no cache-induced stall. A miss
+// The EX stage presents the address of a load/store. Tag and data RAM
+// reads are registered; tags compare in MEM alongside the returned data,
+// so hits need no cache-induced stall. A miss
 // stalls MEM while the line is written back and refilled. Registered
 // hit/readiness metadata keeps the tag lookup off pipeline hold enables.
 //
@@ -28,7 +28,8 @@ module dcache #(
   /* EX lookup. */
   input logic lu_valid,
   input logic [24:2] lu_addr,
-  output logic lu_hit,
+  input logic [1:0] lu_offset,
+  input logic [2:0] lu_funct3,
   /* MEM commit. */
   input logic cm_valid,
   input logic cm_we,
@@ -36,6 +37,7 @@ module dcache #(
   input logic [31:0] cm_wdata,
   input logic [3:0] cm_be,
   output logic [31:0] cm_rdata,
+  output logic [31:0] cm_forward_data,
   output logic cm_ready,
   /* Memory side. */
   output logic mem_req,
@@ -85,12 +87,31 @@ module dcache #(
   logic valid_ram[0:NUM_LINES-1];
   logic dirty_ram[0:NUM_LINES-1];
   logic [MEM_TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
+  // Keep the synchronous lookup copy separate from the asynchronous
+  // eviction/flush port. Register the LUT-RAM output so hit readiness
+  // starts from a fabric flop, independent of block RAM output latency.
+  (* ram_style = "distributed" *) logic [MEM_TAG_BITS-1:0] lookup_tag_ram[0:NUM_LINES-1];
+  logic [MEM_TAG_BITS-1:0] lookup_tag_q;
+  logic [MEM_TAG_BITS-1:0] request_tag_q;
+  logic lookup_line_valid_q;
 
   logic [7:0] lane0[0:DEPTH-1];
   logic [7:0] lane1[0:DEPTH-1];
   logic [7:0] lane2[0:DEPTH-1];
   logic [7:0] lane3[0:DEPTH-1];
 
+  // A LUT-RAM mirror registers its read at the fabric edge. It supplies
+  // forwarding without the block RAM's long clock-to-output delay.
+  // Both copies receive every byte write and refill beat.
+  (* ram_style = "distributed" *) logic [7:0] forward_lane0[0:DEPTH-1];
+  (* ram_style = "distributed" *) logic [7:0] forward_lane1[0:DEPTH-1];
+  (* ram_style = "distributed" *) logic [7:0] forward_lane2[0:DEPTH-1];
+  (* ram_style = "distributed" *) logic [7:0] forward_lane3[0:DEPTH-1];
+  logic [31:0] forward_raw;
+  logic [31:0] forward_word, forward_merged;
+  logic [1:0] lookup_offset_q, forward_offset;
+  logic [2:0] lookup_funct3_q, forward_funct3;
+  logic forward_store;
   logic [31:0] ram_data;
   logic [IDX_BITS+OFF_BITS-1:0] ram_raddr;
   logic [IDX_BITS+OFF_BITS-1:0] ram_waddr;
@@ -122,45 +143,37 @@ module dcache #(
   assign victim_word = {tag_ram[miss_idx], miss_idx, {(OFF_BITS) {1'b0}}};
   assign flush_word = {tag_ram[flush_idx], flush_idx, {(OFF_BITS) {1'b0}}};
 
-  // Compare tags inside small banks before selecting the hit. This
-  // avoids a full-cache valid/tag mux followed by a serial comparison.
-  localparam int BANK_BITS  = (IDX_BITS > 4) ? 4 : IDX_BITS;
-  localparam int BANK_LINES = 1 << BANK_BITS;
-  localparam int BANK_COUNT = NUM_LINES / BANK_LINES;
-  logic [BANK_COUNT-1:0] bank_hits;
-  logic [BANK_COUNT-1:0] bank_hits_q;
+  // Read tags on the same edge as the data. Only the address reaches the
+  // lookup RAM in EX; full tag comparison starts from registers in MEM.
   logic lookup_hit_q;
-  assign lookup_hit_q = |bank_hits_q;
-  for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_hit_bank
-    logic [IDX_BITS-1:0] bank_idx;
-    assign bank_idx = IDX_BITS'(bank * BANK_LINES) | IDX_BITS'(lu_addr[IDX_LO+:BANK_BITS]);
-    // Preserve this read port: sharing it with eviction/flush introduces
-    // lookup-enable selection ahead of the SDRAM request address.
-    (* keep *) logic [MEM_TAG_BITS-1:0] lookup_tag;
-    assign lookup_tag = tag_ram[bank_idx];
-    assign bank_hits[bank] = ((lu_addr[IDX_HI:IDX_LO] >> BANK_BITS) == IDX_BITS'(bank)) &&
-                             valid_ram[bank_idx] &&
-                             (lookup_tag == lu_addr[24:IDX_HI+1]);
+  assign lookup_hit_q = lookup_line_valid_q && (lookup_tag_q == request_tag_q);
+  always_ff @(posedge clk) begin
+    if (lu_valid && (state == S_IDLE)) begin
+      lookup_tag_q <= lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]];
+    end
+    if ((state == S_FILL) && mem_rvalid && mem_rlast) begin
+      lookup_tag_ram[miss_idx] <= miss_tag;
+    end
   end
-  assign lu_hit = |bank_hits;
   assign hit_pulse = lookup_valid_q && (state == S_IDLE) && lookup_hit_q;
   assign miss_pulse = lookup_valid_q && (state == S_IDLE) && !lookup_hit_q;
 
   assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
   always_ff @(posedge clk) begin
     if (rst) begin
-      bank_hits_q <= '0;
+      lookup_line_valid_q <= 1'b0;
+      request_tag_q <= '0;
       lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
       recovery_ready <= 1'b0;
     end else begin
       lookup_valid_q <= lu_valid && (state == S_IDLE);
-      // Keep a hit response until MEM commits it. AMOs consume the
-      // returned word first and commit their write on the next cycle.
+      // Keep each response until MEM commits it.
       if (lu_valid) begin
-        bank_hits_q <= (state == S_IDLE) ? bank_hits : '0;
+        lookup_line_valid_q <= (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]];
+        request_tag_q <= lu_addr[24:IDX_HI+1];
       end else if (cm_valid) begin
-        bank_hits_q <= '0;
+        lookup_line_valid_q <= 1'b0;
       end
       // One registered RAM read after refill makes the missed word ready.
       if (pending_miss && (state == S_IDLE) && !recovery_ready) begin
@@ -190,8 +203,39 @@ module dcache #(
     end
   end
 
+  function automatic [31:0] format_load(input logic [31:0] word_data, input logic [1:0] offset,
+                                        input logic [2:0] funct3);
+    logic [31:0] shifted;
+    shifted = word_data >> {offset, 3'b000};
+    case (funct3)
+      3'b000: format_load = {{24{shifted[7]}}, shifted[7:0]};
+      3'b001: format_load = {{16{shifted[15]}}, shifted[15:0]};
+      3'b100: format_load = {24'd0, shifted[7:0]};
+      3'b101: format_load = {16'd0, shifted[15:0]};
+      default: format_load = word_data;
+    endcase
+  endfunction
+  assign forward_word = {
+    forward_lane3[ram_raddr],
+    forward_lane2[ram_raddr],
+    forward_lane1[ram_raddr],
+    forward_lane0[ram_raddr]
+  };
+  assign forward_store = (state == S_IDLE) && cm_valid && cm_we && lu_valid && (cm_addr == lu_addr);
+  for (genvar b = 0; b < 4; b = b + 1) begin : g_early_merge
+    assign forward_merged[8*b+:8] = (forward_store && cm_be[b]) ? cm_wdata[8*b+:8] : forward_word[8*b+:8];
+  end
+  assign forward_offset = (pending_miss && !recovery_ready) ? lookup_offset_q : lu_offset;
+  assign forward_funct3 = (pending_miss && !recovery_ready) ? lookup_funct3_q : lu_funct3;
   always_ff @(posedge clk) begin
     ram_data <= {lane3[ram_raddr], lane2[ram_raddr], lane1[ram_raddr], lane0[ram_raddr]};
+    // Alignment and same-edge store forwarding finish before this flop.
+    // Dependent EX consumers start from the final scalar value.
+    forward_raw <= format_load(forward_merged, forward_offset, forward_funct3);
+    if (lu_valid) begin
+      lookup_offset_q <= lu_offset;
+      lookup_funct3_q <= lu_funct3;
+    end
   end
 
   always_comb begin
@@ -218,15 +262,19 @@ module dcache #(
     if (ram_we) begin
       if (ram_wbe[0]) begin
         lane0[ram_waddr] <= ram_wdata[7:0];
+        forward_lane0[ram_waddr] <= ram_wdata[7:0];
       end
       if (ram_wbe[1]) begin
         lane1[ram_waddr] <= ram_wdata[15:8];
+        forward_lane1[ram_waddr] <= ram_wdata[15:8];
       end
       if (ram_wbe[2]) begin
         lane2[ram_waddr] <= ram_wdata[23:16];
+        forward_lane2[ram_waddr] <= ram_wdata[23:16];
       end
       if (ram_wbe[3]) begin
         lane3[ram_waddr] <= ram_wdata[31:24];
+        forward_lane3[ram_waddr] <= ram_wdata[31:24];
       end
     end
   end
@@ -236,6 +284,7 @@ module dcache #(
   assign merged[23:16] = prev_store_be[2] ? prev_store_data[23:16] : ram_data[23:16];
   assign merged[31:24] = prev_store_be[3] ? prev_store_data[31:24] : ram_data[31:24];
   assign cm_rdata = merged;
+  assign cm_forward_data = forward_raw;
 
   assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ) || (state == S_FLUSH_REQ);
   assign mem_we = (state == S_WB_REQ) || (state == S_FLUSH_REQ);

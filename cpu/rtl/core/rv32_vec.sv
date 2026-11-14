@@ -35,13 +35,8 @@ module rv32_vec (
   input logic [31:0] mem_wdata
 );
 
-  logic [127:0] regs[0:31];
   logic [127:0] elem_mask;
   logic [127:0] elem_wdata;
-
-  assign vs1_data = regs[vs1];
-  assign vs2_data = regs[vs2];
-  assign vd_data = regs[vd];
 
   // The element written by a vector load goes into the lane selected by
   // the element index at the current SEW.
@@ -64,20 +59,28 @@ module rv32_vec (
     endcase
   end
 
-  // Update only the selected bytes. A whole-register read/merge/write
-  // would add another asynchronous read port and a large feedback mux.
-  for (genvar r = 0; r < 32; r = r + 1) begin : g_reg
-    for (genvar b = 0; b < 16; b = b + 1) begin : g_byte
-      always_ff @(posedge clk) begin
-        if (rst) begin
-          regs[r][8*b+:8] <= '0;
-        end else if (ex_we) begin
-          if (ex_wd == 5'(r)) begin
-            regs[r][8*b+:8] <= ex_wdata[8*b+:8];
-          end
-        end else if (mem_we && (mem_wd == 5'(r)) && elem_mask[8*b]) begin
-          regs[r][8*b+:8] <= elem_wdata[8*b+:8];
-        end
+  // Byte banks have a single write port and no data reset, allowing
+  // distributed RAM. Reset validity separately so unread bytes still
+  // return zero, including bytes untouched by a partial vector load.
+  wire [4:0] write_reg = ex_we ? ex_wd : mem_wd;
+  for (genvar b = 0; b < 16; b = b + 1) begin : g_byte
+    logic [7:0] data[0:31];
+    logic [31:0] valid_bytes;
+    wire write_byte = ex_we || (mem_we && elem_mask[8*b]);
+    wire [7:0] write_data = ex_we ? ex_wdata[8*b+:8] : elem_wdata[8*b+:8];
+
+    assign vs1_data[8*b+:8] = valid_bytes[vs1] ? data[vs1] : 8'd0;
+    assign vs2_data[8*b+:8] = valid_bytes[vs2] ? data[vs2] : 8'd0;
+    assign vd_data[8*b+:8] = valid_bytes[vd] ? data[vd] : 8'd0;
+
+    always_ff @(posedge clk) begin
+      if (!rst && write_byte) begin
+        data[write_reg] <= write_data;
+      end
+      if (rst) begin
+        valid_bytes <= '0;
+      end else if (write_byte) begin
+        valid_bytes[write_reg] <= 1'b1;
       end
     end
   end

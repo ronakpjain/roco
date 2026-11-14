@@ -133,9 +133,12 @@ module dcache #(
   for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_hit_bank
     wire [IDX_BITS-1:0] bank_idx = IDX_BITS'(bank * BANK_LINES) |
                                   IDX_BITS'(lu_addr[IDX_LO+:BANK_BITS]);
+    // Preserve this read port: sharing it with eviction/flush introduces
+    // lookup-enable selection ahead of the SDRAM request address.
+    (* keep *) wire [MEM_TAG_BITS-1:0] lookup_tag = tag_ram[bank_idx];
     assign bank_hits[bank] = ((lu_addr[IDX_HI:IDX_LO] >> BANK_BITS) == IDX_BITS'(bank)) &&
                              valid_ram[bank_idx] &&
-                             (tag_ram[bank_idx] == lu_addr[24:IDX_HI+1]);
+                             (lookup_tag == lu_addr[24:IDX_HI+1]);
   end
   assign lu_hit = |bank_hits;
   assign hit_pulse = lookup_valid_q && (state == S_IDLE) && lookup_hit_q;

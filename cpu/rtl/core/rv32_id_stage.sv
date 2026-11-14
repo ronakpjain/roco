@@ -53,6 +53,8 @@ module rv32_id_stage (
   output logic [4:0] idex_rd,
   output logic [2:0] idex_funct3,
   output logic [3:0] idex_alu_op,
+  output logic idex_is_muldiv,
+  output logic [2:0] idex_md_op,
   output logic idex_alu_b_imm,
   output logic idex_alu_a_pc,
   output logic idex_regwrite,
@@ -79,6 +81,8 @@ module rv32_id_stage (
   logic dec_alu_b_imm;
   logic dec_alu_a_pc;
   logic [3:0] dec_alu_op;
+  logic dec_is_muldiv;
+  logic [2:0] dec_md_op;
   logic dec_regwrite;
   logic dec_is_load;
   logic dec_is_store;
@@ -128,6 +132,8 @@ module rv32_id_stage (
       .alu_b_imm(dec_alu_b_imm),
       .alu_a_pc(dec_alu_a_pc),
       .alu_op(dec_alu_op),
+      .is_muldiv(dec_is_muldiv),
+      .md_op(dec_md_op),
       .regwrite(dec_regwrite),
       .is_load(dec_is_load),
       .is_store(dec_is_store),
@@ -180,6 +186,8 @@ module rv32_id_stage (
       idex_rd <= '0;
       idex_funct3 <= '0;
       idex_alu_op <= `RV32_ALU_ADD;
+      idex_is_muldiv <= 1'b0;
+      idex_md_op <= `RV32_MD_MUL;
       idex_alu_b_imm <= 1'b0;
       idex_alu_a_pc <= 1'b0;
       idex_regwrite <= 1'b0;
@@ -223,6 +231,8 @@ module rv32_id_stage (
       idex_rd <= dec_rd;
       idex_funct3 <= dec_funct3;
       idex_alu_op <= dec_alu_op;
+      idex_is_muldiv <= dec_is_muldiv;
+      idex_md_op <= dec_md_op;
       idex_alu_b_imm <= dec_alu_b_imm;
       idex_alu_a_pc <= dec_alu_a_pc;
       idex_regwrite <= dec_regwrite;

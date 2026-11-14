@@ -17,6 +17,8 @@ module rv32_ex_stage (
   input logic halt,
   input logic lu_stall,
   input logic retire,
+  /* Multiply/divide unit holds the pipeline while a divide runs. */
+  output logic md_stall,
   /* ID/EX pipeline register. */
   input logic idex_valid,
   input logic [31:0] idex_pc,
@@ -34,6 +36,8 @@ module rv32_ex_stage (
   input logic [4:0] idex_rd,
   input logic [2:0] idex_funct3,
   input logic [3:0] idex_alu_op,
+  input logic idex_is_muldiv,
+  input logic [2:0] idex_md_op,
   input logic idex_alu_b_imm,
   input logic idex_alu_a_pc,
   input logic idex_regwrite,
@@ -106,6 +110,8 @@ module rv32_ex_stage (
   logic [31:0] rs2_fwd;
   logic [31:0] ex_alu_a;
   logic [31:0] ex_alu_b;
+  logic [31:0] alu_result;
+  logic [31:0] md_result;
   logic [31:0] ex_alu_result;
   logic [31:0] ex_store_data;
   logic [3:0] ex_store_be;
@@ -171,8 +177,24 @@ module rv32_ex_stage (
       .a(ex_alu_a),
       .b(ex_alu_b),
       .op(idex_alu_op),
-      .result(ex_alu_result)
+      .result(alu_result)
   );
+
+  rv32_muldiv u_muldiv (
+      .clk(clk),
+      .rst(rst),
+      .halt(halt),
+      .op_valid(idex_valid && idex_is_muldiv),
+      .op(idex_md_op),
+      .a(rs1_fwd),
+      .b(rs2_fwd),
+      .stall(md_stall),
+      .result(md_result)
+  );
+
+  // Multiply is combinational, so it retires at one instruction per
+  // cycle; only the iterative divide holds the pipeline.
+  assign ex_alu_result = idex_is_muldiv ? md_result : alu_result;
 
   assign ex_branch_target = idex_pc + idex_imm;
   assign ex_jump_target = {ex_alu_result[31:1], 1'b0};
@@ -477,7 +499,7 @@ module rv32_ex_stage (
       exmem_is_fence_i <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
-    end else if (lu_stall) begin
+    end else if (lu_stall || md_stall) begin
       exmem_valid <= 1'b0;
     end else begin
       exmem_valid <= idex_valid && !ex_trap;

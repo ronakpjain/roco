@@ -100,6 +100,8 @@ module rv32_core (
   logic [4:0] idex_rd;
   logic [2:0] idex_funct3;
   logic [3:0] idex_alu_op;
+  logic idex_is_muldiv;
+  logic [2:0] idex_md_op;
   logic idex_alu_b_imm;
   logic idex_alu_a_pc;
   logic idex_regwrite;
@@ -197,6 +199,7 @@ module rv32_core (
   logic [31:0] wb_data;
 
   logic load_use;
+  logic md_stall;
   logic dmem_lu_stall;
   logic stall;
   logic ex_lu_valid;
@@ -231,7 +234,7 @@ module rv32_core (
       d_fault_cause_q <= mmu_d_fault_cause;
     end
   end
-  assign stall = dmem_lu_stall || fence_req;
+  assign stall = dmem_lu_stall || fence_req || md_stall;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign trace_valid = commit_valid;
   assign trace_pc = commit_pc;
@@ -310,6 +313,8 @@ module rv32_core (
       .idex_rd(idex_rd),
       .idex_funct3(idex_funct3),
       .idex_alu_op(idex_alu_op),
+      .idex_is_muldiv(idex_is_muldiv),
+      .idex_md_op(idex_md_op),
       .idex_alu_b_imm(idex_alu_b_imm),
       .idex_alu_a_pc(idex_alu_a_pc),
       .idex_regwrite(idex_regwrite),
@@ -338,6 +343,7 @@ module rv32_core (
       .halt(halt),
       .lu_stall(dmem_lu_stall),
       .retire(retire),
+      .md_stall(md_stall),
       .idex_valid(idex_valid),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
@@ -356,6 +362,8 @@ module rv32_core (
       .idex_rd(idex_rd),
       .idex_funct3(idex_funct3),
       .idex_alu_op(idex_alu_op),
+      .idex_is_muldiv(idex_is_muldiv),
+      .idex_md_op(idex_md_op),
       .idex_alu_b_imm(idex_alu_b_imm),
       .idex_alu_a_pc(idex_alu_a_pc),
       .idex_regwrite(idex_regwrite),

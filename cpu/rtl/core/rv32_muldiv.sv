@@ -131,7 +131,7 @@ module rv32_muldiv (
   assign div_quot_final = div_by_zero ? 32'hffff_ffff :
                           div_sign ? -quot_step[CHUNK_BITS] : quot_step[CHUNK_BITS];
   assign div_rem_final = div_by_zero ? div_orig_a :
-                         div_a_neg ? -rem_step[CHUNK_BITS] : rem_step[CHUNK_BITS];
+                         div_a_neg ? -rem_step[CHUNK_BITS][31:0] : rem_step[CHUNK_BITS][31:0];
 
   always_ff @(posedge clk) begin
     if (rst) begin

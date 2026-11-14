@@ -19,6 +19,8 @@ module rv32_decoder (
   output logic alu_b_imm,
   output logic alu_a_pc,
   output logic [3:0] alu_op,
+  output logic is_muldiv,
+  output logic [2:0] md_op,
   output logic regwrite,
   output logic is_load,
   output logic is_store,
@@ -49,6 +51,8 @@ module rv32_decoder (
     alu_b_imm = 1'b0;
     alu_a_pc = 1'b0;
     alu_op = `RV32_ALU_ADD;
+    is_muldiv = 1'b0;
+    md_op = instr[14:12];
     regwrite = 1'b0;
     is_load = 1'b0;
     is_store = 1'b0;
@@ -195,39 +199,43 @@ module rv32_decoder (
         use_rs1 = 1'b1;
         use_rs2 = 1'b1;
         regwrite = 1'b1;
-        case (instr[14:12])
-          3'b000: begin
-            alu_op = (instr[31:25] == 7'h20) ? `RV32_ALU_SUB : `RV32_ALU_ADD;
-          end
-          3'b001: begin
-            alu_op = `RV32_ALU_SLL;
-          end
-          3'b010: begin
-            alu_op = `RV32_ALU_SLT;
-          end
-          3'b011: begin
-            alu_op = `RV32_ALU_SLTU;
-          end
-          3'b100: begin
-            alu_op = `RV32_ALU_XOR;
-          end
-          3'b101: begin
-            alu_op = (instr[31:25] == 7'h20) ? `RV32_ALU_SRA : `RV32_ALU_SRL;
-          end
-          3'b110: begin
-            alu_op = `RV32_ALU_OR;
-          end
-          3'b111: begin
-            alu_op = `RV32_ALU_AND;
-          end
-          default: begin
-            illegal = 1'b1;
-          end
-        endcase
-        if (!((instr[31:25] == 7'h00) ||
+        if (instr[31:25] == 7'b0000001) begin
+          is_muldiv = 1'b1;
+        end else begin
+          case (instr[14:12])
+            3'b000: begin
+              alu_op = (instr[31:25] == 7'h20) ? `RV32_ALU_SUB : `RV32_ALU_ADD;
+            end
+            3'b001: begin
+              alu_op = `RV32_ALU_SLL;
+            end
+            3'b010: begin
+              alu_op = `RV32_ALU_SLT;
+            end
+            3'b011: begin
+              alu_op = `RV32_ALU_SLTU;
+            end
+            3'b100: begin
+              alu_op = `RV32_ALU_XOR;
+            end
+            3'b101: begin
+              alu_op = (instr[31:25] == 7'h20) ? `RV32_ALU_SRA : `RV32_ALU_SRL;
+            end
+            3'b110: begin
+              alu_op = `RV32_ALU_OR;
+            end
+            3'b111: begin
+              alu_op = `RV32_ALU_AND;
+            end
+            default: begin
+              illegal = 1'b1;
+            end
+          endcase
+          if (!((instr[31:25] == 7'h00) ||
               ((instr[31:25] == 7'h20) &&
                ((instr[14:12] == 3'b000) || (instr[14:12] == 3'b101))))) begin
-          illegal = 1'b1;
+            illegal = 1'b1;
+          end
         end
       end
       7'b0001111: begin  // FENCE is a NOP; FENCE.I flushes the I-cache

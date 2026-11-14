@@ -46,15 +46,6 @@ module rv32_mem_stage (
   input logic trap_taken,
   input logic exmem_is_sfence,
   input logic exmem_is_fence_i,
-  /* Multiply partial products completed here. */
-  input logic [31:0] exmem_mul_p0,
-  input logic [31:0] exmem_mul_p1,
-  input logic [31:0] exmem_mul_p2,
-  input logic [31:0] exmem_mul_p3,
-  input logic [31:0] exmem_mul_sub_a,
-  input logic [31:0] exmem_mul_sub_b,
-  input logic [2:0] exmem_mul_variant,
-  input logic exmem_from_mul,
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
   output logic dmem_we,
@@ -84,7 +75,6 @@ module rv32_mem_stage (
   logic [7:0] load_byte;
   logic [15:0] load_half;
   logic [31:0] load_data;
-  logic [31:0] mul_data;
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
@@ -108,17 +98,6 @@ module rv32_mem_stage (
   logic [29:0] res_addr;
   logic commit_now;
   logic store_now;
-
-  rv32_mul_finish u_mul_finish (
-      .p0(exmem_mul_p0),
-      .p1(exmem_mul_p1),
-      .p2(exmem_mul_p2),
-      .p3(exmem_mul_p3),
-      .sub_a(exmem_mul_sub_a),
-      .sub_b(exmem_mul_sub_b),
-      .variant(exmem_mul_variant),
-      .result(mul_data)
-  );
 
   // EX supplies the old word; MEM computes and commits one RMW write.
   // A miss holds the request until the old value is available.
@@ -147,14 +126,13 @@ module rv32_mem_stage (
 
   assign result_data = exmem_is_sc ? sc_result : exmem_is_amo ? dmem_rsp_data :
                        (exmem_is_load || exmem_is_lr) ? load_data :
-                       exmem_from_mul ? mul_data : exmem_wbval;
+                       exmem_wbval;
 
   // Cached loads are already aligned before the early read register.
   assign forward_data =
       ({32{exmem_is_sc}} & sc_result) |
       ({32{exmem_is_amo || exmem_is_load || exmem_is_lr}} & dmem_forward_data) |
-      ({32{exmem_from_mul}} & mul_data) |
-      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr || exmem_from_mul)}} &
+      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr)}} &
        exmem_wbval);
 
   assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||

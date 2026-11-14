@@ -234,14 +234,6 @@ module rv32_core (
   logic vec_element_commit;
   logic exmem_is_sfence;
   logic exmem_is_fence_i;
-  logic [31:0] exmem_mul_p0;
-  logic [31:0] exmem_mul_p1;
-  logic [31:0] exmem_mul_p2;
-  logic [31:0] exmem_mul_p3;
-  logic [31:0] exmem_mul_sub_a;
-  logic [31:0] exmem_mul_sub_b;
-  logic [2:0] exmem_mul_variant;
-  logic exmem_from_mul;
 
   logic memwb_valid;
   logic [31:0] memwb_data;
@@ -571,15 +563,7 @@ module rv32_core (
       .exmem_vec_last(exmem_vec_last),
       .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
-      .exmem_is_fence_i(exmem_is_fence_i),
-      .exmem_mul_p0(exmem_mul_p0),
-      .exmem_mul_p1(exmem_mul_p1),
-      .exmem_mul_p2(exmem_mul_p2),
-      .exmem_mul_p3(exmem_mul_p3),
-      .exmem_mul_sub_a(exmem_mul_sub_a),
-      .exmem_mul_sub_b(exmem_mul_sub_b),
-      .exmem_mul_variant(exmem_mul_variant),
-      .exmem_from_mul(exmem_from_mul)
+      .exmem_is_fence_i(exmem_is_fence_i)
   );
 
   rv32_vec u_vec (
@@ -720,14 +704,6 @@ module rv32_core (
       .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
-      .exmem_mul_p0(exmem_mul_p0),
-      .exmem_mul_p1(exmem_mul_p1),
-      .exmem_mul_p2(exmem_mul_p2),
-      .exmem_mul_p3(exmem_mul_p3),
-      .exmem_mul_sub_a(exmem_mul_sub_a),
-      .exmem_mul_sub_b(exmem_mul_sub_b),
-      .exmem_mul_variant(exmem_mul_variant),
-      .exmem_from_mul(exmem_from_mul),
       .trap_taken(ex_trap_taken || satp_write),
       .vec_mem_we(vec_mem_we),
       .vec_mem_wd(vec_mem_wd),

@@ -84,3 +84,7 @@ Trap entry records PC, cause and trap value before updating the CSR state
 and selecting the handler vector. Pending traps cancel younger EX side
 effects. `make test-trap-pipeline` checks trap payloads, reservation clearing
 and cancellation of younger stores, scalar, CSR and vector writes.
+
+Multiply uses four signed DSP partial products and a carry-save tree in EX.
+The completed product is registered before MEM forwarding, so a dependent
+cache address does not wait for multiply completion in MEM.

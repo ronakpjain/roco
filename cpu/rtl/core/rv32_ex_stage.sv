@@ -126,15 +126,6 @@ module rv32_ex_stage (
   output logic mstatus_tvm,
   output logic mstatus_tsr,
   output logic [1:0] mstatus_mpp,
-  /* Multiply partial products, completed in MEM. */
-  output logic [31:0] exmem_mul_p0,
-  output logic [31:0] exmem_mul_p1,
-  output logic [31:0] exmem_mul_p2,
-  output logic [31:0] exmem_mul_p3,
-  output logic [31:0] exmem_mul_sub_a,
-  output logic [31:0] exmem_mul_sub_b,
-  output logic [2:0] exmem_mul_variant,
-  output logic exmem_from_mul,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -167,12 +158,10 @@ module rv32_ex_stage (
   logic [31:0] ex_alu_b;
   logic [31:0] alu_result;
   logic [31:0] mul_p0;
-  logic [31:0] mul_p1;
-  logic [31:0] mul_p2;
-  logic [31:0] mul_p3;
-  logic [2:0] mul_variant;
-  logic [31:0] mul_sub_a;
-  logic [31:0] mul_sub_b;
+  logic [33:0] mul_p1;
+  logic [33:0] mul_p2;
+  logic [33:0] mul_p3;
+  logic [31:0] mul_data;
   logic [31:0] md_div_result;
   logic [31:0] ex_alu_result;
   logic idex_is_div;
@@ -325,20 +314,26 @@ module rv32_ex_stage (
       .div_result(md_div_result)
   );
 
-  // The multiplier only produces partial products here; the sum is
-  // completed in MEM, so multiply retires like a load.
+  // Parallel signed DSP products and a carry-save sum complete in EX;
+  // dependent MEM forwarding starts from the registered product.
   rv32_mul_prod u_mul_prod (
       .a(rs1_fwd),
       .b(rs2_fwd),
+      .variant(idex_md_op),
+      .p0(mul_p0),
+      .p1(mul_p1),
+      .p2(mul_p2),
+      .p3(mul_p3)
+  );
+
+  rv32_mul_finish u_mul_finish (
       .p0(mul_p0),
       .p1(mul_p1),
       .p2(mul_p2),
       .p3(mul_p3),
-      .sub_a(mul_sub_a),
-      .sub_b(mul_sub_b)
+      .variant(idex_md_op),
+      .result(mul_data)
   );
-
-  assign mul_variant = idex_md_op;
 
   // A divide leaves the pipeline immediately and writes the register
   // file later through the divider port.
@@ -404,7 +399,8 @@ module rv32_ex_stage (
   assign ex_st = is_vec_mem ? vmem_store_data : stall_active ? stall_store_data : ex_store_data;
   assign ex_be = is_vec_mem ? vmem_be : stall_active ? stall_be : ex_store_be;
   assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
-                    idex_is_csr ? csr_rdata : vec_scalar_wb ? vec_scalar_wdata : ex_addr;
+                    idex_is_csr ? csr_rdata : vec_scalar_wb ? vec_scalar_wdata :
+                    idex_is_mul ? mul_data : ex_addr;
 
   // -------------------------------------------------- CSR file (EX and WB)
   rv32_csr u_csr (
@@ -917,14 +913,6 @@ module rv32_ex_stage (
       exmem_amo_op <= '0;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
-      exmem_mul_p0 <= '0;
-      exmem_mul_p1 <= '0;
-      exmem_mul_p2 <= '0;
-      exmem_mul_p3 <= '0;
-      exmem_mul_sub_a <= '0;
-      exmem_mul_sub_b <= '0;
-      exmem_mul_variant <= `RV32_MD_MUL;
-      exmem_from_mul <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
     end else if (is_vec_mem && idex_valid) begin
@@ -953,14 +941,6 @@ module rv32_ex_stage (
       exmem_vec_sew <= vec_elem_sew;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
-      exmem_mul_p0 <= '0;
-      exmem_mul_p1 <= '0;
-      exmem_mul_p2 <= '0;
-      exmem_mul_p3 <= '0;
-      exmem_mul_sub_a <= '0;
-      exmem_mul_sub_b <= '0;
-      exmem_mul_variant <= `RV32_MD_MUL;
-      exmem_from_mul <= 1'b0;
     end else begin
       // Invalid payload may advance during a lookup miss or the first
       // reduction cycle. Miss operands are already saved separately;
@@ -990,14 +970,6 @@ module rv32_ex_stage (
       exmem_vec_sew <= '0;
       exmem_is_sfence <= idex_is_sfence;
       exmem_is_fence_i <= idex_is_fence_i;
-      exmem_mul_p0 <= mul_p0;
-      exmem_mul_p1 <= mul_p1;
-      exmem_mul_p2 <= mul_p2;
-      exmem_mul_p3 <= mul_p3;
-      exmem_mul_sub_a <= mul_sub_a;
-      exmem_mul_sub_b <= mul_sub_b;
-      exmem_mul_variant <= mul_variant;
-      exmem_from_mul <= idex_valid && idex_is_mul;
     end
   end
 

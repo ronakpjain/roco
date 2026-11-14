@@ -15,11 +15,9 @@ module tb_muldiv;
   logic [31:0] b;
   logic start;
   logic [31:0] p0;
-  logic [31:0] p1;
-  logic [31:0] p2;
-  logic [31:0] p3;
-  logic [31:0] sub_a;
-  logic [31:0] sub_b;
+  logic [33:0] p1;
+  logic [33:0] p2;
+  logic [33:0] p3;
   logic [2:0] variant;
   logic [31:0] mul_result;
   logic busy;
@@ -45,12 +43,11 @@ module tb_muldiv;
   rv32_mul_prod u_prod (
       .a(a),
       .b(b),
+      .variant(variant),
       .p0(p0),
       .p1(p1),
       .p2(p2),
-      .p3(p3),
-      .sub_a(sub_a),
-      .sub_b(sub_b)
+      .p3(p3)
   );
 
   rv32_mul_finish u_finish (
@@ -58,8 +55,6 @@ module tb_muldiv;
       .p1(p1),
       .p2(p2),
       .p3(p3),
-      .sub_a(sub_a),
-      .sub_b(sub_b),
       .variant(variant),
       .result(mul_result)
   );

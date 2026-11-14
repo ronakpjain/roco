@@ -5,10 +5,9 @@
 // the whole register in one cycle at the current SEW, using a separate
 // datapath per element width selected by vtype.
 //
-// Two write ports are provided: the execute stage writes complete
-// register results, while the memory stage inserts one loaded element.
-// A vector memory sequence holds the pipeline for its whole length, so
-// the two ports are never asked to write in the same cycle.
+// Two logical write ports share one physical write port: complete
+// register results and loaded elements both commit in MEM. The pipeline
+// supplies at most one kind of write per cycle.
 
 `default_nettype none
 `include "rv32_defs.svh"
@@ -23,7 +22,7 @@ module rv32_vec (
   output logic [127:0] vs1_data,
   output logic [127:0] vs2_data,
   output logic [127:0] vd_data,
-  /* Whole-register write port (EX). */
+  /* Whole-register write port (MEM; ex_* names retain the unit interface). */
   input logic ex_we,
   input logic [4:0] ex_wd,
   input logic [127:0] ex_wdata,

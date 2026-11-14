@@ -28,8 +28,9 @@ used for this work were Yosys 0.71+post
 
 - Scalar and vector register data use distributed RAM with reset validity
   bits. Reads of unwritten registers remain zero; the first partial vector
-  load initializes the untouched bytes. Divider completion waits when
-  normal writeback owns the scalar register port.
+  load initializes the untouched bytes. Full vector results commit in MEM
+  and forward to all three EX vector operand reads. Divider completion
+  waits when normal writeback owns the scalar register port.
 - Vector reductions use separate carry-save trees for each supported
   element width and complete in one EX cycle. Arithmetic wraps at SEW.
   Vector memory retains its current element address across a miss and stops

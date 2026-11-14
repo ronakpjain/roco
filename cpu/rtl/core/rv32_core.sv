@@ -50,6 +50,7 @@ module rv32_core (
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
+  /* Already aligned cached-load value, registered with the EX lookup. */
   input logic [31:0] dmem_forward_data,
   /* Physical page-table walker port. */
   output logic ptw_req,
@@ -215,9 +216,10 @@ module rv32_core (
   logic [4:0] exmem_amo_op;
   logic ex_trap_taken;
   logic vec_mem_hold;
-  logic vec_ex_we;
-  logic [4:0] vec_ex_wd;
-  logic [127:0] vec_ex_wdata;
+  logic exmem_vec_we;
+  logic [127:0] exmem_vec_data;
+  logic vec_full_write;
+  logic [127:0] vec_rf_vs1_data, vec_rf_vs2_data, vec_rf_vd_data;
   logic [127:0] vec_vs1_data;
   logic [127:0] vec_vs2_data;
   logic [127:0] vec_vd_data;
@@ -269,7 +271,8 @@ module rv32_core (
   logic [31:0] mem_forward_data;
 
   assign retire = commit_valid && !vec_element_commit;
-  // Final MEM results forward directly into a dependent EX instruction.
+  // Cached MEM results forward directly into EX. The divider scoreboard
+  // and uncached-read dependencies below are the remaining ID interlocks.
   // Register EX redirects before distributing them through the front end.
   // The pending redirect cancels the one younger EX instruction below.
   always_ff @(posedge clk) begin
@@ -309,7 +312,9 @@ module rv32_core (
                           ((dec_use_rs1 && (dec_rs1 == div_pending_rd)) ||
                            (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
                            (dec_regwrite && (dec_rd == div_pending_rd)))));
-  // Peripheral reads retain their MEM side-effect timing and use WB.
+  // Uncached reads retain their peripheral side-effect timing in MEM.
+  // They forward from registered WB rather than the cache's early read
+  // copy. Cached results still reach an immediate dependent EX instruction.
   assign uncached_dependency = idex_valid &&
                                (idex_is_load || idex_is_lr || idex_is_amo) &&
                                (mmu_d_paddr[31:25] != 7'd8) && (idex_rd != 5'd0) && if_valid &&
@@ -489,9 +494,8 @@ module rv32_core (
       .vec_vs1_data(vec_vs1_data),
       .vec_vs2_data(vec_vs2_data),
       .vec_vd_data(vec_vd_data),
-      .vec_ex_we(vec_ex_we),
-      .vec_ex_wd(vec_ex_wd),
-      .vec_ex_wdata(vec_ex_wdata),
+      .exmem_vec_we(exmem_vec_we),
+      .exmem_vec_data(exmem_vec_data),
       .idex_is_branch(idex_is_branch),
       .idex_is_jal(idex_is_jal),
       .idex_is_jalr(idex_is_jalr),
@@ -566,20 +570,28 @@ module rv32_core (
       .exmem_is_fence_i(exmem_is_fence_i)
   );
 
+  // Arithmetic and load elements share the MEM write boundary. A full
+  // result forwards to all three EX vector reads before register commit.
+  assign vec_full_write = exmem_valid && exmem_vec_we && !halt && !rst;
+  assign vec_vs1_data = (vec_full_write && (exmem_rd == idex_instr[19:15])) ?
+                        exmem_vec_data : vec_rf_vs1_data;
+  assign vec_vs2_data = (vec_full_write && (exmem_rd == idex_instr[24:20])) ?
+                        exmem_vec_data : vec_rf_vs2_data;
+  assign vec_vd_data = (vec_full_write && (exmem_rd == idex_instr[11:7])) ?
+                      exmem_vec_data : vec_rf_vd_data;
+
   rv32_vec u_vec (
       .clk(clk),
       .rst(rst),
       .vs1(idex_instr[19:15]),
       .vs2(idex_instr[24:20]),
       .vd(idex_instr[11:7]),
-      .vs1_data(vec_vs1_data),
-      .vs2_data(vec_vs2_data),
-      .vd_data(vec_vd_data),
-      // EX already qualifies arithmetic/configuration writes. Feeding
-      // backend stall here adds the cache-hit path to every vector byte.
-      .ex_we(vec_ex_we),
-      .ex_wd(vec_ex_wd),
-      .ex_wdata(vec_ex_wdata),
+      .vs1_data(vec_rf_vs1_data),
+      .vs2_data(vec_rf_vs2_data),
+      .vd_data(vec_rf_vd_data),
+      .ex_we(vec_full_write),
+      .ex_wd(exmem_rd),
+      .ex_wdata(exmem_vec_data),
       .mem_we(vec_mem_we),
       .mem_wd(vec_mem_wd),
       .mem_elem(vec_mem_elem),

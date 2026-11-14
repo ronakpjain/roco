@@ -3,8 +3,8 @@
 // Owns operand forwarding, the ALU, branch/jump resolution, trap
 // detection, the machine/supervisor CSR file and the EX/MEM pipeline
 // register. A redirect is emitted only when the pipeline is not stalled,
-// so older instructions always commit first. The CSR file is written from
-// WB; trap entry, MRET and SRET use the redirect this stage generates.
+// so older instructions always commit first. Software CSR writes occur in
+// EX; registered trap entry, MRET and SRET use redirects from this stage.
 // Data-cache lookup addresses come from the MMU translation of the
 // virtual address computed here; a page fault is resolved as a trap.
 
@@ -60,10 +60,6 @@ module rv32_ex_stage (
   input logic [127:0] vec_vs1_data,
   input logic [127:0] vec_vs2_data,
   input logic [127:0] vec_vd_data,
-  /* Vector register write port (EX). */
-  output logic vec_ex_we,
-  output logic [4:0] vec_ex_wd,
-  output logic [127:0] vec_ex_wdata,
 
   input logic idex_is_branch,
   input logic idex_is_jal,
@@ -127,6 +123,8 @@ module rv32_ex_stage (
   output logic mstatus_tsr,
   output logic [1:0] mstatus_mpp,
   /* EX/MEM pipeline register. */
+  output logic exmem_vec_we,
+  output logic [127:0] exmem_vec_data,
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
   output logic [31:0] exmem_instr,
@@ -152,6 +150,8 @@ module rv32_ex_stage (
   output logic exmem_is_fence_i
 );
 
+  logic vec_ex_we;
+  logic [127:0] vec_ex_wdata;
   logic [31:0] rs1_fwd;
   logic [31:0] rs2_fwd;
   logic [31:0] ex_alu_a;
@@ -314,8 +314,9 @@ module rv32_ex_stage (
       .div_result(md_div_result)
   );
 
-  // Parallel signed DSP products and a carry-save sum complete in EX;
-  // dependent MEM forwarding starts from the registered product.
+  // Explicit parallel DSP products plus a carry-save tree complete in EX.
+  // MEM forwards the registered product, keeping carry propagation off a
+  // dependent cache lookup's address path.
   rv32_mul_prod u_mul_prod (
       .a(rs1_fwd),
       .b(rs2_fwd),
@@ -368,6 +369,7 @@ module rv32_ex_stage (
   end
 
   assign ex_branch_target = idex_pc + idex_imm;
+  // JALR clears bit zero of its scalar addition result.
   assign ex_jump_target = {ex_alu_result[31:1], 1'b0};
 
   always_comb begin
@@ -620,8 +622,9 @@ module rv32_ex_stage (
     end
   end
 
-  // Register trap entry and payload; cancel younger EX side effects while
-  // the pending trap selects its vector and updates privilege state.
+  // Ordinary control transfers retain their EX resolution. Trap payload
+  // and entry are delayed one cycle, keeping forwarded load data off CSR
+  // state updates and the trap-vector selection/redirect payload mux.
   assign cancel_ex = redirect_from_mem || trap_pending;
   assign ex_redirect_int = ex_redirect && !ex_trap && !fence_hold && !halt && !rst && !cancel_ex;
   assign irq_take = irq_req && !ex_redirect &&
@@ -632,11 +635,15 @@ module rv32_ex_stage (
   always_ff @(posedge clk) begin
     if (rst) trap_pending <= 1'b0;
     else trap_pending <= trap_capture;
+    // Payload does not need the late trap-valid enable. Only pending
+    // makes it visible, and younger EX side effects are canceled then.
     csr_trap_pc <= ex_trap ? idex_pc : irq_next_pc;
     csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
     csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
   end
   assign ex_redirect_en = (ex_redirect_int || trap_pending) && !halt && !rst;
+  // Select the payload by instruction class, independently of prediction
+  // correctness and current trap validity. Pending traps have priority.
   assign ex_redirect_pc = trap_pending ? csr_trap_vector :
                           idex_mret ? csr_mepc : idex_sret ? csr_sepc :
                           idex_is_branch ? (ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4)) :
@@ -744,34 +751,36 @@ module rv32_ex_stage (
   assign vec_wr_vl = (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110) ?
                      5'd1 : vec_vl;
 
+  // Select scalar vector results by instruction class, without the
+  // fault/hold write-enable cone. EX/MEM validity qualifies their commit.
+  assign vec_scalar_wb = idex_is_vset ||
+                        (idex_is_vec && !is_vec_mem &&
+                         (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b010));
+  assign vec_scalar_wdata = idex_is_vset ? vset_new_vl :
+                            (vec_sew_cur == 3'd0) ?
+                            {{24{vec_vs2_data[7]}}, vec_vs2_data[7:0]} :
+                            (vec_sew_cur == 3'd1) ?
+                            {{16{vec_vs2_data[15]}}, vec_vs2_data[15:0]} : vec_vs2_data[31:0];
+
   always_comb begin
     vec_ex_we_int = 1'b0;
     vec_ex_wdata_int = vec_raw;
-    vec_scalar_wb = 1'b0;
-    vec_scalar_wdata = '0;
     vec_vset_en = 1'b0;
     vec_vset_vl = vset_new_vl[4:0];
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !vec_fault && !fence_hold && !halt && !rst && !cancel_ex) begin
+    if (idex_valid && idex_is_vec && !idex_ifault && !idex_illegal && !dmem_lu_fault &&
+        !fence_hold && !halt && !rst && !cancel_ex) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
-        vec_scalar_wb = 1'b1;
-        vec_scalar_wdata = vset_new_vl;
       end else if (!is_vec_mem) begin
         if (idex_vec_funct6 == `RV32_VOP_MOVE) begin
           vec_ex_we_int = 1'b1;
           vec_ex_wdata_int = (idex_instr[14:12] == 3'b000) ? vec_vs2_data : vec_bcast;
         end else if (idex_vec_funct6 == `RV32_VOP_SCALAR) begin
           if (idex_instr[14:12] == 3'b010) begin
-            // vmv.x.s: element 0 to the scalar destination.
-            vec_scalar_wb = 1'b1;
-            vec_scalar_wdata = (vec_sew_cur == 3'd0) ?
-                               {{24{vec_vs2_data[7]}}, vec_vs2_data[7:0]} :
-                               (vec_sew_cur == 3'd1) ?
-                               {{16{vec_vs2_data[15]}}, vec_vs2_data[15:0]} :
-                               vec_vs2_data[31:0];
+            // Scalar result selection is independent of write eligibility.
           end else begin
             // vmv.s.x: the scalar becomes element 0.
             vec_ex_we_int = 1'b1;
@@ -809,7 +818,6 @@ module rv32_ex_stage (
   end
 
   assign vec_ex_we = vec_ex_we_int;
-  assign vec_ex_wd = idex_instr[11:7];
   assign vec_ex_wdata = vec_ex_wdata_int;
 
   // ----------------------------------------- Vector memory sequencing
@@ -891,10 +899,15 @@ module rv32_ex_stage (
     end
   end
 
+  // Vector payload advances independently of the late memory hold. It is
+  // visible only when the matching EX/MEM valid and vector-write bits set.
+  always_ff @(posedge clk) exmem_vec_data <= vec_ex_wdata;
+
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk) begin
     if (rst) begin
       exmem_valid <= 1'b0;
+      exmem_vec_we <= 1'b0;
       exmem_vec_last <= 1'b0;
       exmem_pc <= '0;
       exmem_instr <= 32'h0000_0013;
@@ -916,8 +929,10 @@ module rv32_ex_stage (
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
     end else if (is_vec_mem && idex_valid) begin
+      exmem_vec_we <= 1'b0;
       // One element per cycle; the last cycle issues nothing.
-      // VL zero retires a no-op; nonzero vectors retire their final element.
+      // VL zero still retires one no-op instruction without a memory
+      // request. Nonzero vectors retire only with their final element.
       exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_total == 5'd0)) && !cancel_ex;
       exmem_vec_last <= (vmem_total == 5'd0) || (vmem_idx + 5'd1 == vmem_total);
       exmem_pc <= idex_pc;
@@ -946,6 +961,7 @@ module rv32_ex_stage (
       // reduction cycle. Miss operands are already saved separately;
       // only validity needs the late cache-hit signal.
       exmem_valid <= idex_valid && !ex_trap && !lu_stall && !cancel_ex;
+      exmem_vec_we <= vec_ex_we;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= ex_addr;

@@ -100,7 +100,7 @@ module dcache #(
   // Word addresses: the byte offset inside a word never reaches the tag
   // RAM, index or store-to-load comparator.
   logic [24:2] lu_addr_q;
-  logic lookup_hit_q;
+  logic lookup_valid_q;
   logic pending_miss;
   logic recovery_ready;
 
@@ -128,6 +128,8 @@ module dcache #(
   localparam int BANK_LINES = 1 << BANK_BITS;
   localparam int BANK_COUNT = NUM_LINES / BANK_LINES;
   wire [BANK_COUNT-1:0] bank_hits;
+  logic [BANK_COUNT-1:0] bank_hits_q;
+  wire lookup_hit_q = |bank_hits_q;
   for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_hit_bank
     wire [IDX_BITS-1:0] bank_idx = IDX_BITS'(bank * BANK_LINES) |
                                   IDX_BITS'(lu_addr[IDX_LO+:BANK_BITS]);
@@ -136,22 +138,24 @@ module dcache #(
                              (tag_ram[bank_idx] == lu_addr[24:IDX_HI+1]);
   end
   assign lu_hit = |bank_hits;
-  assign hit_pulse = lu_valid && (state == S_IDLE) && lu_hit;
-  assign miss_pulse = lu_valid && (state == S_IDLE) && !lu_hit;
+  assign hit_pulse = lookup_valid_q && (state == S_IDLE) && lookup_hit_q;
+  assign miss_pulse = lookup_valid_q && (state == S_IDLE) && !lookup_hit_q;
 
   assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
   always_ff @(posedge clk) begin
     if (rst) begin
-      lookup_hit_q <= 1'b0;
+      bank_hits_q <= '0;
+      lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
       recovery_ready <= 1'b0;
     end else begin
+      lookup_valid_q <= lu_valid && (state == S_IDLE);
       // Keep a hit response until MEM commits it. AMOs consume the
       // returned word first and commit their write on the next cycle.
       if (lu_valid) begin
-        lookup_hit_q <= (state == S_IDLE) && lu_hit;
+        bank_hits_q <= (state == S_IDLE) ? bank_hits : '0;
       end else if (cm_valid) begin
-        lookup_hit_q <= 1'b0;
+        bank_hits_q <= '0;
       end
       // One registered RAM read after refill makes the missed word ready.
       if (pending_miss && (state == S_IDLE) && !recovery_ready) begin
@@ -162,7 +166,7 @@ module dcache #(
         recovery_ready <= 1'b0;
       end
       // A following miss may start on the preceding request's commit edge.
-      if ((state == S_IDLE) && lu_valid && !lu_hit) begin
+      if (miss_pulse) begin
         pending_miss <= 1'b1;
         recovery_ready <= 1'b0;
       end
@@ -276,14 +280,14 @@ module dcache #(
         S_IDLE: begin
           // Only the state transition depends on the tag comparison.
           // The captured address is used after entering S_START.
-          miss_idx <= lu_addr[IDX_HI:IDX_LO];
-          miss_tag <= lu_addr[24:IDX_HI+1];
-          miss_line_word <= lu_addr & LINE_MASK;
+          miss_idx <= lu_addr_q[IDX_HI:IDX_LO];
+          miss_tag <= lu_addr_q[24:IDX_HI+1];
+          miss_line_word <= lu_addr_q & LINE_MASK;
           if (flush && !flush_active) begin
             flush_active <= 1'b1;
             flush_idx <= '0;
             state <= S_FLUSH;
-          end else if (lu_valid && !lu_hit) begin
+          end else if (miss_pulse) begin
             state <= S_START;
           end
         end

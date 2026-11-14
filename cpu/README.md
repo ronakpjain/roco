@@ -33,14 +33,15 @@ instantiates `roco_soc`. Inside the SoC:
 Pipeline: IF, ID, EX, MEM, WB. The I-cache streams one instruction per
 cycle into a four-entry fetch queue; a 32-entry bimodal 2-bit predictor
 with a BTB predicts taken branches so correctly predicted control
-transfers do not flush the pipeline. Branches, jumps, traps, MRET and
-SRET resolve in EX; a registered redirect cancels the younger EX
-instruction and flushes fetch/decode one cycle later. Instruction fetches
+transfers do not flush the pipeline. Branches, jumps, MRET and SRET
+resolve in EX. Traps record their PC, cause and value before entry. Pending
+traps and registered redirects cancel younger EX side effects and flush
+fetch/decode. Instruction fetches
 are translated before the I-cache; data addresses are translated in EX
 before the D-cache lookup and are carried to MEM as physical addresses.
 
-The D-cache is looked up in EX and its data is available in MEM, so a
-cache-hit load or store costs no extra cycle. Load data is forwarded
+Once address translation is ready, the D-cache accepts lookups in EX
+and consumes hits in MEM without a fixed extra cycle. Load data is forwarded
 from the MEM stage to a dependent instruction in EX, and a store in MEM
 is merged into a younger lookup of the same word (store-to-load
 forwarding). Each stage lives in its own module and owns its pipeline
@@ -60,6 +61,7 @@ register:
 ## Implemented ISA
 
 - RV32I base integer instructions.
+- Integer multiply/divide, LR/SC and atomic memory operations.
 - Zicsr: `CSRRW/CSRRS/CSRRC` and immediate forms.
 - M/S/U privilege modes, trap delegation through `medeleg`, and
   `MRET`/`SRET`.
@@ -76,7 +78,7 @@ register:
   `minstret[h]`; `sstatus`, `sie`/`sip`, `stvec`, `sepc`, `scause`,
   `stval`, `sscratch`, `scounteren`, `satp`, `mhartid`.
 
-Not implemented: M/A/F/D/C extensions, interrupts, PMP, debug module,
+Not implemented: F/D/C extensions, interrupts, PMP, debug module,
 `WFI`, hardware A/D-bit updates and ASID-selective `SFENCE.VMA`.
 Misaligned loads and stores trap precisely; the official `rv32ui/ma_data`
 test (which requires hardware misaligned access) is therefore excluded,
@@ -119,11 +121,13 @@ every `SFENCE.VMA` performs a complete flush.
 | Cache | Size | Organisation | Policy |
 |---|---|---|---|
 | I-cache | 2 KiB | 128 lines x 16 B, direct mapped | read-only, whole-line fill |
-| D-cache | 4 KiB | 256 lines x 16 B, direct mapped | write-back, write-allocate, byte enables |
+| D-cache | 4 KiB | 128 lines x 32 B, direct mapped | write-back, write-allocate, byte enables |
 
 The I-cache streams one response per cycle on hits. The D-cache is
-looked up in EX: tags are compared combinationally and the data RAM read
-is registered, so a hit is consumed in MEM without stalling. Both caches
+looked up in EX: tag reads are registered and compared in MEM. A LUT-RAM
+mirror registers aligned scalar values for immediate forwarding, alongside
+the block-RAM data used for committed reads and writeback. Stores and
+refills update both copies. Hits are consumed in MEM without a fixed stall. Both caches
 are blocking on a miss: one memory transaction is outstanding per cache.
 The D-cache data array is split into four byte-lane memories so ECP5
 block RAMs implement byte enables. A dirty victim is written back before
@@ -200,6 +204,8 @@ for a bitstream.
 ```sh
 make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test-core   # directed pipeline smoke test
+make test-cpi    # assert continuous retirement in warmed core/SoC loops
+make test-vector-reduce # randomized reduction arithmetic checks
 make test-mm     # MMU unit test: translation, permissions, faults
 make test-vm     # Sv32 software test on the core and through the SoC
 make test-sdram  # SDRAM controller: bursts, refresh, retention
@@ -234,9 +240,10 @@ Simulation (2026-11, Icarus Verilog 13):
 
 ## Known limitations and next steps
 
-- The branch predictor is small (32 entries, bimodal) and JALR always
-  mispredicts. A larger BTB and a return-address stack are the next
-  steps.
+- The branch predictor is small (32 entries, bimodal). JALR predicts its
+  last resolved target, so stable indirect jumps run without recovery
+  after warmup. Changing targets and BTB conflicts still cause recovery;
+  a return-address stack would improve calls with multiple return sites.
 - The D-cache is blocking on misses and has no write buffer.
 - There is no cache coherence: `FENCE.I` flushes the D-cache and
   invalidates the I-cache, and `SFENCE.VMA` uses the same flush before
@@ -249,8 +256,6 @@ Simulation (2026-11, Icarus Verilog 13):
   controller and a flash-resident loader.
 - `mtvec` supports direct mode only and interrupts are not wired to the
   core.
-- The core has no M extension, so software must avoid compiler-emitted
-  multiply/divide.
 
 ## Layout
 

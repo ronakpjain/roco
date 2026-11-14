@@ -30,7 +30,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-muldiv-core test-sdram test-soc test-isa-soc test-boot synth timing bitstream
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-muldiv-core test-irq test-sdram test-soc test-isa-soc test-boot synth timing bitstream
 
 all: format-check syntax lint
 
@@ -74,6 +74,16 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 	$(RISCV)-objcopy -O binary $< $@
 
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/interrupt.elf: sw/tests/interrupt.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/interrupt.bin: $(BUILD_DIR)/interrupt.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/interrupt.hex: $(BUILD_DIR)/interrupt.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
 $(BUILD_DIR)/muldiv.elf: sw/tests/muldiv.S sw/link.ld | build
@@ -133,6 +143,9 @@ $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 
 test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/muldiv.hex
+
+test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300
 
 test-mm: $(BUILD_DIR)/tb_mmu.vvp
 	$(VVP) $(BUILD_DIR)/tb_mmu.vvp

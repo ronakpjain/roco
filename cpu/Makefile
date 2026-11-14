@@ -107,6 +107,16 @@ $(BUILD_DIR)/vector-irq.bin: $(BUILD_DIR)/vector-irq.elf
 $(BUILD_DIR)/vector-irq.hex: $(BUILD_DIR)/vector-irq.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/vector-fence.elf: sw/tests/vector-fence.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b_zicsr_zifencei -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vector-fence.bin: $(BUILD_DIR)/vector-fence.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vector-fence.hex: $(BUILD_DIR)/vector-fence.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
 $(BUILD_DIR)/atomic.elf: sw/tests/atomic.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
 		-T sw/link.ld -o $@ $<
@@ -204,6 +214,11 @@ test-vector-c: $(BUILD_DIR)/vector-c.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/t
 test-vector-irq: $(BUILD_DIR)/vector-irq.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-irq.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-irq.hex
+
+.PHONY: test-vector-fence
+test-vector-fence: $(BUILD_DIR)/vector-fence.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-fence.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-fence.hex
 
 test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic.hex

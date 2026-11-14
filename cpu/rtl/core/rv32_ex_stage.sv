@@ -303,7 +303,8 @@ module rv32_ex_stage (
 
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
-  assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst;
+  assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst &&
+                     !redirect_from_mem;
 
   rv32_divider u_divider (
       .clk(clk),
@@ -462,7 +463,7 @@ module rv32_ex_stage (
   // satp writes and the TLB flush/write-enable path.
   assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
                      csr_read_ok && csr_write_ok && !idex_illegal && !idex_ifault &&
-                     !dmem_lu_fault && !fence_hold && !halt && !rst;
+                     !dmem_lu_fault && !fence_hold && !halt && !rst && !redirect_from_mem;
 
   always_comb begin
     case (idex_csr_op)
@@ -631,7 +632,7 @@ module rv32_ex_stage (
 
   // A redirecting instruction cannot issue a cache lookup. Only an older
   // FENCE.I can hold it; do not feed the data-cache hit path into redirects.
-  assign ex_redirect_int = ex_redirect && !fence_hold && !halt && !rst;
+  assign ex_redirect_int = ex_redirect && !fence_hold && !halt && !rst && !redirect_from_mem;
   assign ex_redirect_pc_int = ex_redirect_pc_stage;
 
   // Take interrupts at a non-memory instruction boundary. Decode these
@@ -646,7 +647,7 @@ module rv32_ex_stage (
   assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
   assign csr_trap_irq = irq_take;
   assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
-  assign vec_mem_hold = (vmem_hold || reduce_hold) && !ex_trap;
+  assign vec_mem_hold = (vmem_hold || reduce_hold) && !ex_trap && !redirect_from_mem;
   assign csr_trap_pc = irq_take ? irq_next_pc : idex_pc;
   assign csr_trap_cause = irq_take ? {1'b1, 26'd0, irq_code} : ex_trap_cause;
   assign csr_trap_tval = irq_take ? 32'd0 : ex_trap_tval;
@@ -657,10 +658,10 @@ module rv32_ex_stage (
                        (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr ||
                         idex_is_sc || (is_vec_mem && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
-                       !rst && !halt && !fence_hold;
+                       !rst && !halt && !fence_hold && !redirect_from_mem;
   assign ex_lu_vaddr = mem_access_addr;
   assign ex_lu_we = idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
-  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
+  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst && !redirect_from_mem &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
   assign btb_is_jal = idex_is_jal;
@@ -743,9 +744,10 @@ module rv32_ex_stage (
                          (idex_instr[14:12] == 3'b010) &&
                          (idex_vec_funct6 != `RV32_VOP_MOVE) &&
                          (idex_vec_funct6 != `RV32_VOP_SCALAR);
-  assign reduce_hold = idex_valid && is_vec_reduce && !idex_illegal && !reduce_ready;
+  assign reduce_hold = idex_valid && is_vec_reduce && !idex_illegal && !reduce_ready &&
+                       !redirect_from_mem;
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (rst || redirect_from_mem) begin
       reduce_ready <= 1'b0;
     end else if (!halt && !fence_hold) begin
       reduce_ready <= reduce_hold && !ex_trap;
@@ -798,7 +800,8 @@ module rv32_ex_stage (
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !idex_illegal && !reduce_hold && !fence_hold && !halt && !rst) begin
+    if (idex_valid && idex_is_vec && !idex_illegal && !reduce_hold && !fence_hold && !halt && !rst &&
+        !redirect_from_mem) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
         vec_scalar_wb = 1'b1;
@@ -911,6 +914,9 @@ module rv32_ex_stage (
       vmem_active <= 1'b0;
       vmem_k <= '0;
       vmem_base <= '0;
+    end else if (redirect_from_mem) begin
+      vmem_active <= 1'b0;
+      vmem_k <= '0;
     end else if (!halt && !fence_hold) begin
       if (!is_vec_mem || !idex_valid || vmem_done) begin
         vmem_active <= 1'b0;
@@ -959,7 +965,7 @@ module rv32_ex_stage (
       exmem_from_mul <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
-    end else if (lu_stall || reduce_hold) begin
+    end else if (lu_stall || reduce_hold || redirect_from_mem) begin
       exmem_valid <= 1'b0;
     end else if (is_vec_mem && idex_valid) begin
       // One element per cycle; the last cycle issues nothing.

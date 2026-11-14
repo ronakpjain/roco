@@ -369,8 +369,8 @@ module rv32_ex_stage (
   end
 
   assign ex_branch_target = idex_pc + idex_imm;
-  // JALR clears bit zero of its scalar addition result.
-  assign ex_jump_target = {ex_alu_result[31:1], 1'b0};
+  // Reuse parallel address sums to keep ALU selection off JALR targets.
+  assign ex_jump_target = {memory_addr[31:1], 1'b0};
 
   always_comb begin
     case (idex_funct3)

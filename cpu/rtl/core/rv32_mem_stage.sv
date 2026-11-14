@@ -72,9 +72,8 @@ module rv32_mem_stage (
   output logic memwb_regwrite
 );
 
-  logic [7:0] load_byte;
-  logic [15:0] load_half;
   logic [31:0] load_data;
+  logic [31:0] load_forward_data;
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
@@ -99,8 +98,9 @@ module rv32_mem_stage (
   logic commit_now;
   logic store_now;
 
-  // EX supplies the old word; MEM computes and commits one RMW write.
-  // A miss holds the request until the old value is available.
+  // The EX lookup supplies the old word at the start of MEM. Compute the
+  // RMW value here and commit its one write on the same edge as retirement.
+  // A miss holds MEM; no request or side effect occurs before data is ready.
   always_comb begin
     case (exmem_amo_op)
       5'b00000: begin  // AMOADD
@@ -124,14 +124,13 @@ module rv32_mem_stage (
     endcase
   end
 
-  assign result_data = exmem_is_sc ? sc_result : exmem_is_amo ? dmem_rsp_data :
-                       (exmem_is_load || exmem_is_lr) ? load_data :
-                       exmem_wbval;
-
-  // Cached loads are already aligned before the early read register.
-  assign forward_data =
+  // Decode mutually exclusive result classes in parallel. The load path
+  // feeds EX directly, so it must not traverse a priority mux of all the
+  // unrelated producers before reaching the next instruction.
+  assign result_data =
       ({32{exmem_is_sc}} & sc_result) |
-      ({32{exmem_is_amo || exmem_is_load || exmem_is_lr}} & dmem_forward_data) |
+      ({32{exmem_is_amo}} & dmem_rsp_data) |
+      ({32{exmem_is_load || exmem_is_lr}} & load_data) |
       ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr)}} &
        exmem_wbval);
 
@@ -147,7 +146,8 @@ module rv32_mem_stage (
   assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_ready;
   assign commit_valid = !rst && !halt && exmem_valid && !fence_req && !mem_wait;
   assign commit_now = commit_valid;
-  // Only the final element retires the architectural vector instruction.
+  // Element writes are internal micro-operations. Only the final element
+  // retires the architectural vector instruction and increments minstret.
   assign vec_element_commit = commit_valid && (exmem_is_vload || exmem_is_vstore) && !exmem_vec_last;
   assign vec_mem_we = commit_valid && exmem_is_vload;
   assign vec_mem_wd = exmem_rd;
@@ -162,31 +162,29 @@ module rv32_mem_stage (
   assign fence_req = exmem_valid && (exmem_is_fence_i || exmem_is_sfence) && !fence_done;
   assign mem_redirect = exmem_valid && (exmem_is_fence_i || exmem_is_sfence) && fence_done;
 
-  assign load_byte = 8'(dmem_rsp_data >> {exmem_alu[1:0], 3'b000});
-  assign load_half = 16'(dmem_rsp_data >> {exmem_alu[1], 4'b0000});
-
-  always_comb begin
-    case (exmem_funct3)
-      3'b000: begin
-        load_data = {{24{load_byte[7]}}, load_byte[7:0]};
-      end
-      3'b001: begin
-        load_data = {{16{load_half[15]}}, load_half[15:0]};
-      end
-      3'b010: begin
-        load_data = dmem_rsp_data;
-      end
-      3'b100: begin
-        load_data = {24'd0, load_byte[7:0]};
-      end
-      3'b101: begin
-        load_data = {16'd0, load_half[15:0]};
-      end
-      default: begin
-        load_data = dmem_rsp_data;
-      end
+  function automatic [31:0] align_load(input logic [31:0] word_data, input logic [1:0] offset,
+                                       input logic [2:0] funct3);
+    logic [7:0] byte_data;
+    logic [15:0] half_data;
+    byte_data = 8'(word_data >> {offset, 3'b000});
+    half_data = 16'(word_data >> {offset[1], 4'b0000});
+    case (funct3)
+      3'b000: align_load = {{24{byte_data[7]}}, byte_data};
+      3'b001: align_load = {{16{half_data[15]}}, half_data};
+      3'b100: align_load = {24'd0, byte_data};
+      3'b101: align_load = {16'd0, half_data};
+      default: align_load = word_data;
     endcase
-  end
+  endfunction
+  assign load_data = align_load(dmem_rsp_data, exmem_alu[1:0], exmem_funct3);
+  // The early cache copy registers the fully aligned scalar value.
+  assign load_forward_data = dmem_forward_data;
+  assign forward_data =
+      ({32{exmem_is_sc}} & sc_result) |
+      ({32{exmem_is_amo}} & dmem_forward_data) |
+      ({32{exmem_is_load || exmem_is_lr}} & load_forward_data) |
+      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr)}} &
+       exmem_wbval);
 
   // Load-reserved / store-conditional reservation. The set is one word
   // wide: any store to it, any store-conditional and any trap clears it.

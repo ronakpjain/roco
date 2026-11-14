@@ -65,6 +65,9 @@ module tb_core;
   logic [31:0] st_merged;
 
   logic [31:0] exit_code;
+  logic irq_timer;
+  int unsigned irq_after;
+  int unsigned irq_window;
   int unsigned cycles;
   int unsigned max_cycles;
   int unsigned i;
@@ -83,6 +86,8 @@ module tb_core;
       .rst(rst),
       .boot_addr(boot_addr),
       .halt(halt),
+      .irq_timer(irq_timer),
+      .irq_external(1'b0),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
       .imem_rsp_valid(imem_rsp_valid),
@@ -257,6 +262,12 @@ module tb_core;
     if (!$value$plusargs("max_cycles=%d", max_cycles)) begin
       max_cycles = 2_000_000;
     end
+    if (!$value$plusargs("irq_after=%d", irq_after)) begin
+      irq_after = 32'hffff_ffff;
+    end
+    if (!$value$plusargs("irq_window=%d", irq_window)) begin
+      irq_window = 20;
+    end
   end
 
   initial begin
@@ -280,6 +291,11 @@ module tb_core;
       $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", trace_pc, trace_instr, trace_rd,
                trace_wdata);
     end
+  end
+
+  // Timer interrupt line: a window of cycles after the requested start.
+  always_comb begin
+    irq_timer = !rst && (cycles >= irq_after) && (cycles < irq_after + irq_window);
   end
 
   always @(posedge clk) begin

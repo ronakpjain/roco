@@ -26,7 +26,13 @@ module rv32_csr (
   input logic wr_en,
   input logic [11:0] wr_addr,
   input logic [31:0] wr_data,
-  // Trap entry and return (used in EX, highest priority).
+  /* Platform interrupt inputs. */
+  input logic irq_timer,
+  input logic irq_external,
+  /* Highest-priority enabled interrupt, offered to EX. */
+  output logic irq_req,
+  output logic [4:0] irq_code,
+  /* Trap entry and return (used in EX, highest priority). */
   input logic trap_en,
   input logic [31:0] trap_pc,
   input logic [31:0] trap_cause,
@@ -57,6 +63,12 @@ module rv32_csr (
   localparam logic [1:0] PRIV_M = `RV32_PRIV_M;
   localparam logic [31:0] MISA_VALUE = 32'h4014_1100;
   localparam logic [31:0] MEDELEG_MASK = 32'h0000_b35d;
+  // Implemented interrupt bits: SSIP, MSIP, STIP, MTIP, SEIP, MEIP.
+  localparam logic [31:0] MIE_MASK = 32'h0000_0aaa;
+  // Only supervisor-level interrupts can be delegated.
+  localparam logic [31:0] MIDELEG_MASK = 32'h0000_0222;
+  // Pending bits software may set: SSIP, MSIP, STIP.
+  localparam logic [31:0] MIP_SW_MASK = 32'h0000_002a;
 
   logic [1:0] priv_q;
   logic [31:0] mtvec_q;
@@ -71,7 +83,8 @@ module rv32_csr (
   logic [31:0] mscratch_q;
   logic [31:0] sscratch_q;
   logic [31:0] mie_q;
-  logic [31:0] sie_q;
+  logic [31:0] mip_q;
+  logic [31:0] mideleg_q;
   logic [31:0] mcounteren_q;
   logic [31:0] scounteren_q;
   logic [31:0] satp_q;
@@ -86,6 +99,12 @@ module rv32_csr (
   logic mstatus_tvm_q;
   logic mstatus_tsr_q;
   logic [1:0] mstatus_mpp_q;
+
+  logic [31:0] mip_value;
+  logic [31:0] irq_cand;
+  logic [31:0] irq_eligible;
+  logic irq_m_allowed;
+  logic irq_s_allowed;
 
   logic [31:0] mcycle_lo;
   logic [31:0] mcycle_hi;
@@ -127,8 +146,39 @@ module rv32_csr (
   assign counter_instret_ok = (priv_q == PRIV_M) ||
                               ((priv_q == PRIV_S) && mcounteren_q[2]) ||
                               ((priv_q == PRIV_U) && mcounteren_q[2] && scounteren_q[2]);
-  assign trap_to_s = (priv_q != PRIV_M) && (trap_cause[31:5] == 27'd0) &&
-                     medeleg_q[trap_cause[4:0]];
+  // Interrupt traps follow mideleg, exception traps medeleg.
+  assign trap_to_s = trap_cause[31] ? mideleg_q[trap_cause[4:0]] :
+                     (priv_q != PRIV_M) && medeleg_q[trap_cause[4:0]];
+
+  assign mip_value = mip_q | (irq_timer ? 32'h0000_0080 : 32'd0) |
+                     (irq_external ? 32'h0000_0800 : 32'd0);
+  assign irq_cand = mip_value & mie_q & MIE_MASK;
+  // Machine interrupts need mstatus.MIE unless a less privileged mode is
+  // running; supervisor interrupts additionally need the privilege mode
+  // to allow them and the bit to be delegated.
+  assign irq_m_allowed = mstatus_mie || (priv_q != PRIV_M);
+  assign irq_s_allowed = (priv_q != PRIV_M) && (mstatus_sie || (priv_q != PRIV_S));
+  assign irq_eligible = (irq_cand & ~mideleg_q & {32{irq_m_allowed}}) |
+                        (irq_cand & mideleg_q & {32{irq_s_allowed}});
+
+  // Architectural interrupt priority: MEI, MSI, MTI, SEI, SSI, STI.
+  always_comb begin
+    irq_req = |irq_eligible;
+    irq_code = 5'd0;
+    if (irq_eligible[11]) begin
+      irq_code = 5'd11;
+    end else if (irq_eligible[3]) begin
+      irq_code = 5'd3;
+    end else if (irq_eligible[7]) begin
+      irq_code = 5'd7;
+    end else if (irq_eligible[9]) begin
+      irq_code = 5'd9;
+    end else if (irq_eligible[1]) begin
+      irq_code = 5'd1;
+    end else if (irq_eligible[5]) begin
+      irq_code = 5'd5;
+    end
+  end
   assign trap_vector = trap_to_s ? stvec_q : mtvec_q;
 
   always_comb begin
@@ -145,8 +195,8 @@ module rv32_csr (
         rdata[18] = mstatus_sum_q;
         rdata[19] = mstatus_mxr_q;
       end
-      12'h104: begin  // sie
-        rdata = sie_q;
+      12'h104: begin  // sie: the delegated view of mie
+        rdata = mie_q & mideleg_q;
       end
       12'h105: begin  // stvec
         rdata = stvec_q;
@@ -166,8 +216,8 @@ module rv32_csr (
       12'h143: begin  // stval
         rdata = stval_q;
       end
-      12'h144: begin  // sip: no interrupt sources
-        rdata = '0;
+      12'h144: begin  // sip: the delegated view of mip
+        rdata = mip_value & mideleg_q;
       end
       12'h180: begin  // satp
         rdata = satp_q;
@@ -197,9 +247,8 @@ module rv32_csr (
       12'h302: begin  // medeleg
         rdata = medeleg_q;
       end
-      12'h303: begin  // mideleg: no interrupts
-        rdata = '0;
-        write_ok = 1'b0;
+      12'h303: begin  // mideleg
+        rdata = mideleg_q;
       end
       12'h304: begin  // mie
         rdata = mie_q;
@@ -226,8 +275,8 @@ module rv32_csr (
       12'h343: begin  // mtval
         rdata = mtval_q;
       end
-      12'h344: begin  // mip: no interrupt sources
-        rdata = '0;
+      12'h344: begin  // mip: timer and external bits are hardware-driven
+        rdata = mip_value;
       end
       12'hB00: begin
         rdata = mcycle_lo;
@@ -279,7 +328,8 @@ module rv32_csr (
       mscratch_q <= '0;
       sscratch_q <= '0;
       mie_q <= '0;
-      sie_q <= '0;
+      mip_q <= '0;
+      mideleg_q <= '0;
       mcounteren_q <= '0;
       scounteren_q <= '0;
       satp_q <= '0;
@@ -321,8 +371,8 @@ module rv32_csr (
             mstatus_sum_q <= wr_data[18];
             mstatus_mxr_q <= wr_data[19];
           end
-          12'h104: begin
-            sie_q <= wr_data;
+          12'h104: begin  // sie writes the delegated mie bits
+            mie_q <= (mie_q & ~mideleg_q) | (wr_data & mideleg_q & MIE_MASK);
           end
           12'h105: begin
             stvec_q <= {wr_data[31:2], 2'b00};
@@ -332,6 +382,9 @@ module rv32_csr (
           end
           12'h140: begin
             sscratch_q <= wr_data;
+          end
+          12'h144: begin  // sip writes the delegated pending bits
+            mip_q <= (mip_q & ~mideleg_q) | (wr_data & mideleg_q & MIP_SW_MASK);
           end
           12'h141: begin
             sepc_q <= {wr_data[31:2], 2'b00};
@@ -368,8 +421,11 @@ module rv32_csr (
           12'h302: begin
             medeleg_q <= wr_data & MEDELEG_MASK;
           end
+          12'h303: begin
+            mideleg_q <= wr_data & MIDELEG_MASK;
+          end
           12'h304: begin
-            mie_q <= wr_data;
+            mie_q <= wr_data & MIE_MASK;
           end
           12'h305: begin
             mtvec_q <= {wr_data[31:2], 2'b00};
@@ -388,6 +444,9 @@ module rv32_csr (
           end
           12'h343: begin
             mtval_q <= wr_data;
+          end
+          12'h344: begin
+            mip_q <= wr_data & MIP_SW_MASK;
           end
           12'hB00: begin
             mcycle_lo <= wr_data;

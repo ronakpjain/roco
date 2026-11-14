@@ -218,6 +218,8 @@ module roco_soc #(
       .rst(core_rst),
       .boot_addr(BOOT_OVERRIDE ? 32'h1000_0000 : boot_addr),
       .halt(halted),
+      .irq_timer(mtime >= mtimecmp),
+      .irq_external(1'b0),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
       .imem_rsp_valid(imem_rsp_valid),

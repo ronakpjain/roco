@@ -27,6 +27,9 @@ module rv32_core (
   input logic rst,
   input logic [31:0] boot_addr,
   input logic halt,
+  /* Platform interrupt lines: machine timer and machine external. */
+  input logic irq_timer,
+  input logic irq_external,
   /* Physical instruction memory port: hold req/addr until rsp_valid. */
   output logic imem_req,
   output logic [31:0] imem_addr,
@@ -430,6 +433,10 @@ module rv32_core (
       .idex_is_sfence(idex_is_sfence),
       .idex_is_fence_i(idex_is_fence_i),
       .fence_hold(fence_req),
+      .irq_next_pc(if_valid ? if_pc : fetch_pc),
+      .irq_timer(irq_timer),
+      .irq_external(irq_external),
+      .redirect_from_mem(mem_redirect),
       .wb_data(wb_data),
       .dmem_lu_fault(d_fault_q),
       .dmem_lu_fault_cause(d_fault_cause_q),

@@ -71,6 +71,11 @@ module rv32_ex_stage (
   input logic dmem_lu_fault,
   input logic [3:0] dmem_lu_fault_cause,
   input logic [31:0] dmem_lu_paddr,
+  /* Interrupt request from the CSR file. */
+  input logic [31:0] irq_next_pc,
+  input logic irq_timer,
+  input logic irq_external,
+  input logic redirect_from_mem,
   /* Redirect to fetch. */
   output logic ex_redirect_en,
   output logic [31:0] ex_redirect_pc,
@@ -147,6 +152,14 @@ module rv32_ex_stage (
   logic ex_trap;
   logic [31:0] ex_trap_cause;
   logic ex_redirect;
+  logic ex_redirect_int;
+  logic [31:0] ex_redirect_pc_int;
+  logic [31:0] ex_redirect_pc_stage;
+  logic irq_take;
+  logic csr_trap_irq;
+  logic [31:0] csr_trap_pc;
+  logic [31:0] csr_trap_cause;
+  logic [31:0] csr_trap_tval;
   logic branch_mispredict;
   logic stall_active;
   logic [31:0] stall_alu;
@@ -184,6 +197,8 @@ module rv32_ex_stage (
   logic [31:0] ex_ecall_cause;
   logic csr_mret_en;
   logic csr_sret_en;
+  logic irq_req;
+  logic [4:0] irq_code;
   logic div_wb_en_raw;
 
   // ------------------------------------------------------------- Forwarding
@@ -296,10 +311,14 @@ module rv32_ex_stage (
       .wr_en(csr_wr_en),
       .wr_addr(idex_csr_addr),
       .wr_data(csr_wdata),
-      .trap_en(ex_redirect_en && ex_trap),
-      .trap_pc(idex_pc),
-      .trap_cause(ex_trap_cause),
-      .trap_tval(ex_trap_tval),
+      .trap_en(csr_trap_irq || (ex_redirect_int && ex_trap)),
+      .trap_pc(csr_trap_pc),
+      .trap_cause(csr_trap_cause),
+      .trap_tval(csr_trap_tval),
+      .irq_timer(irq_timer),
+      .irq_external(irq_external),
+      .irq_req(irq_req),
+      .irq_code(irq_code),
       .mret_en(csr_mret_en),
       .sret_en(csr_sret_en),
       .retire(retire),
@@ -391,7 +410,7 @@ module rv32_ex_stage (
     ex_trap_tval = 32'd0;
     ex_redirect = 1'b0;
     branch_mispredict = 1'b0;
-    ex_redirect_pc = 32'd0;
+    ex_redirect_pc_stage = 32'd0;
     if (idex_valid) begin
       if (idex_is_branch) begin
         case (idex_funct3)
@@ -480,21 +499,21 @@ module rv32_ex_stage (
 
       if (ex_trap) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc = csr_trap_vector;
+        ex_redirect_pc_stage = csr_trap_vector;
       end else if (idex_mret) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc = csr_mepc;
+        ex_redirect_pc_stage = csr_mepc;
       end else if (idex_sret) begin
         ex_redirect = 1'b1;
-        ex_redirect_pc = csr_sepc;
+        ex_redirect_pc_stage = csr_sepc;
       end else if (branch_mispredict) begin
         ex_redirect = 1'b1;
         if (idex_is_branch) begin
-          ex_redirect_pc = ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4);
+          ex_redirect_pc_stage = ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4);
         end else if (idex_is_jal) begin
-          ex_redirect_pc = ex_branch_target;
+          ex_redirect_pc_stage = ex_branch_target;
         end else begin
-          ex_redirect_pc = ex_jump_target;
+          ex_redirect_pc_stage = ex_jump_target;
         end
       end
     end
@@ -502,7 +521,20 @@ module rv32_ex_stage (
 
   // A redirecting instruction cannot issue a cache lookup. Only an older
   // FENCE.I can hold it; do not feed the data-cache hit path into redirects.
-  assign ex_redirect_en = ex_redirect && !fence_hold && !halt && !rst;
+  assign ex_redirect_int = ex_redirect && !fence_hold && !halt && !rst;
+  assign ex_redirect_pc_int = ex_redirect_pc_stage;
+
+  // Interrupts are taken at an instruction boundary: no older redirect,
+  // no outstanding data access and no cache flush in flight. The saved PC
+  // is the instruction that would have executed next.
+  assign irq_take = irq_req && !ex_redirect_int && !lu_stall && !fence_hold && !halt && !rst &&
+                    !redirect_from_mem;
+  assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
+  assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
+  assign csr_trap_irq = irq_take;
+  assign csr_trap_pc = irq_take ? irq_next_pc : idex_pc;
+  assign csr_trap_cause = irq_take ? {1'b1, 26'd0, irq_code} : ex_trap_cause;
+  assign csr_trap_tval = irq_take ? 32'd0 : ex_trap_tval;
   // The decoder makes memory operations mutually exclusive with branches,
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.

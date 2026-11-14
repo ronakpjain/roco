@@ -26,10 +26,14 @@ module rv32_regfile (
   // validity separately so the data array can use distributed RAM.
   logic [31:0] regs[0:31];
   logic [31:0] valid_regs;
-  wire divider_write = dwe && (drd != 5'd0);
-  wire write_enable = divider_write || (we && (rd != 5'd0));
-  wire [4:0] write_reg = divider_write ? drd : rd;
-  wire [31:0] write_data = divider_write ? ddata : wdata;
+  logic divider_write;
+  logic write_enable;
+  logic [4:0] write_reg;
+  logic [31:0] write_data;
+  assign divider_write = dwe && (drd != 5'd0);
+  assign write_enable = divider_write || (we && (rd != 5'd0));
+  assign write_reg = divider_write ? drd : rd;
+  assign write_data = divider_write ? ddata : wdata;
 
   always_ff @(posedge clk) begin
     if (!rst && write_enable) begin

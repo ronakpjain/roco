@@ -86,10 +86,13 @@ module rv32_mem_stage (
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
-  wire [3:0] amo_lt, amo_eq;
-  wire amo_unsigned_lt, amo_less;
-  for (genvar b = 0; b < 4; b = b + 1) begin : g_amo_compare
+  logic [3:0] amo_lt;
+  logic [3:1] amo_eq;
+  logic amo_unsigned_lt, amo_less;
+  for (genvar b = 0; b < 4; b = b + 1) begin : g_amo_lt
     assign amo_lt[b] = dmem_rsp_data[8*b+:8] < exmem_store_data[8*b+:8];
+  end
+  for (genvar b = 1; b < 4; b = b + 1) begin : g_amo_eq
     assign amo_eq[b] = dmem_rsp_data[8*b+:8] == exmem_store_data[8*b+:8];
   end
   assign amo_unsigned_lt = amo_lt[3] || (amo_eq[3] && amo_lt[2]) ||

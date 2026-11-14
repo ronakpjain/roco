@@ -127,15 +127,17 @@ module dcache #(
   localparam int BANK_BITS  = (IDX_BITS > 4) ? 4 : IDX_BITS;
   localparam int BANK_LINES = 1 << BANK_BITS;
   localparam int BANK_COUNT = NUM_LINES / BANK_LINES;
-  wire [BANK_COUNT-1:0] bank_hits;
+  logic [BANK_COUNT-1:0] bank_hits;
   logic [BANK_COUNT-1:0] bank_hits_q;
-  wire lookup_hit_q = |bank_hits_q;
+  logic lookup_hit_q;
+  assign lookup_hit_q = |bank_hits_q;
   for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_hit_bank
-    wire [IDX_BITS-1:0] bank_idx = IDX_BITS'(bank * BANK_LINES) |
-                                  IDX_BITS'(lu_addr[IDX_LO+:BANK_BITS]);
+    logic [IDX_BITS-1:0] bank_idx;
+    assign bank_idx = IDX_BITS'(bank * BANK_LINES) | IDX_BITS'(lu_addr[IDX_LO+:BANK_BITS]);
     // Preserve this read port: sharing it with eviction/flush introduces
     // lookup-enable selection ahead of the SDRAM request address.
-    (* keep *) wire [MEM_TAG_BITS-1:0] lookup_tag = tag_ram[bank_idx];
+    (* keep *) logic [MEM_TAG_BITS-1:0] lookup_tag;
+    assign lookup_tag = tag_ram[bank_idx];
     assign bank_hits[bank] = ((lu_addr[IDX_HI:IDX_LO] >> BANK_BITS) == IDX_BITS'(bank)) &&
                              valid_ram[bank_idx] &&
                              (lookup_tag == lu_addr[24:IDX_HI+1]);

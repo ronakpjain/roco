@@ -35,26 +35,26 @@ module rv32_vec (
   input logic [31:0] mem_wdata
 );
 
-  logic [127:0] elem_mask;
+  logic [15:0] elem_byte_mask;
   logic [127:0] elem_wdata;
   logic [31:0] valid_regs;
 
   // The element written by a vector load goes into the lane selected by
   // the element index at the current SEW.
   always_comb begin
-    elem_mask = '0;
+    elem_byte_mask = '0;
     elem_wdata = '0;
     case (mem_sew)
       3'd0: begin
-        elem_mask[8*mem_elem+:8] = 8'hff;
+        elem_byte_mask[mem_elem] = 1'b1;
         elem_wdata[8*mem_elem+:8] = mem_wdata[7:0];
       end
       3'd1: begin
-        elem_mask[16*mem_elem[2:0]+:16] = 16'hffff;
+        elem_byte_mask[2*mem_elem[2:0]+:2] = 2'b11;
         elem_wdata[16*mem_elem[2:0]+:16] = mem_wdata[15:0];
       end
       default: begin
-        elem_mask[32*mem_elem[1:0]+:32] = 32'hffff_ffff;
+        elem_byte_mask[4*mem_elem[1:0]+:4] = 4'b1111;
         elem_wdata[32*mem_elem[1:0]+:32] = mem_wdata[31:0];
       end
     endcase
@@ -63,12 +63,15 @@ module rv32_vec (
   // Byte banks have one write port and no data reset. The first partial
   // load to an invalid register clears its untouched bytes, allowing one
   // validity bit per register while preserving reset-to-zero behavior.
-  wire [4:0] write_reg = ex_we ? ex_wd : mem_wd;
-  wire initialize_reg = !valid_regs[mem_wd];
+  logic [4:0] write_reg;
+  logic initialize_reg;
+  assign write_reg = ex_we ? ex_wd : mem_wd;
+  assign initialize_reg = !valid_regs[mem_wd];
   for (genvar r = 0; r < 32; r = r + 1) begin : g_valid
     // Decode both addresses before the late execute write enable.
-    wire ex_select = (ex_wd == 5'(r));
-    wire mem_select = (mem_wd == 5'(r));
+    logic ex_select, mem_select;
+    assign ex_select = (ex_wd == 5'(r));
+    assign mem_select = (mem_wd == 5'(r));
     always_ff @(posedge clk) begin
       if (rst) begin
         valid_regs[r] <= 1'b0;
@@ -81,8 +84,10 @@ module rv32_vec (
   end
   for (genvar b = 0; b < 16; b = b + 1) begin : g_byte
     logic [7:0] data[0:31];
-    wire write_byte = ex_we || (mem_we && (initialize_reg || elem_mask[8*b]));
-    wire [7:0] write_data = ex_we ? ex_wdata[8*b+:8] : elem_wdata[8*b+:8];
+    logic write_byte;
+    logic [7:0] write_data;
+    assign write_byte = ex_we || (mem_we && (initialize_reg || elem_byte_mask[b]));
+    assign write_data = ex_we ? ex_wdata[8*b+:8] : elem_wdata[8*b+:8];
 
     assign vs1_data[8*b+:8] = valid_regs[vs1] ? data[vs1] : 8'd0;
     assign vs2_data[8*b+:8] = valid_regs[vs2] ? data[vs2] : 8'd0;

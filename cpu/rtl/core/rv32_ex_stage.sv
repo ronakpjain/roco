@@ -262,8 +262,8 @@ module rv32_ex_stage (
   logic [127:0] vec_bcast;
   logic [127:0] vec_raw;
   logic [127:0] vec_reduce_sum;
-  wire [31:0] reduce_terms[0:6][0:16];
-  logic [31:0] reduce_pipe[0:5];
+  (* mem2reg *) logic [31:0] reduce_terms[0:6][0:16];
+  (* mem2reg *) logic [31:0] reduce_pipe[0:5];
   logic reduce_ready;
   logic is_vec_reduce;
   logic reduce_hold;
@@ -421,7 +421,7 @@ module rv32_ex_stage (
       .trap_en(csr_trap_irq || (ex_redirect_int && ex_trap)),
       .trap_pc(csr_trap_pc),
       .trap_cause(csr_trap_cause),
-      .sync_trap_cause(ex_trap_cause),
+      .sync_trap_cause(ex_trap_cause[4:0]),
       .trap_tval(csr_trap_tval),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
@@ -779,7 +779,7 @@ module rv32_ex_stage (
     end
   end
   for (genvar k = 0; k < 16; k = k + 1) begin : g_reduce_lane
-    wire [31:0] element_value;
+    logic [31:0] element_value;
     assign element_value = (vec_sew_cur == 3'd0) ? {24'd0, vec_vs2_data[8*k+:8]} :
                            (vec_sew_cur == 3'd1) ? {16'd0, vec_vs2_data[16*(k%8)+:16]} :
                            vec_vs2_data[32*(k%4)+:32];
@@ -792,9 +792,10 @@ module rv32_ex_stage (
     localparam int GROUPS = INPUTS / 3;
     localparam int OUTPUTS = 2 * GROUPS + INPUTS % 3;
     for (genvar g = 0; g < GROUPS; g = g + 1) begin : g_compress
-      wire [31:0] a = (level == 3) ? reduce_pipe[3*g] : reduce_terms[level][3*g];
-      wire [31:0] b = (level == 3) ? reduce_pipe[3*g+1] : reduce_terms[level][3*g+1];
-      wire [31:0] c = (level == 3) ? reduce_pipe[3*g+2] : reduce_terms[level][3*g+2];
+      logic [31:0] a, b, c;
+      assign a = (level == 3) ? reduce_pipe[3*g] : reduce_terms[level][3*g];
+      assign b = (level == 3) ? reduce_pipe[3*g+1] : reduce_terms[level][3*g+1];
+      assign c = (level == 3) ? reduce_pipe[3*g+2] : reduce_terms[level][3*g+2];
       assign reduce_terms[level+1][2*g] = a ^ b ^ c;
       assign reduce_terms[level+1][2*g+1] = ((a & b) | (a & c) | (b & c)) << 1;
     end

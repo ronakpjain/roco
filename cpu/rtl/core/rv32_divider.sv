@@ -66,8 +66,8 @@ module rv32_divider (
   logic div_a_neg;
   logic div_by_zero;
 
-  logic [33:0] rem_step[0:CHUNK_BITS];
-  logic [31:0] quot_step[0:CHUNK_BITS];
+  (* mem2reg *) logic [33:0] rem_step[0:CHUNK_BITS];
+  (* mem2reg *) logic [31:0] quot_step[0:CHUNK_BITS];
   logic [33:0] div_diff;
   logic [31:0] div_quot_final;
   logic [31:0] div_rem_final;

@@ -141,13 +141,15 @@ module rv32_mmu #(
   logic i_perm_fault;
   logic d_perm_fault;
   logic [31:0] i_phys;
-  logic [31:0] d_phys;
+  logic [19:0] d_ppn;
   logic d_last_valid;
   logic [19:0] d_last_vpn;
   logic [19:0] d_last_ppn;
   logic [4:0] d_last_context;
-  wire [4:0] d_context = {priv_data, mstatus_sum, mstatus_mxr, d_we};
-  wire d_cached_hit = d_last_valid && (d_last_vpn == d_vpn) && (d_last_context == d_context);
+  logic [4:0] d_context;
+  logic d_cached_hit;
+  assign d_context = {priv_data, mstatus_sum, mstatus_mxr, d_we};
+  assign d_cached_hit = d_last_valid && (d_last_vpn == d_vpn) && (d_last_context == d_context);
   logic [31:0] level0_pte_addr;
   logic [19:0] pte_ppn;
   logic [19:0] leaf_ppn_4k;
@@ -271,7 +273,7 @@ module rv32_mmu #(
   assign d_perm_fault = d_translate && d_req && !d_cached_hit && d_tag_hit && !d_perm_ok;
 
   assign i_phys = {i_ent[TAG_BITS+19:TAG_BITS], i_vaddr[11:0]};
-  assign d_phys = {d_ent[TAG_BITS+19:TAG_BITS], d_vaddr[11:0]};
+  assign d_ppn = d_ent[TAG_BITS+19:TAG_BITS];
 
   assign i_hit = !i_translate || (i_tag_hit && i_perm_ok);
   assign i_miss = i_translate && i_req && !i_tag_hit;
@@ -300,7 +302,7 @@ module rv32_mmu #(
     end else if (d_req && d_translate && !d_cached_hit && d_tag_hit && d_perm_ok) begin
       d_last_valid <= 1'b1;
       d_last_vpn <= d_vpn;
-      d_last_ppn <= d_phys[31:12];
+      d_last_ppn <= d_ppn;
       d_last_context <= d_context;
     end
   end

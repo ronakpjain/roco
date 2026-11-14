@@ -343,6 +343,18 @@ module rv32_mmu #(
     end
   end
 
+  // Walker state determines whether this payload is live. Capture idle
+  // candidates even when a flush cancels the request, keeping redirect
+  // arbitration off the physical request-address register enable.
+  always_ff @(posedge clk) begin
+    if (wstate == W_IDLE) begin
+      w_pte_addr <= d_miss_pending ? {satp[19:0], d_vaddr[31:22], 2'b00} :
+                                    {satp[19:0], i_vaddr[31:22], 2'b00};
+    end else if ((wstate == W_PTE1_WAIT) && p_rvalid && (walk_result == R_NEXT)) begin
+      w_pte_addr <= level0_pte_addr;
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
       wstate <= W_IDLE;
@@ -351,7 +363,6 @@ module rv32_mmu #(
       w_discard <= 1'b0;
       w_vaddr <= '0;
       w_priv <= PRIV_M;
-      w_pte_addr <= '0;
       w_install_word <= '0;
       i_miss_pending <= 1'b0;
       d_miss_pending <= 1'b0;
@@ -451,7 +462,6 @@ module rv32_mmu #(
               w_is_store <= d_we;
               w_vaddr <= d_vaddr;
               w_priv <= priv_data;
-              w_pte_addr <= {satp[19:0], d_vaddr[31:22], 2'b00};
               if (in_sdram({satp[19:0], d_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
@@ -465,7 +475,6 @@ module rv32_mmu #(
               w_is_store <= 1'b0;
               w_vaddr <= i_vaddr;
               w_priv <= priv_fetch;
-              w_pte_addr <= {satp[19:0], i_vaddr[31:22], 2'b00};
               if (in_sdram({satp[19:0], i_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
@@ -502,7 +511,6 @@ module rv32_mmu #(
                 };
                 wstate <= W_INSTALL;
               end else if (walk_result == R_NEXT) begin
-                w_pte_addr <= level0_pte_addr;
                 wstate <= W_PTE0_REQ;
               end else begin
                 if (w_is_if) begin

@@ -109,6 +109,7 @@ module rv32_ex_stage (
   output logic btb_taken,
   output logic [31:0] btb_target,
   output logic ex_lu_valid,
+  output logic ex_lu_present,
   output logic [31:0] ex_lu_vaddr,
   output logic ex_lu_we,
   /* Privilege and translation state. */
@@ -666,11 +667,12 @@ module rv32_ex_stage (
   // The decoder makes memory operations mutually exclusive with branches,
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
-  assign ex_lu_valid = idex_valid &&
+  assign ex_lu_present = idex_valid &&
                        (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr ||
                         idex_is_sc || (is_vec_mem && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
-                       !rst && !halt && !fence_hold && !redirect_from_mem;
+                       !rst && !halt && !redirect_from_mem;
+  assign ex_lu_valid = ex_lu_present && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
   assign ex_lu_we = idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst && !redirect_from_mem &&

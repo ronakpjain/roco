@@ -259,6 +259,7 @@ module rv32_core (
   logic mem_wait;
   logic stall;
   logic ex_lu_valid;
+  logic ex_lu_present;
   logic mem_redirect;
   logic retire;
   logic if_consume;
@@ -283,7 +284,9 @@ module rv32_core (
   assign dmem_lu_addr = mmu_d_paddr[31:2];
   // Hold the faulting instruction while registering the MMU response.
   // Trap delegation and fetch redirection then start from a register.
-  assign dmem_lu_stall = ex_lu_valid && !d_fault_q && !ex_lu_hit;
+  // MEM holds already stall the pipeline directly. Qualify an EX
+  // translation wait without routing that same hold through lookup enable.
+  assign dmem_lu_stall = ex_lu_present && !d_fault_q && !ex_lu_hit;
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -512,6 +515,7 @@ module rv32_core (
       .btb_taken(btb_taken),
       .btb_target(btb_target),
       .ex_lu_valid(ex_lu_valid),
+      .ex_lu_present(ex_lu_present),
       .ex_lu_vaddr(ex_lu_vaddr),
       .ex_lu_we(ex_lu_we),
       .priv(priv),
@@ -629,6 +633,26 @@ module rv32_core (
   assign if_imem_fault = mmu_i_fault;
   assign if_imem_fault_addr = mmu_i_fault_addr;
 
+  // Train the predictor one cycle after resolution. Capture payload
+  // unconditionally so only one validity flop sees late branch control.
+  logic bp_update_valid;
+  logic [31:2] bp_update_pc;
+  logic [31:0] bp_update_target;
+  logic bp_update_branch, bp_update_jal, bp_update_jalr, bp_update_taken;
+  always_ff @(posedge clk) begin
+    bp_update_pc <= idex_pc[31:2];
+    bp_update_target <= btb_target;
+    bp_update_branch <= btb_is_branch;
+    bp_update_jal <= btb_is_jal;
+    bp_update_jalr <= btb_is_jalr;
+    bp_update_taken <= btb_taken;
+    if (rst || mem_redirect || satp_write) begin
+      bp_update_valid <= 1'b0;
+    end else begin
+      bp_update_valid <= btb_update;
+    end
+  end
+
   rv32_branch_predictor u_bp (
       .clk(clk),
       .rst(rst),
@@ -636,13 +660,13 @@ module rv32_core (
       .if_pc(fetch_pc),
       .if_pred_taken(pred_taken),
       .if_pred_target(pred_target),
-      .ex_pc(idex_pc[31:2]),
-      .ex_update(btb_update),
-      .ex_is_branch(btb_is_branch),
-      .ex_is_jal(btb_is_jal),
-      .ex_is_jalr(btb_is_jalr),
-      .ex_taken(btb_taken),
-      .ex_target(btb_target)
+      .ex_pc(bp_update_pc),
+      .ex_update(bp_update_valid && !halt),
+      .ex_is_branch(bp_update_branch),
+      .ex_is_jal(bp_update_jal),
+      .ex_is_jalr(bp_update_jalr),
+      .ex_taken(bp_update_taken),
+      .ex_target(bp_update_target)
   );
 
   rv32_mem_stage u_mem (

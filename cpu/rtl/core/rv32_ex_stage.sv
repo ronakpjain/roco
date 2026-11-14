@@ -47,6 +47,10 @@ module rv32_ex_stage (
   input logic idex_regwrite,
   input logic idex_is_load,
   input logic idex_is_store,
+  input logic idex_is_amo,
+  input logic idex_is_lr,
+  input logic idex_is_sc,
+  input logic [4:0] idex_amo_op,
   input logic idex_is_branch,
   input logic idex_is_jal,
   input logic idex_is_jalr,
@@ -76,6 +80,8 @@ module rv32_ex_stage (
   input logic irq_timer,
   input logic irq_external,
   input logic redirect_from_mem,
+  /* Trap entry this cycle, used to drop a reservation. */
+  output logic ex_trap_taken,
   /* Redirect to fetch. */
   output logic ex_redirect_en,
   output logic [31:0] ex_redirect_pc,
@@ -120,6 +126,10 @@ module rv32_ex_stage (
   output logic exmem_regwrite,
   output logic exmem_is_load,
   output logic exmem_is_store,
+  output logic exmem_is_amo,
+  output logic exmem_is_lr,
+  output logic exmem_is_sc,
+  output logic [4:0] exmem_amo_op,
   output logic exmem_is_sfence,
   output logic exmem_is_fence_i
 );
@@ -293,7 +303,9 @@ module rv32_ex_stage (
       ({32{idex_rs1_from_wb}} & (wb_data + idex_imm)) |
       ({32{idex_rs1_from_rf}} & (idex_rs1_val + idex_imm));
   assign memory_addr_held = stall_active ? stall_alu : memory_addr;
-  assign ex_addr = (idex_is_load || idex_is_store) ? dmem_lu_paddr : ex_alu_result;
+  assign ex_addr =
+      (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) ?
+      dmem_lu_paddr : ex_alu_result;
   assign ex_st = stall_active ? stall_store_data : ex_store_data;
   assign ex_be = stall_active ? stall_be : ex_store_be;
   assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
@@ -438,7 +450,7 @@ module rv32_ex_stage (
         endcase
       end
 
-      if (idex_is_load || idex_is_store) begin
+      if (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) begin
         case (idex_funct3)
           3'b001, 3'b101: begin
             ex_mem_misaligned = memory_addr_held[0];
@@ -484,7 +496,8 @@ module rv32_ex_stage (
         ex_trap_tval = memory_addr_held;
       end else if (ex_mem_misaligned) begin
         ex_trap = 1'b1;
-        ex_trap_cause = idex_is_store ? `RV32_CAUSE_STORE_MISALIGNED : `RV32_CAUSE_LOAD_MISALIGNED;
+        ex_trap_cause = (idex_is_store || idex_is_amo || idex_is_sc) ?
+                        `RV32_CAUSE_STORE_MISALIGNED : `RV32_CAUSE_LOAD_MISALIGNED;
         ex_trap_tval = memory_addr_held;
       end
 
@@ -532,17 +545,19 @@ module rv32_ex_stage (
   assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
   assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
   assign csr_trap_irq = irq_take;
+  assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
   assign csr_trap_pc = irq_take ? irq_next_pc : idex_pc;
   assign csr_trap_cause = irq_take ? {1'b1, 26'd0, irq_code} : ex_trap_cause;
   assign csr_trap_tval = irq_take ? 32'd0 : ex_trap_tval;
   // The decoder makes memory operations mutually exclusive with branches,
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
-  assign ex_lu_valid = idex_valid && (idex_is_load || idex_is_store) &&
+  assign ex_lu_valid = idex_valid &&
+                       (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
                        !rst && !halt && !fence_hold;
   assign ex_lu_vaddr = memory_addr_held;
-  assign ex_lu_we = idex_is_store;
+  assign ex_lu_we = idex_is_store || idex_is_amo || idex_is_sc;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
@@ -584,6 +599,10 @@ module rv32_ex_stage (
       exmem_regwrite <= 1'b0;
       exmem_is_load <= 1'b0;
       exmem_is_store <= 1'b0;
+      exmem_is_amo <= 1'b0;
+      exmem_is_lr <= 1'b0;
+      exmem_is_sc <= 1'b0;
+      exmem_amo_op <= '0;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
       exmem_mul_p0 <= '0;
@@ -613,6 +632,10 @@ module rv32_ex_stage (
       exmem_regwrite <= idex_regwrite && !idex_is_div;
       exmem_is_load <= idex_is_load;
       exmem_is_store <= idex_is_store;
+      exmem_is_amo <= idex_is_amo;
+      exmem_is_lr <= idex_is_lr;
+      exmem_is_sc <= idex_is_sc;
+      exmem_amo_op <= idex_amo_op;
       exmem_is_sfence <= idex_is_sfence;
       exmem_is_fence_i <= idex_is_fence_i;
       exmem_mul_p0 <= mul_p0;

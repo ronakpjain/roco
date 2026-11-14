@@ -61,7 +61,7 @@ module rv32_csr (
   localparam logic [1:0] PRIV_U = `RV32_PRIV_U;
   localparam logic [1:0] PRIV_S = `RV32_PRIV_S;
   localparam logic [1:0] PRIV_M = `RV32_PRIV_M;
-  localparam logic [31:0] MISA_VALUE = 32'h4014_1100;
+  localparam logic [31:0] MISA_VALUE = 32'h4014_1101;
   localparam logic [31:0] MEDELEG_MASK = 32'h0000_b35d;
   // Implemented interrupt bits: SSIP, MSIP, STIP, MTIP, SEIP, MEIP.
   localparam logic [31:0] MIE_MASK = 32'h0000_0aaa;

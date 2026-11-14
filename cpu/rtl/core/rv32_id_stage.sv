@@ -67,6 +67,10 @@ module rv32_id_stage (
   output logic idex_regwrite,
   output logic idex_is_load,
   output logic idex_is_store,
+  output logic idex_is_amo,
+  output logic idex_is_lr,
+  output logic idex_is_sc,
+  output logic [4:0] idex_amo_op,
   output logic idex_is_branch,
   output logic idex_is_jal,
   output logic idex_is_jalr,
@@ -92,6 +96,10 @@ module rv32_id_stage (
   logic [2:0] dec_md_op;
   logic dec_is_load;
   logic dec_is_store;
+  logic dec_is_amo;
+  logic dec_is_lr;
+  logic dec_is_sc;
+  logic [4:0] dec_amo_op;
   logic dec_is_branch;
   logic dec_is_jal;
   logic dec_is_jalr;
@@ -115,6 +123,7 @@ module rv32_id_stage (
   logic rs1_matches_wb;
   logic rs2_matches_wb;
   logic ex_is_mul;
+  logic ex_is_mem_result;
 
   // Compare register numbers one stage early. The instructions now in EX
   // and MEM will be in MEM and WB when the decoded instruction executes.
@@ -123,7 +132,8 @@ module rv32_id_stage (
   // the MEM/WB stage instead.
   assign ex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign dec_is_div = dec_is_muldiv && dec_md_op[2];
-  assign ex_can_forward = idex_valid && idex_regwrite && !idex_is_load && !ex_is_mul &&
+  assign ex_is_mem_result = idex_is_load || idex_is_amo || idex_is_lr || idex_is_sc;
+  assign ex_can_forward = idex_valid && idex_regwrite && !ex_is_mem_result && !ex_is_mul &&
                           (idex_rd != 5'd0);
   assign mem_can_forward = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0);
   assign rs1_from_mem = ex_can_forward && (dec_rs1 == idex_rd);
@@ -148,6 +158,10 @@ module rv32_id_stage (
       .regwrite(dec_regwrite),
       .is_load(dec_is_load),
       .is_store(dec_is_store),
+      .is_amo(dec_is_amo),
+      .is_lr(dec_is_lr),
+      .is_sc(dec_is_sc),
+      .amo_op(dec_amo_op),
       .is_branch(dec_is_branch),
       .is_jal(dec_is_jal),
       .is_jalr(dec_is_jalr),
@@ -207,6 +221,10 @@ module rv32_id_stage (
       idex_regwrite <= 1'b0;
       idex_is_load <= 1'b0;
       idex_is_store <= 1'b0;
+      idex_is_amo <= 1'b0;
+      idex_is_lr <= 1'b0;
+      idex_is_sc <= 1'b0;
+      idex_amo_op <= '0;
       idex_is_branch <= 1'b0;
       idex_is_jal <= 1'b0;
       idex_is_jalr <= 1'b0;
@@ -252,6 +270,10 @@ module rv32_id_stage (
       idex_regwrite <= dec_regwrite;
       idex_is_load <= dec_is_load;
       idex_is_store <= dec_is_store;
+      idex_is_amo <= dec_is_amo;
+      idex_is_lr <= dec_is_lr;
+      idex_is_sc <= dec_is_sc;
+      idex_amo_op <= dec_amo_op;
       idex_is_branch <= dec_is_branch;
       idex_is_jal <= dec_is_jal;
       idex_is_jalr <= dec_is_jalr;

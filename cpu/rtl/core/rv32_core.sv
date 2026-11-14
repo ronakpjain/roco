@@ -115,6 +115,10 @@ module rv32_core (
   logic idex_regwrite;
   logic idex_is_load;
   logic idex_is_store;
+  logic idex_is_amo;
+  logic idex_is_lr;
+  logic idex_is_sc;
+  logic [4:0] idex_amo_op;
   logic idex_is_branch;
   logic idex_is_jal;
   logic idex_is_jalr;
@@ -194,6 +198,11 @@ module rv32_core (
   logic exmem_regwrite;
   logic exmem_is_load;
   logic exmem_is_store;
+  logic exmem_is_amo;
+  logic exmem_is_lr;
+  logic exmem_is_sc;
+  logic [4:0] exmem_amo_op;
+  logic ex_trap_taken;
   logic exmem_is_sfence;
   logic exmem_is_fence_i;
   logic [31:0] exmem_mul_p0;
@@ -239,7 +248,9 @@ module rv32_core (
   // Keep a dependent instruction in ID until the load reaches WB.
   // Multiply completes in MEM, so a dependent instruction waits one cycle
   // exactly like a load-use dependency.
-  assign load_use = idex_valid && (idex_is_load || idex_is_mul) && (idex_rd != 5'd0) && if_valid &&
+  assign load_use = idex_valid &&
+                    (idex_is_load || idex_is_mul || idex_is_amo || idex_is_lr || idex_is_sc) &&
+                    (idex_rd != 5'd0) && if_valid &&
                     ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                      (dec_use_rs2 && dec_rs2 == idex_rd));
   assign if_consume = if_valid && !stall && !bubble && !ex_redirect_en && !mem_redirect;
@@ -364,6 +375,10 @@ module rv32_core (
       .idex_regwrite(idex_regwrite),
       .idex_is_load(idex_is_load),
       .idex_is_store(idex_is_store),
+      .idex_is_amo(idex_is_amo),
+      .idex_is_lr(idex_is_lr),
+      .idex_is_sc(idex_is_sc),
+      .idex_amo_op(idex_amo_op),
       .idex_is_branch(idex_is_branch),
       .idex_is_jal(idex_is_jal),
       .idex_is_jalr(idex_is_jalr),
@@ -417,6 +432,10 @@ module rv32_core (
       .idex_regwrite(idex_regwrite),
       .idex_is_load(idex_is_load),
       .idex_is_store(idex_is_store),
+      .idex_is_amo(idex_is_amo),
+      .idex_is_lr(idex_is_lr),
+      .idex_is_sc(idex_is_sc),
+      .idex_amo_op(idex_amo_op),
       .idex_is_branch(idex_is_branch),
       .idex_is_jal(idex_is_jal),
       .idex_is_jalr(idex_is_jalr),
@@ -441,6 +460,7 @@ module rv32_core (
       .dmem_lu_fault(d_fault_q),
       .dmem_lu_fault_cause(d_fault_cause_q),
       .dmem_lu_paddr(mmu_d_paddr),
+      .ex_trap_taken(ex_trap_taken),
       .ex_redirect_en(ex_redirect_en),
       .ex_redirect_pc(ex_redirect_pc),
       .btb_update(btb_update),
@@ -473,6 +493,10 @@ module rv32_core (
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
+      .exmem_is_amo(exmem_is_amo),
+      .exmem_is_lr(exmem_is_lr),
+      .exmem_is_sc(exmem_is_sc),
+      .exmem_amo_op(exmem_amo_op),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
       .exmem_mul_p0(exmem_mul_p0),
@@ -571,6 +595,10 @@ module rv32_core (
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
+      .exmem_is_amo(exmem_is_amo),
+      .exmem_is_lr(exmem_is_lr),
+      .exmem_is_sc(exmem_is_sc),
+      .exmem_amo_op(exmem_amo_op),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
       .exmem_mul_p0(exmem_mul_p0),
@@ -581,6 +609,7 @@ module rv32_core (
       .exmem_mul_sub_b(exmem_mul_sub_b),
       .exmem_mul_variant(exmem_mul_variant),
       .exmem_from_mul(exmem_from_mul),
+      .trap_taken(ex_trap_taken || satp_write),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),

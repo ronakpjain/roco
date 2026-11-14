@@ -24,6 +24,10 @@ module rv32_decoder (
   output logic regwrite,
   output logic is_load,
   output logic is_store,
+  output logic is_amo,
+  output logic is_lr,
+  output logic is_sc,
+  output logic [4:0] amo_op,
   output logic is_branch,
   output logic is_jal,
   output logic is_jalr,
@@ -56,6 +60,10 @@ module rv32_decoder (
     regwrite = 1'b0;
     is_load = 1'b0;
     is_store = 1'b0;
+    is_amo = 1'b0;
+    is_lr = 1'b0;
+    is_sc = 1'b0;
+    amo_op = instr[31:27];
     is_branch = 1'b0;
     is_jal = 1'b0;
     is_jalr = 1'b0;
@@ -149,6 +157,34 @@ module rv32_decoder (
           illegal = 1'b1;
         end else begin
           is_store = 1'b1;
+        end
+      end
+      7'b0101111: begin  // AMO
+        imm = 32'd0;
+        use_rs1 = 1'b1;
+        alu_b_imm = 1'b1;
+        alu_op = `RV32_ALU_ADD;
+        if (instr[14:12] != 3'b010) begin
+          illegal = 1'b1;
+        end else begin
+          regwrite = 1'b1;
+          case (instr[31:27])
+            5'b00010: begin  // LR.W
+              is_lr = 1'b1;
+            end
+            5'b00011: begin  // SC.W
+              is_sc = 1'b1;
+              use_rs2 = 1'b1;
+            end
+            5'b00000, 5'b00001, 5'b00100, 5'b01000, 5'b01100,
+            5'b10000, 5'b10100, 5'b11000, 5'b11100: begin
+              is_amo = 1'b1;
+              use_rs2 = 1'b1;
+            end
+            default: begin
+              illegal = 1'b1;
+            end
+          endcase
         end
       end
       7'b0010011: begin  // OP-IMM

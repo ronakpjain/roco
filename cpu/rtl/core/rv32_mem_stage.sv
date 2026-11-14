@@ -26,6 +26,12 @@ module rv32_mem_stage (
   input logic exmem_regwrite,
   input logic exmem_is_load,
   input logic exmem_is_store,
+  input logic exmem_is_amo,
+  input logic exmem_is_lr,
+  input logic exmem_is_sc,
+  input logic [4:0] exmem_amo_op,
+  /* Any trap this cycle cancels a reservation. */
+  input logic trap_taken,
   input logic exmem_is_sfence,
   input logic exmem_is_fence_i,
   /* Multiply partial products completed here. */
@@ -65,6 +71,13 @@ module rv32_mem_stage (
   logic [31:0] mul_data;
   logic [31:0] result_data;
   logic is_memory_op;
+  logic [31:0] amo_data;
+  logic sc_ok;
+  logic [31:0] sc_result;
+  logic res_valid;
+  logic [29:0] res_addr;
+  logic commit_now;
+  logic store_now;
 
   rv32_mul_finish u_mul_finish (
       .p0(exmem_mul_p0),
@@ -77,15 +90,59 @@ module rv32_mem_stage (
       .result(mul_data)
   );
 
-  assign result_data = exmem_from_mul ? mul_data : exmem_is_load ? load_data : exmem_wbval;
+  // Atomic memory operations read the word the EX lookup fetched and
+  // write the computed result in the same memory cycle, which is atomic
+  // for a single hart with no interrupts in flight.
+  always_comb begin
+    case (exmem_amo_op)
+      5'b00000: begin  // AMOADD
+        amo_data = dmem_rsp_data + exmem_store_data;
+      end
+      5'b00001: begin  // AMOSWAP
+        amo_data = exmem_store_data;
+      end
+      5'b00100: begin  // AMOXOR
+        amo_data = dmem_rsp_data ^ exmem_store_data;
+      end
+      5'b01000: begin  // AMOOR
+        amo_data = dmem_rsp_data | exmem_store_data;
+      end
+      5'b01100: begin  // AMOAND
+        amo_data = dmem_rsp_data & exmem_store_data;
+      end
+      5'b10000: begin  // AMOMIN
+        amo_data = ($signed(dmem_rsp_data) < $signed(exmem_store_data)) ? dmem_rsp_data :
+            exmem_store_data;
+      end
+      5'b10100: begin  // AMOMAX
+        amo_data = ($signed(dmem_rsp_data) > $signed(exmem_store_data)) ? dmem_rsp_data :
+            exmem_store_data;
+      end
+      5'b11000: begin  // AMOMINU
+        amo_data = (dmem_rsp_data < exmem_store_data) ? dmem_rsp_data : exmem_store_data;
+      end
+      default: begin  // AMOMAXU
+        amo_data = (dmem_rsp_data > exmem_store_data) ? dmem_rsp_data : exmem_store_data;
+      end
+    endcase
+  end
 
-  assign is_memory_op = exmem_is_load || exmem_is_store;
+  assign result_data = exmem_is_sc ? sc_result :
+                       (exmem_is_load || exmem_is_lr || exmem_is_amo) ? load_data :
+                       exmem_from_mul ? mul_data : exmem_wbval;
+
+  assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||
+                        exmem_is_sc;
   assign dmem_addr = exmem_alu;
-  assign dmem_we = exmem_is_store;
-  assign dmem_wdata = exmem_store_data;
-  assign dmem_be = exmem_be;
+  assign sc_ok = res_valid && (res_addr == exmem_alu[31:2]);
+  assign sc_result = {31'd0, !sc_ok};
+  assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok);
+  assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
+  assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
   assign dmem_req = !rst && !halt && exmem_valid && is_memory_op;
   assign commit_valid = !rst && !halt && exmem_valid && !fence_req;
+  assign commit_now = commit_valid;
+  assign store_now = commit_valid && exmem_valid && dmem_we && is_memory_op;
   assign commit_pc = exmem_pc;
   assign commit_instr = exmem_instr;
   assign commit_rd = exmem_rd;
@@ -117,6 +174,26 @@ module rv32_mem_stage (
         load_data = dmem_rsp_data;
       end
     endcase
+  end
+
+  // Load-reserved / store-conditional reservation. The set is one word
+  // wide: any store to it, any store-conditional and any trap clears it.
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      res_valid <= 1'b0;
+      res_addr <= '0;
+    end else if (trap_taken) begin
+      res_valid <= 1'b0;
+    end else if (commit_now) begin
+      if (exmem_is_lr) begin
+        res_valid <= 1'b1;
+        res_addr <= dmem_addr[31:2];
+      end else if (exmem_is_sc) begin
+        res_valid <= 1'b0;
+      end else if (store_now && (dmem_addr[31:2] == res_addr)) begin
+        res_valid <= 1'b0;
+      end
+    end
   end
 
   always_ff @(posedge clk) begin

@@ -76,6 +76,15 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/csr-intent.elf: sw/tests/csr-intent.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/csr-intent.bin: $(BUILD_DIR)/csr-intent.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/csr-intent.hex: $(BUILD_DIR)/csr-intent.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
 $(BUILD_DIR)/vector-c.elf: sw/vector/crt0.S sw/vector/main.c sw/link.ld | build
 	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -O3 -mrvv-vector-bits=zvl \
 		-ffreestanding -nostdlib -nostartfiles -T sw/link.ld -o $@ \
@@ -250,6 +259,11 @@ test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_so
 .PHONY: test-atomic-mmio
 test-atomic-mmio: $(BUILD_DIR)/atomic-mmio.hex $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-mmio.hex
+
+.PHONY: test-csr-intent
+test-csr-intent: $(BUILD_DIR)/csr-intent.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/csr-intent.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/csr-intent.hex
 
 test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300

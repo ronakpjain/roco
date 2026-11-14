@@ -463,7 +463,9 @@ module rv32_ex_stage (
   assign csr_sret_en = ex_redirect_en && idex_sret && !ex_trap;
 
   assign csr_src = idex_csr_uimm ? {27'd0, idex_rs1} : rs1_fwd;
-  assign csr_write_intent = idex_is_csr && ((idex_csr_op == `RV32_CSR_RW) || (csr_src != 32'd0));
+  // Zicsr suppresses CSRRS/CSRRC writes for encoded x0 (or uimm=0),
+  // not for a non-x0 register whose value happens to be zero.
+  assign csr_write_intent = idex_is_csr && ((idex_csr_op == `RV32_CSR_RW) || (idex_rs1 != 5'd0));
   assign ex_csr_illegal = idex_is_csr &&
                           (!csr_exists || !csr_read_ok ||
                            (csr_write_intent && !csr_write_ok));

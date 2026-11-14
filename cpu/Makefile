@@ -30,7 +30,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-muldiv-core test-atomic test-irq test-sdram test-soc test-isa-soc test-boot synth timing bitstream
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-muldiv-core test-atomic test-vector test-vector-c test-irq test-sdram test-soc test-isa-soc test-boot synth timing bitstream
 
 all: format-check syntax lint
 
@@ -74,6 +74,27 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 	$(RISCV)-objcopy -O binary $< $@
 
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/vector-c.elf: sw/vector/crt0.S sw/vector/main.c sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -O3 -mrvv-vector-bits=zvl \
+		-ffreestanding -nostdlib -nostartfiles -T sw/link.ld -o $@ \
+		sw/vector/crt0.S sw/vector/main.c
+
+$(BUILD_DIR)/vector-c.bin: $(BUILD_DIR)/vector-c.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vector-c.hex: $(BUILD_DIR)/vector-c.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/vector.elf: sw/tests/vector.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vector.bin: $(BUILD_DIR)/vector.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vector.hex: $(BUILD_DIR)/vector.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
 $(BUILD_DIR)/atomic.elf: sw/tests/atomic.S sw/link.ld | build
@@ -153,6 +174,12 @@ $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 
 test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/muldiv.hex
+
+test-vector: $(BUILD_DIR)/vector.hex $(BUILD_DIR)/tb_core.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector.hex
+
+test-vector-c: $(BUILD_DIR)/vector-c.hex $(BUILD_DIR)/tb_core.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-c.hex
 
 test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic.hex

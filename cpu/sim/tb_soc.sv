@@ -97,12 +97,10 @@ module tb_soc;
                u_soc.u_dcache.mem_wdata);
     end
     if (trace_on && u_soc.dmem_req && (u_soc.dmem_addr[31:4] == 28'h1000034)) begin
-      $display(
-          "  dc cm we=%b addr=%h wd=%h be=%b rdata=%h luq=%h pv=%b pa=%h pd=%h pb=%b st=%0d byp=%b",
-          u_soc.dmem_we, u_soc.dmem_addr, u_soc.dmem_wdata, u_soc.dmem_be, u_soc.dmem_rsp_data,
-          u_soc.u_dcache.lu_addr_q, u_soc.u_dcache.prev_store_valid,
-          u_soc.u_dcache.prev_store_addr, u_soc.u_dcache.prev_store_data,
-          u_soc.u_dcache.prev_store_be, u_soc.u_dcache.state, u_soc.u_dcache.bypass);
+      $display("  dc cm we=%b addr=%h wd=%h be=%b rdata=%h luq=%h pd=%h pb=%b st=%0d",
+               u_soc.dmem_we, u_soc.dmem_addr, u_soc.dmem_wdata, u_soc.dmem_be,
+               u_soc.dmem_rsp_data, u_soc.u_dcache.lu_addr_q, u_soc.u_dcache.prev_store_data,
+               u_soc.u_dcache.prev_store_be, u_soc.u_dcache.state);
     end
     if (trace_on && u_soc.core_fence_req) begin
       $display("  fence req, state=%0d dcache_done=%b", u_soc.fence_state, u_soc.dcache_flush_done);

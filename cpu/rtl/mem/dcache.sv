@@ -100,15 +100,12 @@ module dcache #(
   // Word addresses: the byte offset inside a word never reaches the tag
   // RAM, index or store-to-load comparator.
   logic [24:2] lu_addr_q;
-  logic lu_valid_q;
   logic lookup_hit_q;
   logic pending_miss;
   logic recovery_ready;
 
-  logic [24:2] prev_store_addr;
   logic [31:0] prev_store_data;
   logic [3:0] prev_store_be;
-  logic prev_store_valid;
 
   logic [MEM_WORD_BITS-1:0] miss_line_word;
   logic [IDX_BITS-1:0] miss_idx;
@@ -120,7 +117,6 @@ module dcache #(
   logic [MEM_WORD_BITS-1:0] victim_word;
   logic [MEM_WORD_BITS-1:0] flush_word;
   logic [31:0] merged;
-  logic bypass;
   integer i;
 
   assign victim_word = {tag_ram[miss_idx], miss_idx, {(OFF_BITS) {1'b0}}};
@@ -226,12 +222,11 @@ module dcache #(
     end
   end
 
-  assign bypass = lu_valid_q && prev_store_valid && (prev_store_addr == lu_addr_q);
   assign merged[7:0] = prev_store_be[0] ? prev_store_data[7:0] : ram_data[7:0];
   assign merged[15:8] = prev_store_be[1] ? prev_store_data[15:8] : ram_data[15:8];
   assign merged[23:16] = prev_store_be[2] ? prev_store_data[23:16] : ram_data[23:16];
   assign merged[31:24] = prev_store_be[3] ? prev_store_data[31:24] : ram_data[31:24];
-  assign cm_rdata = bypass ? merged : ram_data;
+  assign cm_rdata = merged;
 
   assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ) || (state == S_FLUSH_REQ);
   assign mem_we = (state == S_WB_REQ) || (state == S_FLUSH_REQ);
@@ -246,11 +241,8 @@ module dcache #(
     if (rst) begin
       state <= S_IDLE;
       lu_addr_q <= '0;
-      lu_valid_q <= 1'b0;
-      prev_store_addr <= '0;
       prev_store_data <= '0;
       prev_store_be <= '0;
-      prev_store_valid <= 1'b0;
       miss_line_word <= '0;
       miss_idx <= '0;
       miss_tag <= '0;
@@ -268,16 +260,15 @@ module dcache #(
         flush_active <= 1'b0;
       end
 
-      lu_valid_q <= lu_valid;
       if (lu_valid) begin
         lu_addr_q <= lu_addr;
       end
 
-      prev_store_valid <= (state == S_IDLE) && cm_valid && cm_we;
+      // Resolve forwarding alongside the lookup, before MEM arithmetic.
+      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid &&
+                        (cm_addr == lu_addr)) ? cm_be : 4'b0000;
       if ((state == S_IDLE) && cm_valid && cm_we) begin
-        prev_store_addr <= cm_addr;
         prev_store_data <= cm_wdata;
-        prev_store_be <= cm_be;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;
       end
 

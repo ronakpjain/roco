@@ -33,6 +33,7 @@ module rv32_mem_stage (
   input logic exmem_is_vload,
   input logic exmem_is_vstore,
   input logic [3:0] exmem_vec_elem,
+  input logic exmem_vec_last,
   input logic [2:0] exmem_vec_sew,
   /* Element write port into the vector register file. */
   output logic vec_mem_we,
@@ -158,9 +159,8 @@ module rv32_mem_stage (
   assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_ready;
   assign commit_valid = !rst && !halt && exmem_valid && !fence_req && !mem_wait;
   assign commit_now = commit_valid;
-  // A vector load writes one element per cycle; those commits must not
-  // count as retired instructions.
-  assign vec_element_commit = commit_valid && (exmem_is_vload || exmem_is_vstore);
+  // Only the final element retires the architectural vector instruction.
+  assign vec_element_commit = commit_valid && (exmem_is_vload || exmem_is_vstore) && !exmem_vec_last;
   assign vec_mem_we = commit_valid && exmem_is_vload;
   assign vec_mem_wd = exmem_rd;
   assign vec_mem_elem = exmem_vec_elem;

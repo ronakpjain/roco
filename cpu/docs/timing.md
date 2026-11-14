@@ -73,3 +73,10 @@ nonzero register containing zero, as specified by
 [Zicsr](https://docs.riscv.org/reference/isa/unpriv/zicsr.html).
 These checks are simulation and FPGA routing validation; they do not
 constitute a board test.
+
+## Retirement counters
+
+Vector loads and stores increment `minstret` once, when their final element
+commits. VL-zero memory instructions retire once without issuing a request.
+Counter reads include the older instruction committing in MEM on that edge.
+Run `make test-vector-retire` to check counts on the core and cached SoC.

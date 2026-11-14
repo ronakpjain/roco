@@ -155,6 +155,7 @@ module rv32_ex_stage (
   output logic exmem_is_vload,
   output logic exmem_is_vstore,
   output logic [3:0] exmem_vec_elem,
+  output logic exmem_vec_last,
   output logic [2:0] exmem_vec_sew,
   output logic exmem_is_sfence,
   output logic exmem_is_fence_i
@@ -922,6 +923,7 @@ module rv32_ex_stage (
   always_ff @(posedge clk) begin
     if (rst) begin
       exmem_valid <= 1'b0;
+      exmem_vec_last <= 1'b0;
       exmem_pc <= '0;
       exmem_instr <= 32'h0000_0013;
       exmem_alu <= '0;
@@ -951,7 +953,9 @@ module rv32_ex_stage (
       // Hold while a FENCE.I wait is active.
     end else if (is_vec_mem && idex_valid) begin
       // One element per cycle; the last cycle issues nothing.
-      exmem_valid <= vmem_issue && !lu_stall && !redirect_from_mem;
+      // VL zero retires a no-op; nonzero vectors retire their final element.
+      exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_total == 5'd0)) && !redirect_from_mem;
+      exmem_vec_last <= (vmem_total == 5'd0) || (vmem_idx + 5'd1 == vmem_total);
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= dmem_lu_paddr;
@@ -1006,6 +1010,7 @@ module rv32_ex_stage (
       exmem_is_vload <= 1'b0;
       exmem_is_vstore <= 1'b0;
       exmem_vec_elem <= '0;
+      exmem_vec_last <= 1'b0;
       exmem_vec_sew <= '0;
       exmem_is_sfence <= idex_is_sfence;
       exmem_is_fence_i <= idex_is_fence_i;

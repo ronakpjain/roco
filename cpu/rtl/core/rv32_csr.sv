@@ -124,6 +124,11 @@ module rv32_csr (
   logic [31:0] mcycle_hi;
   logic [31:0] minstret_lo;
   logic [31:0] minstret_hi;
+  logic [31:0] minstret_read_lo, minstret_read_hi;
+  // Include the older instruction committing in MEM on this edge.
+  assign minstret_read_lo = retire ? (minstret_lo + 32'd1) : minstret_lo;
+  assign minstret_read_hi = (retire && (minstret_lo == 32'hffffffff)) ?
+                            (minstret_hi + 32'd1) : minstret_hi;
 
   logic priv_read_ok;
   logic addr_writable;
@@ -315,13 +320,13 @@ module rv32_csr (
         rdata = mcycle_lo;
       end
       12'hB02: begin
-        rdata = minstret_lo;
+        rdata = minstret_read_lo;
       end
       12'hB80: begin
         rdata = mcycle_hi;
       end
       12'hB82: begin
-        rdata = minstret_hi;
+        rdata = minstret_read_hi;
       end
       12'hC00: begin
         rdata = mcycle_lo;
@@ -329,7 +334,7 @@ module rv32_csr (
         write_ok = 1'b0;
       end
       12'hC02: begin
-        rdata = minstret_lo;
+        rdata = minstret_read_lo;
         read_ok = counter_instret_ok;
         write_ok = 1'b0;
       end

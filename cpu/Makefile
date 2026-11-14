@@ -342,6 +342,20 @@ $(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/rv32_vec_reduce.sv sim/tb_vec_reduce.sv
 test-vector-reduce: $(BUILD_DIR)/tb_vec_reduce.vvp
 	$(VVP) $<
 
+$(BUILD_DIR)/vector-retire.elf: sw/tests/vector-retire.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vector-retire.bin: $(BUILD_DIR)/vector-retire.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vector-retire.hex: $(BUILD_DIR)/vector-retire.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+.PHONY: test-vector-retire
+test-vector-retire: $(BUILD_DIR)/vector-retire.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-retire.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-retire.hex
+
 .PHONY: test-cpi
 test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-forward.hex $(BUILD_DIR)/cpi-vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(PYTHON) scripts/run_cpi_tests.py --riscv-prefix $(RISCV)-

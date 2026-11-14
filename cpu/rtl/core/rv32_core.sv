@@ -221,6 +221,7 @@ module rv32_core (
   logic exmem_is_vload;
   logic exmem_is_vstore;
   logic [3:0] exmem_vec_elem;
+  logic exmem_vec_last;
   logic [2:0] exmem_vec_sew;
   logic vec_mem_we;
   logic [4:0] vec_mem_wd;
@@ -313,7 +314,7 @@ module rv32_core (
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
-  assign trace_valid = commit_valid;
+  assign trace_valid = retire;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
   assign trace_rd = commit_rd;
@@ -554,6 +555,7 @@ module rv32_core (
       .exmem_is_vload(exmem_is_vload),
       .exmem_is_vstore(exmem_is_vstore),
       .exmem_vec_elem(exmem_vec_elem),
+      .exmem_vec_last(exmem_vec_last),
       .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
@@ -701,6 +703,7 @@ module rv32_core (
       .exmem_is_vload(exmem_is_vload),
       .exmem_is_vstore(exmem_is_vstore),
       .exmem_vec_elem(exmem_vec_elem),
+      .exmem_vec_last(exmem_vec_last),
       .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),

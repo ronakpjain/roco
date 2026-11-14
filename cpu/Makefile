@@ -325,7 +325,7 @@ $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 
 # Share routing settings between timing measurements and the shipped bitstream.
 PNR_SEED ?= 4
-PNR_FLAGS ?=
+PNR_FLAGS ?= --placer-heap-timingweight 30
 # Diagnostic route: report timing even when the unchanged 48 MHz PLL fails.
 TIMING_SEED ?= $(PNR_SEED)
 timing: $(BUILD_DIR)/roco.json

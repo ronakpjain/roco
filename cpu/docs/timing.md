@@ -12,9 +12,15 @@ A timing failure stops the build before the configuration is packaged.
 `make timing` is diagnostic: it permits timing failures and writes
 `build/timing-seed4.json` by default. A successful diagnostic command does
 not establish timing closure. Both targets share `PNR_SEED` and `PNR_FLAGS`.
+Defaults are seed 4 and `--placer-heap-timingweight 30`.
+To reproduce explicitly, use
+`make bitstream PNR_SEED=4 PNR_FLAGS="--placer-heap-timingweight 30"`.
 
 The measured post-vector baseline at commit `3f1ddc9` was 11.667 MHz with
-seed 4. Tool versions used for this work were Yosys 0.71+post
+seed 4. The final routed design reaches 48.809 MHz against nextpnr's
+48.00077 MHz PLL constraint (20.488 ns critical path versus 20.833 ns
+required), measured on 2026-11-14 with the defaults above. Tool versions
+used for this work were Yosys 0.71+post
 (`5628c13240f670b97aaaca3d47940c4afb8ff572`) and nextpnr
 `0.11.1-89-g445e2a65` from OSS CAD Suite 20261110.
 
@@ -34,6 +40,9 @@ seed 4. Tool versions used for this work were Yosys 0.71+post
   preserving EX-to-MEM hit latency. Combining the registered bank results
   adds one cycle to miss detection. Misses hold MEM until refill recovery
   has read the requested word. A pending response persists until commit.
+  Lookup tag read ports are preserved independently of eviction/flush,
+  preventing synthesis from putting lookup controls ahead of SDRAM
+  request addresses through resource sharing.
 - The data MMU retains the most recent translation and permission context.
   A new translated page or context adds one EX cycle; repeated accesses in
   that context avoid the TLB-to-cache combinational path. Bare accesses do
@@ -42,8 +51,7 @@ seed 4. Tool versions used for this work were Yosys 0.71+post
   Redirects reach fetch one cycle after EX resolution, adding one recovery
   cycle. The pending redirect cancels younger EX side effects, including
   CSR/vector writes and divider starts. Predictor training is registered
-  one cycle after resolution. Trap-vector
-  candidates compute before interrupt arbitration. Fetch flushes invalidate
+  one cycle after resolution. Trap-vector candidates compute before interrupt arbitration. Fetch flushes invalidate
   queue pointers independently of speculative payload writes.
 
 ## Regression coverage

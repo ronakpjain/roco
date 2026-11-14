@@ -561,7 +561,9 @@ module rv32_core (
       .vs1_data(vec_vs1_data),
       .vs2_data(vec_vs2_data),
       .vd_data(vec_vd_data),
-      .ex_we(vec_ex_we && !stall),
+      // EX already qualifies arithmetic/configuration writes. Feeding
+      // backend stall here adds the cache-hit path to every vector byte.
+      .ex_we(vec_ex_we),
       .ex_wd(vec_ex_wd),
       .ex_wdata(vec_ex_wdata),
       .mem_we(vec_mem_we),

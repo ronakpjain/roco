@@ -148,6 +148,18 @@ _start:
   li t5, 141
   bne t4, t5, fail_10
 
+  # Zero-length memory instructions must not change registers or memory.
+  vsetivli zero, 0, e8, m1, ta, ma
+  vle8.v v10, (s4)
+  vse8.v v11, (s5)
+  lbu t4, 0(s5)
+  li t5, 1
+  bne t4, t5, fail_10
+  vsetivli zero, 16, e8, m1, ta, ma
+  vse8.v v10, (s5)
+  lbu t4, 0(s5)
+  bne t4, t5, fail_10
+
   li a0, 1
   sw a0, 0(x31)
 1:

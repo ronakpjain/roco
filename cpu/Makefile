@@ -192,11 +192,13 @@ $(BUILD_DIR)/tb_vec_regs.vvp: rtl/core/rv32_vec.sv sim/tb_vec_regs.sv | build
 test-vector-regs: $(BUILD_DIR)/tb_vec_regs.vvp
 	$(VVP) $<
 
-test-vector: $(BUILD_DIR)/vector.hex $(BUILD_DIR)/tb_core.vvp
+test-vector: $(BUILD_DIR)/vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector.hex
 
-test-vector-c: $(BUILD_DIR)/vector-c.hex $(BUILD_DIR)/tb_core.vvp
+test-vector-c: $(BUILD_DIR)/vector-c.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-c.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-c.hex
 
 .PHONY: test-vector-irq
 test-vector-irq: $(BUILD_DIR)/vector-irq.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp

@@ -86,7 +86,8 @@ module rv32_ex_stage (
   input logic [31:0] idex_pred_jalr_base,
   input logic [31:0] idex_pred_jalr_next,
   input logic idex_pred_jalr_aligned,
-  /* Writeback forwarding. */
+  /* Final MEM result and registered WB forwarding. */
+  input logic [31:0] mem_data,
   input logic [31:0] wb_data,
   input logic wb_we,
   /* Data translation result from the MMU. */
@@ -287,10 +288,10 @@ module rv32_ex_stage (
   logic [2:0] vec_elem_sew;
 
   // ------------------------------------------------------------- Forwarding
-  assign rs1_fwd = ({32{idex_rs1_from_mem}} & exmem_wbval) |
+  assign rs1_fwd = ({32{idex_rs1_from_mem}} & mem_data) |
                    ({32{idex_rs1_from_wb}} & wb_data) |
                    ({32{idex_rs1_from_rf}} & idex_rs1_val);
-  assign rs2_fwd = ({32{idex_rs2_from_mem}} & exmem_wbval) |
+  assign rs2_fwd = ({32{idex_rs2_from_mem}} & mem_data) |
                    ({32{idex_rs2_from_wb}} & wb_data) |
                    ({32{idex_rs2_from_rf}} & idex_rs2_val);
 
@@ -391,7 +392,7 @@ module rv32_ex_stage (
   // Loads and stores always add rs1 and the immediate. Keep their address
   // path independent of the ALU and compare forwarding registers in ID.
   assign memory_addr =
-      ({32{idex_rs1_from_mem}} & (exmem_wbval + idex_imm)) |
+      ({32{idex_rs1_from_mem}} & (mem_data + idex_imm)) |
       ({32{idex_rs1_from_wb}} & (wb_data + idex_imm)) |
       ({32{idex_rs1_from_rf}} & (idex_rs1_val + idex_imm));
   assign memory_addr_held = stall_active ? stall_alu : memory_addr;

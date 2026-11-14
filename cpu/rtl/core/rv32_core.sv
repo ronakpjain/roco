@@ -112,7 +112,6 @@ module rv32_core (
   logic idex_is_muldiv;
   logic [2:0] idex_md_op;
   logic idex_is_div;
-  logic idex_is_mul;
   logic idex_alu_b_imm;
   logic idex_alu_a_pc;
   logic idex_regwrite;
@@ -249,7 +248,6 @@ module rv32_core (
   logic [4:0] wb_rd;
   logic [31:0] wb_data;
 
-  logic load_use;
   logic div_busy;
   logic div_conflict;
   logic bubble;
@@ -274,14 +272,7 @@ module rv32_core (
   logic [31:0] commit_wdata;
 
   assign retire = commit_valid && !vec_element_commit;
-  // Keep a dependent instruction in ID until the load reaches WB.
-  // Multiply completes in MEM, so a dependent instruction waits one cycle
-  // exactly like a load-use dependency.
-  assign load_use = idex_valid &&
-                    (idex_is_load || idex_is_mul || idex_is_amo || idex_is_lr || idex_is_sc) &&
-                    (idex_rd != 5'd0) && if_valid &&
-                    ((dec_use_rs1 && dec_rs1 == idex_rd) ||
-                     (dec_use_rs2 && dec_rs2 == idex_rd));
+  // Final MEM results forward directly into a dependent EX instruction.
   // Register EX redirects before distributing them through the front end.
   // The pending redirect cancels the one younger EX instruction below.
   always_ff @(posedge clk) begin
@@ -319,11 +310,10 @@ module rv32_core (
                           ((dec_use_rs1 && (dec_rs1 == div_pending_rd)) ||
                            (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
                            (dec_regwrite && (dec_rd == div_pending_rd)))));
-  assign bubble = load_use || div_conflict;
+  assign bubble = div_conflict;
   assign stall = dmem_lu_stall || fence_req || amo_hold || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
-  assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign trace_valid = commit_valid;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
@@ -517,6 +507,7 @@ module rv32_core (
       .irq_timer(irq_timer),
       .irq_external(irq_external),
       .redirect_from_mem(mem_redirect || ex_redirect_en),
+      .mem_data(commit_wdata),
       .wb_data(wb_data),
       .wb_we(wb_we),
       .dmem_lu_fault(d_fault_q),

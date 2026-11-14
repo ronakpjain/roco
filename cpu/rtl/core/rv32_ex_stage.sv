@@ -652,12 +652,14 @@ module rv32_ex_stage (
   // boundaries early instead of feeding cache-hit timing into redirects;
   // this also lets a vector memory sequence finish before taking a trap.
   // The saved PC is the instruction that would have executed next.
-  assign irq_take = irq_req && !ex_redirect_int &&
+  assign irq_take = irq_req && !ex_redirect &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
                     !reduce_hold && !fence_hold && !halt && !rst && !redirect_from_mem;
   assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
-  assign ex_redirect_pc = irq_take ? csr_irq_trap_vector : ex_redirect_pc_int;
+  // The address is consumed only when redirect is enabled. Select it
+  // before the late hold controls used by interrupt arbitration.
+  assign ex_redirect_pc = ex_redirect ? ex_redirect_pc_int : csr_irq_trap_vector;
   assign csr_trap_irq = irq_take;
   assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
   // Vector instructions cannot branch or execute privileged system

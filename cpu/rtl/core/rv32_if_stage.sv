@@ -79,9 +79,9 @@ module rv32_if_stage (
   assign issue = !rst && !halt && !stall && !imem_busy && (q_count < 3'(DEPTH - 1));
   assign miss_now = issue && imem_miss;
   assign pc_next = pred_taken ? pred_target : (pc_if + 32'd4);
-  assign fault_push = imem_fault && !flush && !halt && !rst &&
+  assign fault_push = imem_fault && !halt && !rst &&
                       (imem_fault_addr == pc_if) && (q_count < 3'(DEPTH));
-  assign push = !fault_push && imem_rsp_valid && !flush && !halt && !rst &&
+  assign push = !fault_push && imem_rsp_valid && !halt && !rst &&
                 (q_count < 3'(DEPTH)) && (imem_rsp_addr == last_req);
   assign queue_push = push || fault_push;
 
@@ -96,6 +96,32 @@ module rv32_if_stage (
   assign if_pred_taken = q_pred_taken[q_head];
   assign if_pred_target = q_pred_target[q_head];
 
+  // A redirect invalidates queue pointers, not payload bits. Allowing
+  // these writes on a flush edge keeps redirect resolution off the many
+  // queue and prediction payload enables.
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      pending_pred_taken <= 1'b0;
+      pending_pred_target <= '0;
+    end else if (issue) begin
+      pending_pred_taken <= pred_taken;
+      pending_pred_target <= pred_target;
+    end
+    if (push) begin
+      q_pc[q_tail] <= imem_rsp_addr;
+      q_instr[q_tail] <= imem_rsp_data;
+      q_fault[q_tail] <= 1'b0;
+      q_pred_taken[q_tail] <= pending_pred_taken;
+      q_pred_target[q_tail] <= pending_pred_target;
+    end else if (fault_push) begin
+      q_pc[q_tail] <= imem_fault_addr;
+      q_instr[q_tail] <= 32'h0000_0013;
+      q_fault[q_tail] <= 1'b1;
+      q_pred_taken[q_tail] <= 1'b0;
+      q_pred_target[q_tail] <= '0;
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
       pc_if <= boot_addr;
@@ -103,8 +129,6 @@ module rv32_if_stage (
       q_head <= '0;
       q_tail <= '0;
       q_count <= '0;
-      pending_pred_taken <= 1'b0;
-      pending_pred_target <= '0;
     end else if (halt) begin
       // Frozen after a tohost store.
     end else if (flush) begin
@@ -114,20 +138,9 @@ module rv32_if_stage (
       q_tail <= '0;
       q_count <= '0;
     end else begin
-      // Queue push and pop.
-      if (push) begin
-        q_pc[q_tail] <= imem_rsp_addr;
-        q_instr[q_tail] <= imem_rsp_data;
-        q_fault[q_tail] <= 1'b0;
-        q_pred_taken[q_tail] <= pending_pred_taken;
-        q_pred_target[q_tail] <= pending_pred_target;
-        q_tail <= q_tail + 1'b1;
-      end else if (fault_push) begin
-        q_pc[q_tail] <= imem_fault_addr;
-        q_instr[q_tail] <= 32'h0000_0013;
-        q_fault[q_tail] <= 1'b1;
-        q_pred_taken[q_tail] <= 1'b0;
-        q_pred_target[q_tail] <= '0;
+      // Queue pointers and validity retain flush priority. Payload writes
+      // are independent below: flushed slots are never made visible.
+      if (queue_push) begin
         q_tail <= q_tail + 1'b1;
       end
       if (if_consume) begin
@@ -145,8 +158,6 @@ module rv32_if_stage (
         last_req <= pc_if + 32'd4;
       end else if (issue) begin
         last_req <= pc_if;
-        pending_pred_taken <= pred_taken;
-        pending_pred_target <= pred_target;
         if (!miss_now) begin
           pc_if <= pc_next;
         end

@@ -712,26 +712,20 @@ module rv32_ex_stage (
       .result(vec_raw)
   );
 
-  // Reduction over the active elements; element 0 of vd is the seed.
-  always_comb begin
-    vec_reduce_sum = '0;
-    vec_reduce_sum[31:0] = vec_vs1_data[31:0];
-    for (int k = 0; k < 16; k = k + 1) begin
-      if (k < vec_vl) begin
-        case (vec_sew_cur)
-          3'd0: begin
-            vec_reduce_sum[31:0] = vec_reduce_sum[31:0] + {24'd0, vec_vs2_data[8*k+:8]};
-          end
-          3'd1: begin
-            vec_reduce_sum[31:0] = vec_reduce_sum[31:0] + {16'd0, vec_vs2_data[16*k[2:0]+:16]};
-          end
-          default: begin
-            vec_reduce_sum[31:0] = vec_reduce_sum[31:0] + vec_vs2_data[32*k[1:0]+:32];
-          end
-        endcase
-      end
-    end
+  // Balanced reduction: independent lane selection followed by four
+  // adder levels, rather than sixteen dependent additions.
+  wire [31:0] reduce_tree[1:31];
+  for (genvar k = 0; k < 16; k = k + 1) begin : g_reduce_lane
+    wire [31:0] element_value;
+    assign element_value = (vec_sew_cur == 3'd0) ? {24'd0, vec_vs2_data[8*k+:8]} :
+                           (vec_sew_cur == 3'd1) ? {16'd0, vec_vs2_data[16*(k%8)+:16]} :
+                           vec_vs2_data[32*(k%4)+:32];
+    assign reduce_tree[16+k] = (5'(k) < vec_vl) ? element_value : 32'd0;
   end
+  for (genvar k = 1; k < 16; k = k + 1) begin : g_reduce_add
+    assign reduce_tree[k] = reduce_tree[2*k] + reduce_tree[2*k+1];
+  end
+  assign vec_reduce_sum = {96'd0, (vec_vs1_data[31:0] + reduce_tree[1])};
 
   assign vec_wr_vl = (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110) ?
                      5'd1 : vec_vl;
@@ -817,7 +811,9 @@ module rv32_ex_stage (
   assign vmem_offset = {27'd0, vmem_idx} << vmem_shift;
   // The base address is latched on the first cycle: forwarding sources
   // change while the sequence holds the pipeline.
-  assign vmem_addr = (vmem_active ? vmem_base : memory_addr) + vmem_offset;
+  // The first element has offset zero. Select it after the incrementer
+  // so the scalar address adder never feeds a second carry chain.
+  assign vmem_addr = vmem_active ? (vmem_base + vmem_offset) : memory_addr;
 
   always_comb begin
     case (idex_instr[14:12])

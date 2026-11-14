@@ -30,6 +30,16 @@
 `define RV32_MD_REM 3'd6
 `define RV32_MD_REMU 3'd7
 
+// Vector element operations, encoded as the funct6 field of OP-V.
+`define RV32_VOP_ADD 6'b000000
+`define RV32_VOP_SUB 6'b000010
+`define RV32_VOP_AND 6'b001001
+`define RV32_VOP_OR 6'b001010
+`define RV32_VOP_XOR 6'b001011
+`define RV32_VOP_MOVE 6'b010111
+`define RV32_VOP_SCALAR 6'b010000
+`define RV32_VOP_REDSUM 6'b000000
+
 // Zicsr operations.
 `define RV32_CSR_RW 2'd0
 `define RV32_CSR_RS 2'd1

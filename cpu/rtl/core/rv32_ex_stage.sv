@@ -257,6 +257,11 @@ module rv32_ex_stage (
   logic [127:0] vec_bcast;
   logic [127:0] vec_raw;
   logic [127:0] vec_reduce_sum;
+  wire [31:0] reduce_terms[0:6][0:16];
+  logic [31:0] reduce_pipe[0:5];
+  logic reduce_ready;
+  logic is_vec_reduce;
+  logic reduce_hold;
   logic vec_ex_we_int;
   logic [127:0] vec_ex_wdata_int;
   logic vec_scalar_wb;
@@ -620,12 +625,12 @@ module rv32_ex_stage (
   assign irq_take = irq_req && !ex_redirect_int &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
-                    !fence_hold && !halt && !rst && !redirect_from_mem;
+                    !reduce_hold && !fence_hold && !halt && !rst && !redirect_from_mem;
   assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
   assign ex_redirect_pc = irq_take ? csr_trap_vector : ex_redirect_pc_int;
   assign csr_trap_irq = irq_take;
   assign ex_trap_taken = csr_trap_irq || (ex_redirect_int && ex_trap);
-  assign vec_mem_hold = vmem_hold && !ex_trap;
+  assign vec_mem_hold = (vmem_hold || reduce_hold) && !ex_trap;
   assign csr_trap_pc = irq_take ? irq_next_pc : idex_pc;
   assign csr_trap_cause = irq_take ? {1'b1, 26'd0, irq_code} : ex_trap_cause;
   assign csr_trap_tval = irq_take ? 32'd0 : ex_trap_tval;
@@ -715,9 +720,26 @@ module rv32_ex_stage (
       .result(vec_raw)
   );
 
-  // Compress the reduction operands without propagating carry between
-  // bits. Only the final addition uses a full-width carry chain.
-  wire [31:0] reduce_terms[0:6][0:16];
+  // Reduction takes two EX cycles. Register the first three compressor
+  // levels so register reads and the final carry chain occupy separate
+  // cycles. Other vector arithmetic still completes in one cycle.
+  assign is_vec_reduce = idex_is_vec && !idex_is_vset &&
+                         (idex_instr[14:12] == 3'b010) &&
+                         (idex_vec_funct6 != `RV32_VOP_MOVE) &&
+                         (idex_vec_funct6 != `RV32_VOP_SCALAR);
+  assign reduce_hold = idex_valid && is_vec_reduce && !idex_illegal && !reduce_ready;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      reduce_ready <= 1'b0;
+    end else if (!halt && !fence_hold) begin
+      reduce_ready <= reduce_hold && !ex_trap;
+      if (reduce_hold && !ex_trap) begin
+        for (int k = 0; k < 6; k = k + 1) begin
+          reduce_pipe[k] <= reduce_terms[3][k];
+        end
+      end
+    end
+  end
   for (genvar k = 0; k < 16; k = k + 1) begin : g_reduce_lane
     wire [31:0] element_value;
     assign element_value = (vec_sew_cur == 3'd0) ? {24'd0, vec_vs2_data[8*k+:8]} :
@@ -732,9 +754,9 @@ module rv32_ex_stage (
     localparam int GROUPS = INPUTS / 3;
     localparam int OUTPUTS = 2 * GROUPS + INPUTS % 3;
     for (genvar g = 0; g < GROUPS; g = g + 1) begin : g_compress
-      wire [31:0] a = reduce_terms[level][3*g];
-      wire [31:0] b = reduce_terms[level][3*g+1];
-      wire [31:0] c = reduce_terms[level][3*g+2];
+      wire [31:0] a = (level == 3) ? reduce_pipe[3*g] : reduce_terms[level][3*g];
+      wire [31:0] b = (level == 3) ? reduce_pipe[3*g+1] : reduce_terms[level][3*g+1];
+      wire [31:0] c = (level == 3) ? reduce_pipe[3*g+2] : reduce_terms[level][3*g+2];
       assign reduce_terms[level+1][2*g] = a ^ b ^ c;
       assign reduce_terms[level+1][2*g+1] = ((a & b) | (a & c) | (b & c)) << 1;
     end
@@ -760,7 +782,7 @@ module rv32_ex_stage (
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !idex_illegal && !fence_hold && !halt && !rst) begin
+    if (idex_valid && idex_is_vec && !idex_illegal && !reduce_hold && !fence_hold && !halt && !rst) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
         vec_scalar_wb = 1'b1;
@@ -921,7 +943,7 @@ module rv32_ex_stage (
       exmem_from_mul <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
-    end else if (lu_stall) begin
+    end else if (lu_stall || reduce_hold) begin
       exmem_valid <= 1'b0;
     end else if (is_vec_mem && idex_valid) begin
       // One element per cycle; the last cycle issues nothing.

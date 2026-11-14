@@ -125,6 +125,17 @@ _start:
   li t5, 16
   bne t4, t5, fail_9
 
+  # Consecutive reductions must read the preceding reduction result.
+  li a5, 3
+  vmv.s.x v13, a5
+  vredsum.vs v14, v9, v13
+  vredsum.vs v14, v9, v14
+  vmv.x.s t4, v14
+  slli t4, t4, 16
+  srli t4, t4, 16
+  li t5, 203
+  bne t4, t5, fail_9
+
   # 10: byte elements crossing cache lines, including first/last lanes.
   vsetivli zero, 16, e8, m1, ta, ma
   la s4, vbuf_bytes

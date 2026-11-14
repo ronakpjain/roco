@@ -35,6 +35,19 @@ resume:
   lw t0, 12(s2)
   li t1, 68
   bne t0, t1, fail_data
+  # A reduction holds EX for its first cycle. Interrupt entry must wait
+  # until the result is written and must not replay the instruction.
+  li s6, 0
+  vmv.s.x v0, zero
+  li t0, 8
+  csrw mip, t0
+  vredsum.vs v2, v1, v0
+  vmv.x.s t2, v2
+  li t1, 170
+  bne t2, t1, fail_data
+  li t0, 1
+  bne s6, t0, fail_count
+program_end:
   li a0, 1
   sw a0, 0(x31)
 1: j 1b
@@ -44,7 +57,7 @@ handler:
   # A fetch bubble can provide an earlier legal interrupt boundary.
   la t1, vector_load
   bltu t0, t1, fail
-  la t1, resume
+  la t1, program_end
   bltu t1, t0, fail
   addi s6, s6, 1
   csrw mip, zero

@@ -165,8 +165,8 @@ module rv32_csr (
                               ((priv_q == PRIV_S) && mcounteren_q[2]) ||
                               ((priv_q == PRIV_U) && mcounteren_q[2] && scounteren_q[2]);
   // Interrupt traps follow mideleg, exception traps medeleg.
-  assign trap_to_s = trap_cause[31] ? mideleg_q[trap_cause[4:0]] :
-                     (priv_q != PRIV_M) && medeleg_q[trap_cause[4:0]];
+  assign trap_to_s = trap_cause[31] ? mideleg_q[irq_code] :
+                     (priv_q != PRIV_M) && medeleg_q[sync_trap_cause[4:0]];
 
   assign mip_value = mip_q | (irq_timer ? 32'h0000_0080 : 32'd0) |
                      (irq_external ? 32'h0000_0800 : 32'd0);

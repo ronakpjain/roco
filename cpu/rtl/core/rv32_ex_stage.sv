@@ -667,9 +667,9 @@ module rv32_ex_stage (
   assign vec_fault = idex_ifault || idex_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
   assign vec_mem_hold = (vmem_hold || reduce_hold) && !vec_fault && !redirect_from_mem;
-  assign csr_trap_pc = irq_take ? irq_next_pc : idex_pc;
-  assign csr_trap_cause = irq_take ? {1'b1, 26'd0, irq_code} : ex_trap_cause;
-  assign csr_trap_tval = irq_take ? 32'd0 : ex_trap_tval;
+  assign csr_trap_pc = ex_trap ? idex_pc : irq_next_pc;
+  assign csr_trap_cause = ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
+  assign csr_trap_tval = ex_trap ? ex_trap_tval : 32'd0;
   // The decoder makes memory operations mutually exclusive with branches,
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.

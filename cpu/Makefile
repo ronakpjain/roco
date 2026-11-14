@@ -30,7 +30,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-sdram test-soc test-isa-soc test-boot synth timing bitstream
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-sdram test-soc test-isa-soc test-boot synth timing bitstream
 
 all: format-check syntax lint
 
@@ -101,6 +101,13 @@ $(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.elf
 
 $(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv $(SIM_RTL)
+
+$(BUILD_DIR)/tb_muldiv.vvp: rtl/core/rv32_muldiv.sv sim/tb_muldiv.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_muldiv -o $@ \
+		sim/tb_muldiv.sv rtl/core/rv32_muldiv.sv
+
+test-muldiv: $(BUILD_DIR)/tb_muldiv.vvp
+	$(VVP) $(BUILD_DIR)/tb_muldiv.vvp
 
 $(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_sdram_ctrl.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \

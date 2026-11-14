@@ -20,6 +20,16 @@
 `define RV32_ALU_AND 4'd9
 `define RV32_ALU_PASS_B 4'd10
 
+// M-extension operations, encoded as the funct3 field of OP.
+`define RV32_MD_MUL 3'd0
+`define RV32_MD_MULH 3'd1
+`define RV32_MD_MULHSU 3'd2
+`define RV32_MD_MULHU 3'd3
+`define RV32_MD_DIV 3'd4
+`define RV32_MD_DIVU 3'd5
+`define RV32_MD_REM 3'd6
+`define RV32_MD_REMU 3'd7
+
 // Zicsr operations.
 `define RV32_CSR_RW 2'd0
 `define RV32_CSR_RS 2'd1

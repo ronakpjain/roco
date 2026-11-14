@@ -34,9 +34,10 @@ used for this work were Yosys 0.71+post
   element width and complete in one EX cycle. Arithmetic wraps at SEW.
   Vector memory retains its current element address across a miss and stops
   issuing lookups at VL, including VL zero.
-- AMOs capture the old value and computed result before committing in a
-  second MEM cycle. LR/SC retain their existing path. Held MEM operations
-  preserve older writeback data needed by forwarding.
+- AMOs compute the RMW value from the EX lookup and commit one write in
+  MEM. A miss delays both the write and retirement until data is available.
+  LR/SC retain their existing path. Held MEM operations preserve older
+  writeback data needed by forwarding.
 - Data-cache bank comparisons are registered alongside the EX lookup data,
   preserving EX-to-MEM hit latency. Combining the registered bank results
   adds one cycle to miss detection. Misses hold MEM until refill recovery

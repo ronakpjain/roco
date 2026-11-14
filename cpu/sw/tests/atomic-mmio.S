@@ -8,10 +8,12 @@ _start:
   sw t0, 0(s1)
   li t1, 5
   amoadd.w t2, t1, (s1)
-  li t3, 100
+  addi t2, t2, 1
+  li t3, 101
   bne t2, t3, fail
   lw t2, 0(s1)
-  li t3, 105
+  addi t2, t2, 1
+  li t3, 106
   bne t2, t3, fail
   li s4, 37
   amoxor.w zero, zero, (s1)

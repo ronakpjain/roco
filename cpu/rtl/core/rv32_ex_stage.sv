@@ -17,8 +17,12 @@ module rv32_ex_stage (
   input logic halt,
   input logic lu_stall,
   input logic retire,
-  /* Multiply/divide unit holds the pipeline while a divide runs. */
-  output logic md_stall,
+  /* Decoupled divide scoreboard and writeback port. */
+  output logic div_busy,
+  output logic [4:0] div_rd,
+  output logic div_wb_en,
+  output logic [4:0] div_wb_rd,
+  output logic [31:0] div_wb_data,
   /* ID/EX pipeline register. */
   input logic idex_valid,
   input logic [31:0] idex_pc,
@@ -89,6 +93,15 @@ module rv32_ex_stage (
   output logic mstatus_tvm,
   output logic mstatus_tsr,
   output logic [1:0] mstatus_mpp,
+  /* Multiply partial products, completed in MEM. */
+  output logic [31:0] exmem_mul_p0,
+  output logic [31:0] exmem_mul_p1,
+  output logic [31:0] exmem_mul_p2,
+  output logic [31:0] exmem_mul_p3,
+  output logic [31:0] exmem_mul_sub_a,
+  output logic [31:0] exmem_mul_sub_b,
+  output logic [2:0] exmem_mul_variant,
+  output logic exmem_from_mul,
   /* EX/MEM pipeline register. */
   output logic exmem_valid,
   output logic [31:0] exmem_pc,
@@ -111,8 +124,19 @@ module rv32_ex_stage (
   logic [31:0] ex_alu_a;
   logic [31:0] ex_alu_b;
   logic [31:0] alu_result;
-  logic [31:0] md_result;
+  logic [31:0] mul_p0;
+  logic [31:0] mul_p1;
+  logic [31:0] mul_p2;
+  logic [31:0] mul_p3;
+  logic [2:0] mul_variant;
+  logic [31:0] mul_sub_a;
+  logic [31:0] mul_sub_b;
+  logic [31:0] md_div_result;
   logic [31:0] ex_alu_result;
+  logic idex_is_div;
+  logic idex_is_mul;
+  logic div_start;
+  logic [4:0] div_rd_q;
   logic [31:0] ex_store_data;
   logic [3:0] ex_store_be;
   logic [31:0] ex_branch_target;
@@ -160,6 +184,7 @@ module rv32_ex_stage (
   logic [31:0] ex_ecall_cause;
   logic csr_mret_en;
   logic csr_sret_en;
+  logic div_wb_en_raw;
 
   // ------------------------------------------------------------- Forwarding
   assign rs1_fwd = ({32{idex_rs1_from_mem}} & exmem_wbval) |
@@ -180,21 +205,53 @@ module rv32_ex_stage (
       .result(alu_result)
   );
 
-  rv32_muldiv u_muldiv (
+  assign idex_is_div = idex_is_muldiv && idex_md_op[2];
+  assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
+  assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst;
+
+  rv32_divider u_divider (
       .clk(clk),
       .rst(rst),
       .halt(halt),
-      .op_valid(idex_valid && idex_is_muldiv),
       .op(idex_md_op),
       .a(rs1_fwd),
       .b(rs2_fwd),
-      .stall(md_stall),
-      .result(md_result)
+      .start(div_start),
+      .busy(div_busy),
+      .done(div_wb_en_raw),
+      .div_result(md_div_result)
   );
 
-  // Multiply is combinational, so it retires at one instruction per
-  // cycle; only the iterative divide holds the pipeline.
-  assign ex_alu_result = idex_is_muldiv ? md_result : alu_result;
+  // The multiplier only produces partial products here; the sum is
+  // completed in MEM, so multiply retires like a load.
+  rv32_mul_prod u_mul_prod (
+      .a(rs1_fwd),
+      .b(rs2_fwd),
+      .p0(mul_p0),
+      .p1(mul_p1),
+      .p2(mul_p2),
+      .p3(mul_p3),
+      .sub_a(mul_sub_a),
+      .sub_b(mul_sub_b)
+  );
+
+  assign mul_variant = idex_md_op;
+
+  // A divide leaves the pipeline immediately and writes the register
+  // file later through the divider port.
+  assign ex_alu_result = idex_is_div ? md_div_result : alu_result;
+  assign div_rd = div_rd_q;
+  assign div_wb_rd = div_rd_q;
+  assign div_wb_data = md_div_result;
+  assign div_wb_en = div_wb_en_raw && (div_rd_q != 5'd0);
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      div_rd_q <= '0;
+    end else if (div_start) begin
+      div_rd_q <= idex_rd;
+    end
+  end
 
   assign ex_branch_target = idex_pc + idex_imm;
   assign ex_jump_target = {ex_alu_result[31:1], 1'b0};
@@ -497,9 +554,17 @@ module rv32_ex_stage (
       exmem_is_store <= 1'b0;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
+      exmem_mul_p0 <= '0;
+      exmem_mul_p1 <= '0;
+      exmem_mul_p2 <= '0;
+      exmem_mul_p3 <= '0;
+      exmem_mul_sub_a <= '0;
+      exmem_mul_sub_b <= '0;
+      exmem_mul_variant <= `RV32_MD_MUL;
+      exmem_from_mul <= 1'b0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
-    end else if (lu_stall || md_stall) begin
+    end else if (lu_stall) begin
       exmem_valid <= 1'b0;
     end else begin
       exmem_valid <= idex_valid && !ex_trap;
@@ -511,11 +576,21 @@ module rv32_ex_stage (
       exmem_be <= ex_be;
       exmem_rd <= idex_rd;
       exmem_funct3 <= idex_funct3;
-      exmem_regwrite <= idex_regwrite;
+      // A divide retires without writing: the divider port supplies
+      // the value when it completes.
+      exmem_regwrite <= idex_regwrite && !idex_is_div;
       exmem_is_load <= idex_is_load;
       exmem_is_store <= idex_is_store;
       exmem_is_sfence <= idex_is_sfence;
       exmem_is_fence_i <= idex_is_fence_i;
+      exmem_mul_p0 <= mul_p0;
+      exmem_mul_p1 <= mul_p1;
+      exmem_mul_p2 <= mul_p2;
+      exmem_mul_p3 <= mul_p3;
+      exmem_mul_sub_a <= mul_sub_a;
+      exmem_mul_sub_b <= mul_sub_b;
+      exmem_mul_variant <= mul_variant;
+      exmem_from_mul <= idex_valid && idex_is_mul;
     end
   end
 

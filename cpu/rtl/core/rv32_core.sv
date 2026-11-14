@@ -81,8 +81,11 @@ module rv32_core (
 
   logic [4:0] dec_rs1;
   logic [4:0] dec_rs2;
+  logic [4:0] dec_rd;
   logic dec_use_rs1;
   logic dec_use_rs2;
+  logic dec_regwrite;
+  logic dec_is_div;
 
   logic idex_valid;
   logic [31:0] idex_pc;
@@ -102,6 +105,8 @@ module rv32_core (
   logic [3:0] idex_alu_op;
   logic idex_is_muldiv;
   logic [2:0] idex_md_op;
+  logic idex_is_div;
+  logic idex_is_mul;
   logic idex_alu_b_imm;
   logic idex_alu_a_pc;
   logic idex_regwrite;
@@ -188,6 +193,14 @@ module rv32_core (
   logic exmem_is_store;
   logic exmem_is_sfence;
   logic exmem_is_fence_i;
+  logic [31:0] exmem_mul_p0;
+  logic [31:0] exmem_mul_p1;
+  logic [31:0] exmem_mul_p2;
+  logic [31:0] exmem_mul_p3;
+  logic [31:0] exmem_mul_sub_a;
+  logic [31:0] exmem_mul_sub_b;
+  logic [2:0] exmem_mul_variant;
+  logic exmem_from_mul;
 
   logic memwb_valid;
   logic [31:0] memwb_data;
@@ -199,7 +212,14 @@ module rv32_core (
   logic [31:0] wb_data;
 
   logic load_use;
-  logic md_stall;
+  logic div_busy;
+  logic div_conflict;
+  logic bubble;
+  logic [4:0] div_rd;
+  logic [4:0] div_pending_rd;
+  logic div_wb_en;
+  logic [4:0] div_wb_rd;
+  logic [31:0] div_wb_data;
   logic dmem_lu_stall;
   logic stall;
   logic ex_lu_valid;
@@ -214,10 +234,12 @@ module rv32_core (
 
   assign retire = commit_valid;
   // Keep a dependent instruction in ID until the load reaches WB.
-  assign load_use = idex_valid && idex_is_load && (idex_rd != 5'd0) && if_valid &&
+  // Multiply completes in MEM, so a dependent instruction waits one cycle
+  // exactly like a load-use dependency.
+  assign load_use = idex_valid && (idex_is_load || idex_is_mul) && (idex_rd != 5'd0) && if_valid &&
                     ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                      (dec_use_rs2 && dec_rs2 == idex_rd));
-  assign if_consume = if_valid && !stall && !load_use && !ex_redirect_en && !mem_redirect;
+  assign if_consume = if_valid && !stall && !bubble && !ex_redirect_en && !mem_redirect;
   assign ex_lu_hit = mmu_d_hit && dmem_lu_hit;
   assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
   assign dmem_lu_addr = mmu_d_paddr[31:2];
@@ -234,8 +256,21 @@ module rv32_core (
       d_fault_cause_q <= mmu_d_fault_cause;
     end
   end
-  assign stall = dmem_lu_stall || fence_req || md_stall;
+  // The divider runs decoupled: only an instruction that needs the
+  // pending destination register waits for it, and a second divide waits
+  // in ID so the execute stage never has to stall on the divider.
+  assign div_pending_rd = div_busy ? div_rd : idex_rd;
+  assign div_conflict = if_valid && (div_busy || (idex_valid && idex_is_div)) &&
+                        (dec_is_div ||
+                         ((div_pending_rd != 5'd0) &&
+                          ((dec_use_rs1 && (dec_rs1 == div_pending_rd)) ||
+                           (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
+                           (dec_regwrite && (dec_rd == div_pending_rd)))));
+  assign bubble = load_use || div_conflict;
+  assign stall = dmem_lu_stall || fence_req;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
+  assign idex_is_div = idex_is_muldiv && idex_md_op[2];
+  assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign trace_valid = commit_valid;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
@@ -283,7 +318,7 @@ module rv32_core (
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
       .hold(stall),
-      .bubble(load_use),
+      .bubble(bubble),
       .flush(ex_redirect_en || mem_redirect),
       .exmem_valid(exmem_valid),
       .exmem_regwrite(exmem_regwrite),
@@ -291,10 +326,16 @@ module rv32_core (
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
+      .div_we(div_wb_en),
+      .div_rd(div_wb_rd),
+      .div_data(div_wb_data),
       .dec_rs1(dec_rs1),
       .dec_rs2(dec_rs2),
+      .dec_rd(dec_rd),
       .dec_use_rs1(dec_use_rs1),
       .dec_use_rs2(dec_use_rs2),
+      .dec_regwrite(dec_regwrite),
+      .dec_is_div(dec_is_div),
       .idex_valid(idex_valid),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
@@ -343,7 +384,11 @@ module rv32_core (
       .halt(halt),
       .lu_stall(dmem_lu_stall),
       .retire(retire),
-      .md_stall(md_stall),
+      .div_busy(div_busy),
+      .div_rd(div_rd),
+      .div_wb_en(div_wb_en),
+      .div_wb_rd(div_wb_rd),
+      .div_wb_data(div_wb_data),
       .idex_valid(idex_valid),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
@@ -422,7 +467,15 @@ module rv32_core (
       .exmem_is_load(exmem_is_load),
       .exmem_is_store(exmem_is_store),
       .exmem_is_sfence(exmem_is_sfence),
-      .exmem_is_fence_i(exmem_is_fence_i)
+      .exmem_is_fence_i(exmem_is_fence_i),
+      .exmem_mul_p0(exmem_mul_p0),
+      .exmem_mul_p1(exmem_mul_p1),
+      .exmem_mul_p2(exmem_mul_p2),
+      .exmem_mul_p3(exmem_mul_p3),
+      .exmem_mul_sub_a(exmem_mul_sub_a),
+      .exmem_mul_sub_b(exmem_mul_sub_b),
+      .exmem_mul_variant(exmem_mul_variant),
+      .exmem_from_mul(exmem_from_mul)
   );
 
   rv32_mmu u_mmu (
@@ -513,6 +566,14 @@ module rv32_core (
       .exmem_is_store(exmem_is_store),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
+      .exmem_mul_p0(exmem_mul_p0),
+      .exmem_mul_p1(exmem_mul_p1),
+      .exmem_mul_p2(exmem_mul_p2),
+      .exmem_mul_p3(exmem_mul_p3),
+      .exmem_mul_sub_a(exmem_mul_sub_a),
+      .exmem_mul_sub_b(exmem_mul_sub_b),
+      .exmem_mul_variant(exmem_mul_variant),
+      .exmem_from_mul(exmem_from_mul),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),

@@ -28,6 +28,15 @@ module rv32_mem_stage (
   input logic exmem_is_store,
   input logic exmem_is_sfence,
   input logic exmem_is_fence_i,
+  /* Multiply partial products completed here. */
+  input logic [31:0] exmem_mul_p0,
+  input logic [31:0] exmem_mul_p1,
+  input logic [31:0] exmem_mul_p2,
+  input logic [31:0] exmem_mul_p3,
+  input logic [31:0] exmem_mul_sub_a,
+  input logic [31:0] exmem_mul_sub_b,
+  input logic [2:0] exmem_mul_variant,
+  input logic exmem_from_mul,
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
   output logic dmem_we,
@@ -53,7 +62,22 @@ module rv32_mem_stage (
   logic [7:0] load_byte;
   logic [15:0] load_half;
   logic [31:0] load_data;
+  logic [31:0] mul_data;
+  logic [31:0] result_data;
   logic is_memory_op;
+
+  rv32_mul_finish u_mul_finish (
+      .p0(exmem_mul_p0),
+      .p1(exmem_mul_p1),
+      .p2(exmem_mul_p2),
+      .p3(exmem_mul_p3),
+      .sub_a(exmem_mul_sub_a),
+      .sub_b(exmem_mul_sub_b),
+      .variant(exmem_mul_variant),
+      .result(mul_data)
+  );
+
+  assign result_data = exmem_from_mul ? mul_data : exmem_is_load ? load_data : exmem_wbval;
 
   assign is_memory_op = exmem_is_load || exmem_is_store;
   assign dmem_addr = exmem_alu;
@@ -65,7 +89,7 @@ module rv32_mem_stage (
   assign commit_pc = exmem_pc;
   assign commit_instr = exmem_instr;
   assign commit_rd = exmem_rd;
-  assign commit_wdata = exmem_is_load ? load_data : exmem_wbval;
+  assign commit_wdata = result_data;
   assign fence_req = exmem_valid && (exmem_is_fence_i || exmem_is_sfence) && !fence_done;
   assign mem_redirect = exmem_valid && (exmem_is_fence_i || exmem_is_sfence) && fence_done;
 

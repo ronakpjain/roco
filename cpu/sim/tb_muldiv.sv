@@ -10,12 +10,21 @@ module tb_muldiv;
   logic clk;
   logic rst;
   logic halt;
-  logic op_valid;
   logic [2:0] op;
   logic [31:0] a;
   logic [31:0] b;
-  logic stall;
-  logic [31:0] result;
+  logic start;
+  logic [31:0] p0;
+  logic [31:0] p1;
+  logic [31:0] p2;
+  logic [31:0] p3;
+  logic [31:0] sub_a;
+  logic [31:0] sub_b;
+  logic [2:0] variant;
+  logic [31:0] mul_result;
+  logic busy;
+  logic done;
+  logic [31:0] div_result;
 
   int errors;
   int checks;
@@ -31,16 +40,41 @@ module tb_muldiv;
   localparam logic [2:0] REM = 3'd6;
   localparam logic [2:0] REMU = 3'd7;
 
-  rv32_muldiv u_dut (
+  assign variant = op;
+
+  rv32_mul_prod u_prod (
+      .a(a),
+      .b(b),
+      .p0(p0),
+      .p1(p1),
+      .p2(p2),
+      .p3(p3),
+      .sub_a(sub_a),
+      .sub_b(sub_b)
+  );
+
+  rv32_mul_finish u_finish (
+      .p0(p0),
+      .p1(p1),
+      .p2(p2),
+      .p3(p3),
+      .sub_a(sub_a),
+      .sub_b(sub_b),
+      .variant(variant),
+      .result(mul_result)
+  );
+
+  rv32_divider u_div (
       .clk(clk),
       .rst(rst),
       .halt(halt),
-      .op_valid(op_valid),
       .op(op),
       .a(a),
       .b(b),
-      .stall(stall),
-      .result(result)
+      .start(start),
+      .busy(busy),
+      .done(done),
+      .div_result(div_result)
   );
 
   always #5 clk = ~clk;
@@ -89,34 +123,44 @@ module tb_muldiv;
 
   task automatic check(input logic [2:0] fop, input logic [31:0] fa, input logic [31:0] fb);
     logic [31:0] expected;
+    logic [31:0] actual;
     ref_op = fop;
     ref_a = fa;
     ref_b = fb;
     op = fop;
     a = fa;
     b = fb;
-    op_valid = 1'b1;
-    cycles = 0;
-    @(posedge clk);
-    while (stall) begin
-      @(posedge clk);
-      cycles = cycles + 1;
-      if (cycles > 64) begin
-        $display("tb_muldiv: FAIL timeout op=%0d a=%08x b=%08x", fop, fa, fb);
-        errors = errors + 1;
-        op_valid = 1'b0;
-        return;
+    if (fop[2]) begin
+      // Hold start across a full cycle: a same-edge deassert would race
+      // the unit's clocked start detection.
+      @(negedge clk);
+      start = 1'b1;
+      @(negedge clk);
+      start = 1'b0;
+      cycles = 0;
+      while (!done) begin
+        @(posedge clk);
+        cycles = cycles + 1;
+        if (cycles > 64) begin
+          $display("tb_muldiv: FAIL timeout op=%0d a=%08x b=%08x", fop, fa, fb);
+          errors = errors + 1;
+          return;
+        end
       end
+      #1;
+      actual = div_result;
+      @(posedge clk);
+    end else begin
+      #1;
+      actual = mul_result;
     end
-    #1;
     expected = ref_expected;
     checks = checks + 1;
-    if (result !== expected) begin
-      $display("tb_muldiv: FAIL op=%0d a=%08x b=%08x got=%08x exp=%08x", fop, fa, fb, result,
+    if (actual !== expected) begin
+      $display("tb_muldiv: FAIL op=%0d a=%08x b=%08x got=%08x exp=%08x", fop, fa, fb, actual,
                expected);
       errors = errors + 1;
     end
-    op_valid = 1'b0;
     @(posedge clk);
   endtask
 
@@ -124,7 +168,7 @@ module tb_muldiv;
     clk = 1'b0;
     rst = 1'b1;
     halt = 1'b0;
-    op_valid = 1'b0;
+    start = 1'b0;
     op = 3'd0;
     a = 32'd0;
     b = 32'd0;

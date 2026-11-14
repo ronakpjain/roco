@@ -14,6 +14,10 @@ module rv32_regfile (
   input logic we,
   input logic [4:0] rd,
   input logic [31:0] wdata,
+  /* Decoupled divider write port. */
+  input logic dwe,
+  input logic [4:0] drd,
+  input logic [31:0] ddata,
   output logic [31:0] rdata1,
   output logic [31:0] rdata2
 );
@@ -26,11 +30,15 @@ module rv32_regfile (
       for (i = 1; i < 32; i = i + 1) begin
         regs[i] <= '0;
       end
+    end else if (dwe && (drd != 5'd0)) begin
+      regs[drd] <= ddata;
     end else if (we && (rd != 5'd0)) begin
       regs[rd] <= wdata;
     end
   end
 
+  // The divider port needs no read bypass: the scoreboard holds a
+  // dependent instruction until the write has landed.
   always_comb begin
     rdata1 = (rs1 == 5'd0) ? 32'd0 : (we && (rd == rs1)) ? wdata : regs[rs1];
     rdata2 = (rs2 == 5'd0) ? 32'd0 : (we && (rd == rs2)) ? wdata : regs[rs2];

@@ -28,11 +28,18 @@ module rv32_id_stage (
   input logic wb_we,
   input logic [4:0] wb_rd,
   input logic [31:0] wb_data,
+  /* Decoupled divider write port. */
+  input logic div_we,
+  input logic [4:0] div_rd,
+  input logic [31:0] div_data,
   /* Combinational decode, for the hazard unit. */
   output logic [4:0] dec_rs1,
   output logic [4:0] dec_rs2,
+  output logic [4:0] dec_rd,
   output logic dec_use_rs1,
   output logic dec_use_rs2,
+  output logic dec_regwrite,
+  output logic dec_is_div,
   /* ID/EX pipeline register. */
   output logic idex_valid,
   output logic [31:0] idex_pc,
@@ -83,7 +90,6 @@ module rv32_id_stage (
   logic [3:0] dec_alu_op;
   logic dec_is_muldiv;
   logic [2:0] dec_md_op;
-  logic dec_regwrite;
   logic dec_is_load;
   logic dec_is_store;
   logic dec_is_branch;
@@ -100,7 +106,6 @@ module rv32_id_stage (
   logic dec_sret;
   logic dec_is_sfence;
   logic dec_is_fence_i;
-  logic [4:0] dec_rd;
   logic [31:0] rf_rdata1;
   logic [31:0] rf_rdata2;
   logic ex_can_forward;
@@ -109,11 +114,17 @@ module rv32_id_stage (
   logic rs2_from_mem;
   logic rs1_matches_wb;
   logic rs2_matches_wb;
+  logic ex_is_mul;
 
   // Compare register numbers one stage early. The instructions now in EX
   // and MEM will be in MEM and WB when the decoded instruction executes.
   // A trap in EX flushes that instruction.
-  assign ex_can_forward = idex_valid && idex_regwrite && !idex_is_load && (idex_rd != 5'd0);
+  // Loads and multiplies produce their value after EX; forward those from
+  // the MEM/WB stage instead.
+  assign ex_is_mul = idex_is_muldiv && !idex_md_op[2];
+  assign dec_is_div = dec_is_muldiv && dec_md_op[2];
+  assign ex_can_forward = idex_valid && idex_regwrite && !idex_is_load && !ex_is_mul &&
+                          (idex_rd != 5'd0);
   assign mem_can_forward = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0);
   assign rs1_from_mem = ex_can_forward && (dec_rs1 == idex_rd);
   assign rs2_from_mem = ex_can_forward && (dec_rs2 == idex_rd);
@@ -161,6 +172,9 @@ module rv32_id_stage (
       .we(wb_we),
       .rd(wb_rd),
       .wdata(wb_data),
+      .dwe(div_we),
+      .drd(div_rd),
+      .ddata(div_data),
       .rdata1(rf_rdata1),
       .rdata2(rf_rdata2)
   );

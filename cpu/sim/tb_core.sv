@@ -31,7 +31,7 @@ module tb_core;
   logic [31:0] imem_rsp_data;
   logic dmem_lu_valid;
   logic [31:2] dmem_lu_addr;
-  logic dmem_lu_hit;
+  logic dmem_ready;
   logic dmem_req;
   logic dmem_we;
   logic [31:0] dmem_addr;
@@ -97,7 +97,7 @@ module tb_core;
       .imem_busy(1'b0),
       .dmem_lu_valid(dmem_lu_valid),
       .dmem_lu_addr(dmem_lu_addr),
-      .dmem_lu_hit(dmem_lu_hit),
+      .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
@@ -174,7 +174,7 @@ module tb_core;
   assign imem_rsp_data = im_rsp_data_q;
 
   // --------------------------------------------------------- D memory model
-  assign dmem_lu_hit = 1'b1;
+  assign dmem_ready = 1'b1;
   assign st_merged[7:0] = st_be_q[0] ? st_data_q[7:0] : d_lu_data[7:0];
   assign st_merged[15:8] = st_be_q[1] ? st_data_q[15:8] : d_lu_data[15:8];
   assign st_merged[23:16] = st_be_q[2] ? st_data_q[23:16] : d_lu_data[23:16];

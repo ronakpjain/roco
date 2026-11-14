@@ -68,7 +68,7 @@ module roco_soc #(
   logic [31:0] imem_rsp_data;
   logic dmem_lu_valid;
   logic [31:2] dmem_lu_addr;
-  logic dmem_lu_hit;
+  logic dmem_ready;
   logic dmem_req;
   logic dmem_we;
   logic [31:0] dmem_addr;
@@ -95,7 +95,8 @@ module roco_soc #(
   logic i_unc_rsp;
   logic [31:0] i_unc_rsp_addr;
   logic [31:0] i_unc_rsp_data;
-  logic dc_lu_hit;
+  logic unused_dc_lu_hit;
+  logic dc_cm_ready;
   logic [31:0] dc_cm_rdata;
 
   // ----------------------------------------------------------- Cache ports
@@ -198,7 +199,7 @@ module roco_soc #(
   assign dmem_in_sdram = (dmem_addr[31:25] == 7'd8);
   assign dmem_lu_in_sdram = (dmem_lu_addr[31:25] == 7'd8);
   assign i_unc_req = imem_req && !imem_in_sdram;
-  assign dmem_lu_hit = dmem_lu_in_sdram ? dc_lu_hit : 1'b1;
+  assign dmem_ready = dmem_in_sdram ? dc_cm_ready : 1'b1;
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
   // Hold the core in reset for one extra cycle after boot_done so that
@@ -229,7 +230,7 @@ module roco_soc #(
       .imem_busy(imem_busy),
       .dmem_lu_valid(dmem_lu_valid),
       .dmem_lu_addr(dmem_lu_addr),
-      .dmem_lu_hit(dmem_lu_hit),
+      .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
@@ -288,13 +289,14 @@ module roco_soc #(
       .flush_done(dcache_flush_done),
       .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
       .lu_addr(dmem_lu_addr[24:2]),
-      .lu_hit(dc_lu_hit),
+      .lu_hit(unused_dc_lu_hit),
       .cm_valid(dmem_req && dmem_in_sdram),
       .cm_we(dmem_we),
       .cm_addr(dmem_addr[24:2]),
       .cm_wdata(dmem_wdata),
       .cm_be(dmem_be),
       .cm_rdata(dc_cm_rdata),
+      .cm_ready(dc_cm_ready),
       .mem_req(dc_mem_req),
       .mem_we(dc_mem_we),
       .mem_word_addr(dc_mem_word_addr),

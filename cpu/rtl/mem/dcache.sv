@@ -3,8 +3,8 @@
 // The EX stage presents the address of a load/store. Tags are compared
 // combinationally and the data RAM read is registered, so the hit data
 // is available in the MEM stage with no cache-induced stall. A miss
-// stalls the EX stage while the line is written back and refilled; the
-// lookup is simply retried until it hits.
+// stalls MEM while the line is written back and refilled. Registered
+// hit/readiness metadata keeps the tag lookup off pipeline hold enables.
 //
 // The lookup and commit ports carry word addresses (byte address bits
 // 24:2) of the 32 MB SDRAM window, so tags hold only the address bits
@@ -36,6 +36,7 @@ module dcache #(
   input logic [31:0] cm_wdata,
   input logic [3:0] cm_be,
   output logic [31:0] cm_rdata,
+  output logic cm_ready,
   /* Memory side. */
   output logic mem_req,
   output logic mem_we,
@@ -100,6 +101,9 @@ module dcache #(
   // RAM, index or store-to-load comparator.
   logic [24:2] lu_addr_q;
   logic lu_valid_q;
+  logic lookup_hit_q;
+  logic pending_miss;
+  logic recovery_ready;
 
   logic [24:2] prev_store_addr;
   logic [31:0] prev_store_data;
@@ -139,8 +143,41 @@ module dcache #(
   assign hit_pulse = lu_valid && (state == S_IDLE) && lu_hit;
   assign miss_pulse = lu_valid && (state == S_IDLE) && !lu_hit;
 
+  assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      lookup_hit_q <= 1'b0;
+      pending_miss <= 1'b0;
+      recovery_ready <= 1'b0;
+    end else begin
+      // Keep a hit response until MEM commits it. AMOs consume the
+      // returned word first and commit their write on the next cycle.
+      if (lu_valid) begin
+        lookup_hit_q <= (state == S_IDLE) && lu_hit;
+      end else if (cm_valid) begin
+        lookup_hit_q <= 1'b0;
+      end
+      // One registered RAM read after refill makes the missed word ready.
+      if (pending_miss && (state == S_IDLE) && !recovery_ready) begin
+        recovery_ready <= 1'b1;
+      end
+      if (pending_miss && recovery_ready && cm_valid) begin
+        pending_miss <= 1'b0;
+        recovery_ready <= 1'b0;
+      end
+      // A following miss may start on the preceding request's commit edge.
+      if ((state == S_IDLE) && lu_valid && !lu_hit) begin
+        pending_miss <= 1'b1;
+        recovery_ready <= 1'b0;
+      end
+    end
+  end
+
   always_comb begin
     ram_raddr = {lu_addr[IDX_HI:IDX_LO], lu_addr[OFF_BITS+1:2]};
+    if (pending_miss && !recovery_ready) begin
+      ram_raddr = {lu_addr_q[IDX_HI:IDX_LO], lu_addr_q[OFF_BITS+1:2]};
+    end
     if ((state == S_WB_RD) || (state == S_WB_WR)) begin
       ram_raddr = {miss_idx, beat};
     end else if ((state == S_FLUSH_RD) || (state == S_FLUSH_WR)) begin

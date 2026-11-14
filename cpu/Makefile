@@ -204,6 +204,13 @@ $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/muldiv.hex
 
+$(BUILD_DIR)/tb_dcache.vvp: rtl/mem/dcache.sv sim/tb_dcache.sv | build
+	$(IVERILOG) -g2012 -s tb_dcache -o $@ $^
+
+.PHONY: test-dcache
+test-dcache: $(BUILD_DIR)/tb_dcache.vvp
+	$(VVP) $<
+
 $(BUILD_DIR)/tb_regfile.vvp: rtl/core/rv32_regfile.sv sim/tb_regfile.sv | build
 	$(IVERILOG) -g2012 -s tb_regfile -o $@ $^
 

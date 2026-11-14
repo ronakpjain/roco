@@ -41,7 +41,7 @@ module rv32_core (
   /* Physical data memory: lookup in EX, commit in MEM. */
   output logic dmem_lu_valid,
   output logic [31:2] dmem_lu_addr,
-  input logic dmem_lu_hit,
+  input logic dmem_ready,
   output logic dmem_req,
   output logic dmem_we,
   output logic [31:0] dmem_addr,
@@ -256,6 +256,7 @@ module rv32_core (
   logic [31:0] div_wb_data;
   logic dmem_lu_stall;
   logic amo_hold;
+  logic mem_wait;
   logic stall;
   logic ex_lu_valid;
   logic mem_redirect;
@@ -277,7 +278,7 @@ module rv32_core (
                     ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                      (dec_use_rs2 && dec_rs2 == idex_rd));
   assign if_consume = if_valid && !stall && !bubble && !ex_redirect_en && !mem_redirect;
-  assign ex_lu_hit = mmu_d_hit && dmem_lu_hit;
+  assign ex_lu_hit = mmu_d_hit;
   assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
   assign dmem_lu_addr = mmu_d_paddr[31:2];
   // Hold the faulting instruction while registering the MMU response.
@@ -304,7 +305,7 @@ module rv32_core (
                            (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
                            (dec_regwrite && (dec_rd == div_pending_rd)))));
   assign bubble = load_use || div_conflict;
-  assign stall = dmem_lu_stall || fence_req || amo_hold || vec_mem_hold;
+  assign stall = dmem_lu_stall || fence_req || amo_hold || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
@@ -490,7 +491,7 @@ module rv32_core (
       .idex_sret(idex_sret),
       .idex_is_sfence(idex_is_sfence),
       .idex_is_fence_i(idex_is_fence_i),
-      .fence_hold(fence_req || amo_hold),
+      .fence_hold(fence_req || amo_hold || mem_wait),
       .irq_next_pc(if_valid ? if_pc : fetch_pc),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
@@ -692,6 +693,8 @@ module rv32_core (
       .dmem_wdata(dmem_wdata),
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
+      .dmem_ready(dmem_ready),
+      .mem_wait(mem_wait),
       .fence_req(fence_req),
       .amo_hold(amo_hold),
       .mem_redirect(mem_redirect),

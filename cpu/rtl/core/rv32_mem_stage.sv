@@ -61,6 +61,8 @@ module rv32_mem_stage (
   output logic [31:0] dmem_wdata,
   output logic [3:0] dmem_be,
   input logic [31:0] dmem_rsp_data,
+  input logic dmem_ready,
+  output logic mem_wait,
   output logic fence_req,
   output logic amo_hold,
   output logic mem_redirect,
@@ -148,8 +150,8 @@ module rv32_mem_stage (
     if (rst) begin
       amo_ready <= 1'b0;
     end else if (!halt) begin
-      amo_ready <= amo_hold;
-      if (amo_hold) begin
+      amo_ready <= amo_hold && !mem_wait;
+      if (amo_hold && !mem_wait) begin
         amo_result_q <= amo_data;
         amo_old_q <= dmem_rsp_data;
       end
@@ -171,7 +173,9 @@ module rv32_mem_stage (
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
   assign amo_hold = !rst && !halt && exmem_valid && exmem_is_amo && !amo_ready;
   assign dmem_req = commit_valid && is_memory_op;
-  assign commit_valid = !rst && !halt && exmem_valid && !fence_req && (!exmem_is_amo || amo_ready);
+  assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_ready;
+  assign commit_valid = !rst && !halt && exmem_valid && !fence_req && !mem_wait &&
+                        (!exmem_is_amo || amo_ready);
   assign commit_now = commit_valid;
   // A vector load writes one element per cycle; those commits must not
   // count as retired instructions.
@@ -243,7 +247,7 @@ module rv32_mem_stage (
       memwb_regwrite <= 1'b0;
     end else if (halt || fence_req) begin
       // Hold for the FENCE.I cache flush.
-    end else if (amo_hold) begin
+    end else if (amo_hold || mem_wait) begin
       // Preserve the previous WB value for the younger EX instruction
       // while it is held, without repeating its register-file write.
       memwb_valid <= 1'b0;

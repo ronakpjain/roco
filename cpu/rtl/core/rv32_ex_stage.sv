@@ -85,6 +85,7 @@ module rv32_ex_stage (
   input logic [31:0] idex_pred_target,
   /* Writeback forwarding. */
   input logic [31:0] wb_data,
+  input logic wb_we,
   /* Data translation result from the MMU. */
   input logic dmem_lu_fault,
   input logic [3:0] dmem_lu_fault_cause,
@@ -238,6 +239,8 @@ module rv32_ex_stage (
   logic irq_req;
   logic [4:0] irq_code;
   logic div_wb_en_raw;
+  logic div_engine_busy;
+  logic div_write_pending;
 
   // Only LMUL=1 is supported: VLMAX is VLEN/SEW elements, which for the
   // 128-bit register file is 16 lanes at e8, 8 at e16 and 4 at e32.
@@ -316,7 +319,7 @@ module rv32_ex_stage (
       .a(rs1_fwd),
       .b(rs2_fwd),
       .start(div_start),
-      .busy(div_busy),
+      .busy(div_engine_busy),
       .done(div_wb_en_raw),
       .div_result(md_div_result)
   );
@@ -342,7 +345,23 @@ module rv32_ex_stage (
   assign div_rd = div_rd_q;
   assign div_wb_rd = div_rd_q;
   assign div_wb_data = md_div_result;
-  assign div_wb_en = div_wb_en_raw && (div_rd_q != 5'd0);
+  // The physical register file has one write port. Keep the completion
+  // pending while normal WB owns it, and keep the scoreboard busy until
+  // the divider result is actually written.
+  assign div_busy = div_engine_busy || div_write_pending;
+  assign div_wb_en = (div_wb_en_raw || div_write_pending) && (div_rd_q != 5'd0) &&
+                     !wb_we && !halt && !rst;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      div_write_pending <= 1'b0;
+    end else if (!halt) begin
+      if (div_wb_en_raw && (div_rd_q != 5'd0)) begin
+        div_write_pending <= wb_we;
+      end else if (!wb_we) begin
+        div_write_pending <= 1'b0;
+      end
+    end
+  end
 
   always_ff @(posedge clk) begin
     if (rst) begin

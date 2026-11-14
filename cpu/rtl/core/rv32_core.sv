@@ -496,6 +496,7 @@ module rv32_core (
       .irq_external(irq_external),
       .redirect_from_mem(mem_redirect),
       .wb_data(wb_data),
+      .wb_we(wb_we),
       .dmem_lu_fault(d_fault_q),
       .dmem_lu_fault_cause(d_fault_cause_q),
       .dmem_lu_paddr(mmu_d_paddr),

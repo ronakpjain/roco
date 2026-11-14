@@ -60,6 +60,14 @@ module tb_soc;
   int unsigned received_cnt = 0;
   logic tx_busy_q = 0;
   integer dbg_cnt2 = 0;
+  cpi_monitor u_cpi (
+      .clk(clk),
+      .rst(rst),
+      .halt(halted),
+      .retire_valid(u_soc.trace_valid && !u_soc.u_cpu.vec_element_commit),
+      .retire_pc(u_soc.trace_pc)
+  );
+
   initial trace_on = $test$plusargs("trace");
 
   always @(posedge clk) begin

@@ -83,6 +83,9 @@ module rv32_ex_stage (
   input logic fence_hold,
   input logic idex_pred_taken,
   input logic idex_pred_target_match,
+  input logic [31:0] idex_pred_jalr_base,
+  input logic [31:0] idex_pred_jalr_next,
+  input logic idex_pred_jalr_aligned,
   /* Writeback forwarding. */
   input logic [31:0] wb_data,
   input logic wb_we,
@@ -618,7 +621,9 @@ module rv32_ex_stage (
       end else if (idex_is_jal) begin
         branch_mispredict = !(idex_pred_taken && idex_pred_target_match);
       end else if (idex_is_jalr) begin
-        branch_mispredict = 1'b1;
+        branch_mispredict = !idex_pred_taken || !idex_pred_jalr_aligned ||
+                            ((rs1_fwd != idex_pred_jalr_base) &&
+                             (rs1_fwd != idex_pred_jalr_next));
       end
 
       if (ex_trap) begin
@@ -686,8 +691,8 @@ module rv32_ex_stage (
   assign btb_is_branch = idex_is_branch;
   assign btb_is_jal = idex_is_jal;
   assign btb_is_jalr = idex_is_jalr;
-  assign btb_taken = (idex_is_branch && ex_branch_taken) || idex_is_jal;
-  assign btb_target = ex_branch_target;
+  assign btb_taken = (idex_is_branch && ex_branch_taken) || idex_is_jal || idex_is_jalr;
+  assign btb_target = idex_is_jalr ? ex_jump_target : ex_branch_target;
 
   always_ff @(posedge clk) begin
     if (rst) begin

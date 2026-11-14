@@ -75,6 +75,9 @@ module rv32_core (
   logic [31:0] pred_target;
   logic idex_pred_taken;
   logic idex_pred_target_match;
+  logic [31:0] idex_pred_jalr_base;
+  logic [31:0] idex_pred_jalr_next;
+  logic idex_pred_jalr_aligned;
   logic btb_update;
   logic btb_is_branch;
   logic btb_is_jal;
@@ -391,6 +394,9 @@ module rv32_core (
       .idex_instr(idex_instr),
       .idex_pred_taken(idex_pred_taken),
       .idex_pred_target_match(idex_pred_target_match),
+      .idex_pred_jalr_base(idex_pred_jalr_base),
+      .idex_pred_jalr_next(idex_pred_jalr_next),
+      .idex_pred_jalr_aligned(idex_pred_jalr_aligned),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
       .idex_rs1_from_mem(idex_rs1_from_mem),
@@ -453,6 +459,9 @@ module rv32_core (
       .idex_instr(idex_instr),
       .idex_pred_taken(idex_pred_taken),
       .idex_pred_target_match(idex_pred_target_match),
+      .idex_pred_jalr_base(idex_pred_jalr_base),
+      .idex_pred_jalr_next(idex_pred_jalr_next),
+      .idex_pred_jalr_aligned(idex_pred_jalr_aligned),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
       .idex_rs1_from_mem(idex_rs1_from_mem),

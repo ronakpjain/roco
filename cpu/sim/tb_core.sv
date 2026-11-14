@@ -293,6 +293,14 @@ module tb_core;
     end
   end
 
+  cpi_monitor u_cpi (
+      .clk(clk),
+      .rst(rst),
+      .halt(halt),
+      .retire_valid(trace_valid && !u_core.vec_element_commit),
+      .retire_pc(trace_pc)
+  );
+
   // Timer interrupt line: a window of cycles after the requested start.
   always_comb begin
     irq_timer = !rst && (cycles >= irq_after) && (cycles < irq_after + irq_window);

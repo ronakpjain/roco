@@ -202,8 +202,8 @@ $(BUILD_DIR)/hello.hex: $(BUILD_DIR)/hello.bin
 $(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.elf
 	$(PYTHON) scripts/boot.py --elf $< --emit-hex $@ --riscv-prefix $(RISCV)-
 
-$(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv | build
-	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv $(SIM_RTL)
+$(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv sim/cpi_monitor.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv sim/cpi_monitor.sv $(SIM_RTL)
 
 $(BUILD_DIR)/tb_muldiv.vvp: rtl/core/rv32_divider.sv rtl/core/rv32_mul_prod.sv \
 	rtl/core/rv32_mul_finish.sv sim/tb_muldiv.sv | build
@@ -285,9 +285,9 @@ test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
 test-mm: $(BUILD_DIR)/tb_mmu.vvp
 	$(VVP) $(BUILD_DIR)/tb_mmu.vvp
 
-$(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/sdram_model.sv | build
+$(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
-		sim/tb_soc.sv sim/sdram_model.sv $(SIM_RTL)
+		sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv $(SIM_RTL)
 
 test-soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/basic.hex
@@ -307,6 +307,19 @@ test-boot: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex
+
+$(BUILD_DIR)/cpi-jalr.elf: sw/tests/cpi-jalr.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/cpi-jalr.bin: $(BUILD_DIR)/cpi-jalr.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/cpi-jalr.hex: $(BUILD_DIR)/cpi-jalr.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+.PHONY: test-cpi
+test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(PYTHON) scripts/run_cpi_tests.py --riscv-prefix $(RISCV)-
 
 test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vm.hex

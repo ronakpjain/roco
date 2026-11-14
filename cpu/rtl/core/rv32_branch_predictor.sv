@@ -8,8 +8,9 @@
 // outcome without re-reading a table that may have changed.
 //
 // Resolution updates the counter (increment on taken, decrement on
-// not-taken), installs the target on taken branches and JALs, and clears
-// the entry for a JALR (dynamic target).
+// not-taken), and installs the target on taken branches, JALs and JALRs.
+// Indirect jumps predict their most recently resolved target;
+// EX verifies that target before allowing younger instructions to commit.
 
 `default_nettype none
 
@@ -87,14 +88,11 @@ module rv32_branch_predictor #(
           tags[ex_idx] <= ex_tag;
           targets[ex_idx] <= ex_target;
         end
-      end else if (ex_is_jal) begin
+      end else if (ex_is_jal || ex_is_jalr) begin
         counters[ex_idx] <= 2'b11;
         valid[ex_idx] <= 1'b1;
         tags[ex_idx] <= ex_tag;
         targets[ex_idx] <= ex_target;
-      end else if (ex_is_jalr) begin
-        counters[ex_idx] <= 2'b00;
-        valid[ex_idx] <= 1'b0;
       end
     end
   end

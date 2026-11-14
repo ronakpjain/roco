@@ -46,7 +46,7 @@ module rv32_id_stage (
   output logic [31:0] idex_instr,
   output logic idex_ifault,
   output logic idex_pred_taken,
-  output logic [31:0] idex_pred_target,
+  output logic idex_pred_target_match,
   output logic [31:0] idex_rs1_val,
   output logic [31:0] idex_rs2_val,
   output logic idex_rs1_from_mem,
@@ -215,7 +215,7 @@ module rv32_id_stage (
       idex_instr <= 32'h0000_0013;
       idex_ifault <= 1'b0;
       idex_pred_taken <= 1'b0;
-      idex_pred_target <= '0;
+      idex_pred_target_match <= 1'b0;
       idex_rs1_val <= '0;
       idex_rs2_val <= '0;
       idex_rs1_from_mem <= 1'b0;
@@ -269,7 +269,10 @@ module rv32_id_stage (
       idex_instr <= if_instr;
       idex_ifault <= if_fault;
       idex_pred_taken <= if_pred_taken;
-      idex_pred_target <= if_pred_target;
+      // B/JAL targets depend only on decode operands. Validate the BTB
+      // target here so EX redirect control does not wait for an adder
+      // followed by a full-width equality comparison.
+      idex_pred_target_match <= ((if_pc + dec_imm) == if_pred_target);
       idex_rs1_val <= rf_rdata1;
       idex_rs2_val <= rf_rdata2;
       idex_rs1_from_mem <= rs1_from_mem;

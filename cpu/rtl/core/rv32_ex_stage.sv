@@ -82,7 +82,7 @@ module rv32_ex_stage (
   input logic idex_is_fence_i,
   input logic fence_hold,
   input logic idex_pred_taken,
-  input logic [31:0] idex_pred_target,
+  input logic idex_pred_target_match,
   /* Writeback forwarding. */
   input logic [31:0] wb_data,
   input logic wb_we,
@@ -609,9 +609,9 @@ module rv32_ex_stage (
 
       if (idex_is_branch) begin
         branch_mispredict = (ex_branch_taken != idex_pred_taken) ||
-                            (ex_branch_taken && (ex_branch_target != idex_pred_target));
+                            (ex_branch_taken && !idex_pred_target_match);
       end else if (idex_is_jal) begin
-        branch_mispredict = !(idex_pred_taken && (idex_pred_target == ex_branch_target));
+        branch_mispredict = !(idex_pred_taken && idex_pred_target_match);
       end else if (idex_is_jalr) begin
         branch_mispredict = 1'b1;
       end

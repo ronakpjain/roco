@@ -70,7 +70,10 @@ module rv32_if_stage (
   logic [31:0] pc_next;
 
   assign q_empty = (q_count == 3'd0);
-  assign issue = !rst && !halt && !stall && !flush && !imem_busy && (q_count < 3'(DEPTH - 1));
+  // A request may be issued on a redirect cycle. Flush discards its
+  // response and overrides PC/queue updates below, so branch resolution
+  // need not feed the instruction-cache request and miss-counter paths.
+  assign issue = !rst && !halt && !stall && !imem_busy && (q_count < 3'(DEPTH - 1));
   assign miss_now = issue && imem_miss;
   assign pc_next = pred_taken ? pred_target : (pc_if + 32'd4);
   assign fault_push = imem_fault && !flush && !halt && !rst &&

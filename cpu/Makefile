@@ -30,7 +30,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-muldiv-core test-irq test-sdram test-soc test-isa-soc test-boot synth timing bitstream
+.PHONY: all format format-check syntax lint hooks clean test-core test-isa test-mm test-vm test-muldiv test-muldiv-core test-atomic test-irq test-sdram test-soc test-isa-soc test-boot synth timing bitstream
 
 all: format-check syntax lint
 
@@ -74,6 +74,16 @@ $(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
 	$(RISCV)-objcopy -O binary $< $@
 
 $(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/atomic.elf: sw/tests/atomic.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/atomic.bin: $(BUILD_DIR)/atomic.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/atomic.hex: $(BUILD_DIR)/atomic.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
 $(BUILD_DIR)/interrupt.elf: sw/tests/interrupt.S sw/link.ld | build
@@ -144,6 +154,9 @@ $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/muldiv.hex
 
+test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic.hex
+
 test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300
 
@@ -179,6 +192,7 @@ test-isa: $(BUILD_DIR)/tb_core.vvp
 	./scripts/get-riscv-tests.sh
 	$(PYTHON) scripts/run_isa_tests.py --riscv-prefix $(RISCV)-
 	$(PYTHON) scripts/run_isa_tests.py --riscv-prefix $(RISCV)- --suite rv32um
+	$(PYTHON) scripts/run_isa_tests.py --riscv-prefix $(RISCV)- --suite rv32ua
 
 synth: $(BUILD_DIR)/roco.json
 

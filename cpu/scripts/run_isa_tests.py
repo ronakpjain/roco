@@ -25,6 +25,7 @@ SECTIONS = (".text", ".rodata", ".data")
 SUITES = {
     "rv32ui": "rv32i_zicsr_zifencei",
     "rv32um": "rv32im_zicsr_zifencei",
+    "rv32ua": "rv32ia_zicsr_zifencei",
 }
 
 # This core implements precise misaligned load/store traps (mcause 4/6).

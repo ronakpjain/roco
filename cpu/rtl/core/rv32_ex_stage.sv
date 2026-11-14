@@ -197,6 +197,7 @@ module rv32_ex_stage (
   logic [3:0] stall_be;
   logic [31:0] ex_addr;
   logic [31:0] memory_addr;
+  logic [31:0] memory_addr_held;
   logic [31:0] mem_access_addr;
   logic [31:0] ex_st;
   logic [3:0] ex_be;
@@ -370,25 +371,12 @@ module rv32_ex_stage (
 
   // Loads and stores always add rs1 and the immediate. Keep their address
   // path independent of the ALU and compare forwarding registers in ID.
-  wire [31:0] addr_from_mem = exmem_wbval + idex_imm;
-  wire [31:0] addr_from_wb = wb_data + idex_imm;
-  wire [31:0] addr_from_rf = idex_rs1_val + idex_imm;
-  assign memory_addr = ({32{idex_rs1_from_mem}} & addr_from_mem) |
-                       ({32{idex_rs1_from_wb}} & addr_from_wb) |
-                       ({32{idex_rs1_from_rf}} & addr_from_rf);
-
-  // Select the address source before each adder's output is ready.
-  // Keeping these parallel terms avoids rebuilding two serial hold /
-  // vector muxes after the address carry chain on the MMU lookup path.
-  wire lookup_vector = is_vec_mem && vmem_active;
-  wire lookup_held = !is_vec_mem && stall_active;
-  wire lookup_calc = !lookup_vector && !lookup_held;
-  (* keep *) wire [31:0] lookup_mem = {32{lookup_calc && idex_rs1_from_mem}} & addr_from_mem;
-  (* keep *) wire [31:0] lookup_wb = {32{lookup_calc && idex_rs1_from_wb}} & addr_from_wb;
-  (* keep *) wire [31:0] lookup_rf = {32{lookup_calc && idex_rs1_from_rf}} & addr_from_rf;
-  assign mem_access_addr = lookup_mem | lookup_wb | lookup_rf |
-                           ({32{lookup_vector}} & vmem_base) |
-                           ({32{lookup_held}} & stall_alu);
+  assign memory_addr =
+      ({32{idex_rs1_from_mem}} & (exmem_wbval + idex_imm)) |
+      ({32{idex_rs1_from_wb}} & (wb_data + idex_imm)) |
+      ({32{idex_rs1_from_rf}} & (idex_rs1_val + idex_imm));
+  assign memory_addr_held = stall_active ? stall_alu : memory_addr;
+  assign mem_access_addr = is_vec_mem ? vmem_addr : memory_addr_held;
   assign ex_addr =
       (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) ?
       dmem_lu_paddr : is_vec_mem ? dmem_lu_paddr : ex_alu_result;

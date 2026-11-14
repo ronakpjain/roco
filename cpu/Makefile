@@ -317,8 +317,24 @@ $(BUILD_DIR)/cpi-jalr.bin: $(BUILD_DIR)/cpi-jalr.elf
 $(BUILD_DIR)/cpi-jalr.hex: $(BUILD_DIR)/cpi-jalr.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/cpi-vector.elf: sw/tests/cpi-vector.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/cpi-vector.bin: $(BUILD_DIR)/cpi-vector.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/cpi-vector.hex: $(BUILD_DIR)/cpi-vector.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+$(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/rv32_vec_reduce.sv sim/tb_vec_reduce.sv | build
+	$(IVERILOG) -g2012 -s tb_vec_reduce -o $@ $^
+
+.PHONY: test-vector-reduce
+test-vector-reduce: $(BUILD_DIR)/tb_vec_reduce.vvp
+	$(VVP) $<
+
 .PHONY: test-cpi
-test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(PYTHON) scripts/run_cpi_tests.py --riscv-prefix $(RISCV)-
 
 test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp

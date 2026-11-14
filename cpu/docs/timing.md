@@ -30,9 +30,10 @@ used for this work were Yosys 0.71+post
   bits. Reads of unwritten registers remain zero; the first partial vector
   load initializes the untouched bytes. Divider completion waits when
   normal writeback owns the scalar register port.
-- Vector reduction uses two EX cycles. Ordinary vector elementwise
-  arithmetic still uses one. Vector memory retains its current element
-  address across a miss and stops issuing lookups at VL, including VL zero.
+- Vector reductions use separate carry-save trees for each supported
+  element width and complete in one EX cycle. Arithmetic wraps at SEW.
+  Vector memory retains its current element address across a miss and stops
+  issuing lookups at VL, including VL zero.
 - AMOs capture the old value and computed result before committing in a
   second MEM cycle. LR/SC retain their existing path. Held MEM operations
   preserve older writeback data needed by forwarding.

@@ -265,11 +265,6 @@ module rv32_ex_stage (
   logic [127:0] vec_bcast;
   logic [127:0] vec_raw;
   logic [127:0] vec_reduce_sum;
-  (* mem2reg *) logic [31:0] reduce_terms[0:6][0:16];
-  (* mem2reg *) logic [31:0] reduce_pipe[0:5];
-  logic reduce_ready;
-  logic is_vec_reduce;
-  logic reduce_hold;
   logic vec_ex_we_int;
   logic [127:0] vec_ex_wdata_int;
   logic vec_scalar_wb;
@@ -660,7 +655,7 @@ module rv32_ex_stage (
   assign irq_take = irq_req && !ex_redirect &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
-                    !reduce_hold && !fence_hold && !halt && !rst && !redirect_from_mem;
+                    !fence_hold && !halt && !rst && !redirect_from_mem;
   assign ex_redirect_en = (ex_redirect_int || irq_take) && !fence_hold && !halt && !rst;
   // The address is consumed only when redirect is enabled. Select it
   // before the late hold controls used by interrupt arbitration.
@@ -671,7 +666,7 @@ module rv32_ex_stage (
   // operations. Keep those trap cones off the front-end hold signal.
   assign vec_fault = idex_ifault || idex_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
-  assign vec_mem_hold = (vmem_hold || reduce_hold) && !vec_fault && !redirect_from_mem;
+  assign vec_mem_hold = (vmem_hold) && !vec_fault && !redirect_from_mem;
   assign csr_trap_pc = ex_trap ? idex_pc : irq_next_pc;
   assign csr_trap_cause = ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
   assign csr_trap_tval = ex_trap ? ex_trap_tval : 32'd0;
@@ -762,56 +757,14 @@ module rv32_ex_stage (
       .result(vec_raw)
   );
 
-  // Reduction takes two EX cycles. Register the first three compressor
-  // levels so register reads and the final carry chain occupy separate
-  // cycles. Other vector arithmetic still completes in one cycle.
-  assign is_vec_reduce = idex_is_vec && !idex_is_vset &&
-                         (idex_instr[14:12] == 3'b010) &&
-                         (idex_vec_funct6 != `RV32_VOP_MOVE) &&
-                         (idex_vec_funct6 != `RV32_VOP_SCALAR);
-  assign reduce_hold = idex_valid && is_vec_reduce && !idex_illegal && !reduce_ready &&
-                       !redirect_from_mem;
-  always_ff @(posedge clk) begin
-    if (rst || redirect_from_mem) begin
-      reduce_ready <= 1'b0;
-    end else if (!halt && !fence_hold) begin
-      reduce_ready <= reduce_hold && !vec_fault;
-      if (reduce_hold && !vec_fault) begin
-        for (int k = 0; k < 6; k = k + 1) begin
-          reduce_pipe[k] <= reduce_terms[3][k];
-        end
-      end
-    end
-  end
-  for (genvar k = 0; k < 16; k = k + 1) begin : g_reduce_lane
-    logic [31:0] element_value;
-    assign element_value = (vec_sew_cur == 3'd0) ? {24'd0, vec_vs2_data[8*k+:8]} :
-                           (vec_sew_cur == 3'd1) ? {16'd0, vec_vs2_data[16*(k%8)+:16]} :
-                           vec_vs2_data[32*(k%4)+:32];
-    assign reduce_terms[0][k] = (5'(k) < vec_vl) ? element_value : 32'd0;
-  end
-  assign reduce_terms[0][16] = vec_vs1_data[31:0];
-  for (genvar level = 0; level < 6; level = level + 1) begin : g_reduce_level
-    localparam int INPUTS = (level == 0) ? 17 : (level == 1) ? 12 :
-                            (level == 2) ? 8 : (level == 3) ? 6 : (level == 4) ? 4 : 3;
-    localparam int GROUPS = INPUTS / 3;
-    localparam int OUTPUTS = 2 * GROUPS + INPUTS % 3;
-    for (genvar g = 0; g < GROUPS; g = g + 1) begin : g_compress
-      logic [31:0] a, b, c;
-      assign a = (level == 3) ? reduce_pipe[3*g] : reduce_terms[level][3*g];
-      assign b = (level == 3) ? reduce_pipe[3*g+1] : reduce_terms[level][3*g+1];
-      assign c = (level == 3) ? reduce_pipe[3*g+2] : reduce_terms[level][3*g+2];
-      assign reduce_terms[level+1][2*g] = a ^ b ^ c;
-      assign reduce_terms[level+1][2*g+1] = ((a & b) | (a & c) | (b & c)) << 1;
-    end
-    for (genvar k = 0; k < INPUTS % 3; k = k + 1) begin : g_remainder
-      assign reduce_terms[level+1][2*GROUPS+k] = reduce_terms[level][3*GROUPS+k];
-    end
-    for (genvar k = OUTPUTS; k < 17; k = k + 1) begin : g_unused
-      assign reduce_terms[level+1][k] = 32'd0;
-    end
-  end
-  assign vec_reduce_sum = {96'd0, (reduce_terms[6][0] + reduce_terms[6][1])};
+  rv32_vec_reduce u_vec_reduce (
+      .source(vec_vs2_data),
+      .seed(vec_vs1_data[31:0]),
+      .vl(vec_vl),
+      .sew(vec_sew_cur),
+      .result(vec_reduce_sum[31:0])
+  );
+  assign vec_reduce_sum[127:32] = '0;
 
   assign vec_wr_vl = (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110) ?
                      5'd1 : vec_vl;
@@ -826,7 +779,7 @@ module rv32_ex_stage (
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !vec_fault && !reduce_hold && !fence_hold && !halt && !rst &&
+    if (idex_valid && idex_is_vec && !vec_fault && !fence_hold && !halt && !rst &&
         !redirect_from_mem) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
@@ -840,7 +793,11 @@ module rv32_ex_stage (
           if (idex_instr[14:12] == 3'b010) begin
             // vmv.x.s: element 0 to the scalar destination.
             vec_scalar_wb = 1'b1;
-            vec_scalar_wdata = vec_vs2_data[31:0];
+            vec_scalar_wdata = (vec_sew_cur == 3'd0) ?
+                               {{24{vec_vs2_data[7]}}, vec_vs2_data[7:0]} :
+                               (vec_sew_cur == 3'd1) ?
+                               {{16{vec_vs2_data[15]}}, vec_vs2_data[15:0]} :
+                               vec_vs2_data[31:0];
           end else begin
             // vmv.s.x: the scalar becomes element 0.
             vec_ex_we_int = 1'b1;
@@ -1027,7 +984,7 @@ module rv32_ex_stage (
       // Invalid payload may advance during a lookup miss or the first
       // reduction cycle. Miss operands are already saved separately;
       // only validity needs the late cache-hit signal.
-      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !reduce_hold && !redirect_from_mem;
+      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !redirect_from_mem;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= ex_addr;

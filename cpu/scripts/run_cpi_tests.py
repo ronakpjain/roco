@@ -9,6 +9,7 @@ parser.add_argument('--case', help='run one image instead of the whole CPI suite
 args = parser.parse_args()
 cases = {
     'cpi-jalr': ('cpi_target_a', 'cpi_target_b'),
+    'cpi-vector': ('cpi_reduce8', 'cpi_reduce16', 'cpi_reduce32', 'cpi_vec_alu'),
 }
 if args.case:
     if args.case not in cases:

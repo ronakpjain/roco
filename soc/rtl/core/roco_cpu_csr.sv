@@ -126,11 +126,24 @@ module roco_cpu_csr (
   logic [31:0] mcycle_hi;
   logic [31:0] minstret_lo;
   logic [31:0] minstret_hi;
-  logic [31:0] minstret_read_lo, minstret_read_hi;
-  // Include the older instruction committing in MEM on this edge.
-  assign minstret_read_lo = retire ? (minstret_lo + 32'd1) : minstret_lo;
-  assign minstret_read_hi = (retire && (minstret_lo == 32'hffffffff)) ?
-                            (minstret_hi + 32'd1) : minstret_hi;
+  logic retire_event_q;
+  logic [1:0] instret_write_q;
+  logic [31:0] instret_wdata_q;
+  // Retiming both events preserves write-over-increment priority. The
+  // decode interlock drains these events before the next counter access.
+  always_ff @(posedge clk) instret_wdata_q <= wr_data;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      retire_event_q <= 1'b0;
+      instret_write_q <= '0;
+    end else begin
+      retire_event_q <= retire;
+      instret_write_q <= {wr_en && (wr_addr == 12'hb82), wr_en && (wr_addr == 12'hb02)};
+    end
+  end
+
+  // Decode interlocks minstret accesses until older MEM packets retire,
+  // so reads start at the counter flops rather than MEM ready logic.
 
   logic priv_read_ok;
   logic addr_writable;
@@ -324,13 +337,13 @@ module roco_cpu_csr (
         rdata = mcycle_lo;
       end
       12'hB02: begin
-        rdata = minstret_read_lo;
+        rdata = minstret_lo;
       end
       12'hB80: begin
         rdata = mcycle_hi;
       end
       12'hB82: begin
-        rdata = minstret_read_hi;
+        rdata = minstret_hi;
       end
       12'hC00: begin
         rdata = mcycle_lo;
@@ -338,7 +351,7 @@ module roco_cpu_csr (
         write_ok = 1'b0;
       end
       12'hC02: begin
-        rdata = minstret_read_lo;
+        rdata = minstret_lo;
         read_ok = counter_instret_ok;
         write_ok = 1'b0;
       end
@@ -399,12 +412,15 @@ module roco_cpu_csr (
       if (mcycle_lo == 32'hFFFF_FFFF) begin
         mcycle_hi <= mcycle_hi + 32'd1;
       end
-      if (retire) begin
+      if (retire_event_q) begin
         minstret_lo <= minstret_lo + 32'd1;
         if (minstret_lo == 32'hFFFF_FFFF) begin
           minstret_hi <= minstret_hi + 32'd1;
         end
       end
+
+      if (instret_write_q[0]) minstret_lo <= instret_wdata_q;
+      if (instret_write_q[1]) minstret_hi <= instret_wdata_q;
 
       // Software writes.
       if (wr_en) begin
@@ -505,14 +521,8 @@ module roco_cpu_csr (
           12'hB00: begin
             mcycle_lo <= wr_data;
           end
-          12'hB02: begin
-            minstret_lo <= wr_data;
-          end
           12'hB80: begin
             mcycle_hi <= wr_data;
-          end
-          12'hB82: begin
-            minstret_hi <= wr_data;
           end
           default: begin
           end

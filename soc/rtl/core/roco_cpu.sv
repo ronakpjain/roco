@@ -385,7 +385,16 @@ module roco_cpu (
   logic csr_write_conflict;
   assign csr_write_conflict = if_valid && idex_valid && idex_is_csr &&
                               ((idex_csr_op == 2'd0) || (idex_rs1 != 5'd0));
-  assign bubble = div_conflict || load_dependency || mul_conflict || csr_write_conflict;
+  logic instret_decode, instret_conflict;
+  assign instret_decode = (if_instr[6:0] == 7'b1110011) && (if_instr[14:12] != 3'd0) &&
+                           ((if_instr[31:20] == 12'hb02) ||
+                            (if_instr[31:20] == 12'hb82) ||
+                            (if_instr[31:20] == 12'hc02));
+  // Read the retirement counter only after all older MEM events have
+  // updated it. Other CSR accesses retain their normal issue timing.
+  assign instret_conflict = if_valid && instret_decode && (idex_valid || exmem_valid);
+  assign bubble = div_conflict || load_dependency || mul_conflict || csr_write_conflict ||
+                  instret_conflict;
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
@@ -880,4 +889,12 @@ module roco_cpu (
   end
 `endif
 
+`ifndef SYNTHESIS
+  always @(posedge clk) begin
+    if (!rst && idex_valid && idex_is_csr &&
+        ((idex_csr_addr == 12'hb02) || (idex_csr_addr == 12'hb82) || (idex_csr_addr == 12'hc02)) &&
+        retire)
+      $fatal(1, "minstret read overlapped an older retirement");
+  end
+`endif
 endmodule

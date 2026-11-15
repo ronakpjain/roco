@@ -254,7 +254,9 @@ module rv32_mmu #(
         mstatus_sum,
         mstatus_mxr
     );
-    assign d_way_ppn[way] = {20{d_way_allowed[way]}} & dtlb[way][TAG_BITS+19:TAG_BITS];
+    // Address selection runs alongside tag and permission validation.
+    // The cache accepts the address only when d_hit validates the entry.
+    assign d_way_ppn[way] = {20{d_idx == IDX_BITS'(way)}} & dtlb[way][TAG_BITS+19:TAG_BITS];
   end
   assign d_tag_hit = |d_way_tags;
   assign i_perm_ok = tlb_perm_ok(

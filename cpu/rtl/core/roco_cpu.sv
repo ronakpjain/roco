@@ -98,7 +98,7 @@ module roco_cpu (
   logic dec_is_div;
 
   logic idex_valid;
-  logic [4:0] idex_wb_select;
+  logic [3:0] idex_wb_select;
   logic [31:0] idex_pc;
   logic [31:0] idex_instr;
   logic [31:0] idex_rs1_val;
@@ -216,6 +216,12 @@ module roco_cpu (
   logic [4:0] exmem_amo_op;
   logic ex_trap_taken;
   logic vec_mem_hold;
+  logic exmem_is_mul;
+  logic exmem_mul_hi;
+  logic [63:0] exmem_mul_sum;
+  logic [63:0] exmem_mul_carry;
+  logic idex_is_mul;
+  logic mul_conflict;
   logic exmem_vec_we;
   logic [127:0] exmem_vec_data;
   logic vec_full_write;
@@ -326,10 +332,18 @@ module roco_cpu (
                                (mmu_d_paddr[31:25] != 7'd8) && (idex_rd != 5'd0) && if_valid &&
                                ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                                 (dec_use_rs2 && dec_rs2 == idex_rd));
-  assign bubble = div_conflict || uncached_dependency;
+  // A multiply keeps only the carry-save terms in EX; the 64-bit carry
+  // propagation completes in MEM. A dependent instruction therefore waits
+  // one cycle and then bypasses the MEM result from ID. Only an immediate
+  // dependency needs the bubble.
+  assign mul_conflict = if_valid && idex_valid && idex_is_mul && (idex_rd != 5'd0) &&
+                        ((dec_use_rs1 && (dec_rs1 == idex_rd)) ||
+                         (dec_use_rs2 && (dec_rs2 == idex_rd)));
+  assign bubble = div_conflict || uncached_dependency || mul_conflict;
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
+  assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign trace_valid = retire;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;
@@ -574,7 +588,11 @@ module roco_cpu (
       .exmem_vec_last(exmem_vec_last),
       .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
-      .exmem_is_fence_i(exmem_is_fence_i)
+      .exmem_is_fence_i(exmem_is_fence_i),
+      .exmem_is_mul(exmem_is_mul),
+      .exmem_mul_hi(exmem_mul_hi),
+      .exmem_mul_sum(exmem_mul_sum),
+      .exmem_mul_carry(exmem_mul_carry)
   );
 
   // Arithmetic and load elements share the MEM write boundary. A full
@@ -732,6 +750,10 @@ module roco_cpu (
       .exmem_vec_sew(exmem_vec_sew),
       .exmem_is_sfence(exmem_is_sfence),
       .exmem_is_fence_i(exmem_is_fence_i),
+      .exmem_is_mul(exmem_is_mul),
+      .exmem_mul_hi(exmem_mul_hi),
+      .exmem_mul_sum(exmem_mul_sum),
+      .exmem_mul_carry(exmem_mul_carry),
       .trap_taken(ex_trap_taken || satp_write),
       .vec_mem_we(vec_mem_we),
       .vec_mem_wd(vec_mem_wd),

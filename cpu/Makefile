@@ -201,9 +201,11 @@ $(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv sim/cpi_monitor.s
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv sim/cpi_monitor.sv $(SIM_RTL)
 
 $(BUILD_DIR)/tb_muldiv.vvp: rtl/core/roco_cpu_divider.sv rtl/core/roco_cpu_mul_prod.sv \
+	rtl/core/roco_cpu_mul_term.sv rtl/core/roco_cpu_mul_sum.sv \
 	rtl/core/roco_cpu_mul_finish.sv sim/tb_muldiv.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_muldiv -o $@ \
 		sim/tb_muldiv.sv rtl/core/roco_cpu_divider.sv rtl/core/roco_cpu_mul_prod.sv \
+		rtl/core/roco_cpu_mul_term.sv rtl/core/roco_cpu_mul_sum.sv \
 		rtl/core/roco_cpu_mul_finish.sv
 
 test_muldiv: $(BUILD_DIR)/tb_muldiv.vvp

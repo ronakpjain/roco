@@ -48,6 +48,11 @@ module roco_cpu_mem_stage (
   input logic trap_taken,
   input logic exmem_is_sfence,
   input logic exmem_is_fence_i,
+  /* Multiply carry-save terms registered at EX/MEM. */
+  input logic exmem_is_mul,
+  input logic exmem_mul_hi,
+  input logic [63:0] exmem_mul_sum,
+  input logic [63:0] exmem_mul_carry,
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
   output logic dmem_we,
@@ -75,6 +80,7 @@ module roco_cpu_mem_stage (
 );
 
   logic [31:0] load_data;
+  logic [31:0] mul_result;
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
@@ -125,6 +131,16 @@ module roco_cpu_mem_stage (
     endcase
   end
 
+  // The multiply's 64-bit carry propagation gets its own cycle here. An
+  // ECP5 carry chain cannot cross a PFU column, so completing it in EX made
+  // the multiply the longest path in the design.
+  roco_cpu_mul_sum u_mul_sum (
+      .sum1(exmem_mul_sum),
+      .carry1(exmem_mul_carry),
+      .hi(exmem_mul_hi),
+      .result(mul_result)
+  );
+
   // Decode mutually exclusive result classes in parallel. The load path
   // feeds EX directly, so it must not traverse a priority mux of all the
   // unrelated producers before reaching the next instruction.
@@ -132,8 +148,9 @@ module roco_cpu_mem_stage (
       ({32{exmem_is_sc}} & sc_result) |
       ({32{exmem_is_amo}} & dmem_rsp_data) |
       ({32{exmem_is_load || exmem_is_lr}} & load_data) |
-      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr)}} &
-       exmem_wbval);
+      ({32{exmem_is_mul}} & mul_result) |
+      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr ||
+             exmem_is_mul)}} & exmem_wbval);
 
   assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||
                         exmem_is_sc || exmem_is_vload || exmem_is_vstore;

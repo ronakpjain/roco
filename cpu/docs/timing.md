@@ -41,6 +41,21 @@ Two rules keep that mapping intact:
 Reset is asserted asynchronously and released synchronously by the
 `rst_sync` shift register in `roco_top`.
 
+## Multiply pipeline
+
+Multiplication is split across EX and MEM. `roco_cpu_mul_prod` forms four
+signed DSP products in EX and `roco_cpu_mul_term` compresses them to two
+carry-save terms; those two 64-bit terms are registered at EX/MEM. The final
+carry-propagating sum and the low/high word selection then run in MEM through
+`roco_cpu_mul_sum`.
+
+Splitting here rather than after the DSPs is deliberate: an ECP5 carry chain
+cannot cross a PFU column, so the 64-bit carry-propagate sum is the expensive
+part of the operation, not the compression. A dependent instruction costs one
+bubble (`mul_conflict`) and then reads the result from the MEM-stage forwarding
+path. `make test_cpi` reports the resulting cycles per instruction as
+information only.
+
 ## Regression coverage
 
 `make all` checks formatting, syntax, and structural lint. Unit tests cover

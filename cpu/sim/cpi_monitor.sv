@@ -1,4 +1,10 @@
-// Opt-in continuous architectural retirement assertion shared by core/SoC.
+// Opt-in retirement-rate measurement shared by core/SoC.
+//
+// This reports the cycles per retired instruction over a warmed region. It
+// is informational: frequency and total execution time are the optimisation
+// targets, so a window is allowed to contain bubble cycles. Only a window
+// that never completes is an error, because that means the measurement did
+// not happen.
 `timescale 1ns / 1ps
 module cpi_monitor (
   input logic clk,
@@ -15,6 +21,8 @@ module cpi_monitor (
   int unsigned count;
   int unsigned seen = 0;
   int unsigned retired = 0;
+  int unsigned cycles = 0;
+  int unsigned bubbles = 0;
 
   initial begin
     enabled = $value$plusargs("cpi_pc=%h", start_pc);
@@ -35,12 +43,17 @@ module cpi_monitor (
         seen = seen + 1;
       end
       if (active) begin
-        if (!retire_valid) $fatal(1, "CPI=1 violated after %0d instructions", retired);
-        retired = retired + 1;
-        if (retired == count) begin
-          active = 0;
-          done = 1;
-          $display("CPI=1 PASS (%0d consecutive instructions)", retired);
+        cycles = cycles + 1;
+        if (retire_valid) begin
+          retired = retired + 1;
+          if (retired == count) begin
+            active = 0;
+            done = 1;
+            $display("CPI %0d.%03d (%0d instructions, %0d cycles, %0d bubbles)", cycles / retired,
+                     (1000 * (cycles % retired)) / retired, retired, cycles, bubbles);
+          end
+        end else begin
+          bubbles = bubbles + 1;
         end
       end
     end

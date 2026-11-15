@@ -25,7 +25,7 @@ module roco_cpu_ex_stage (
   output logic [31:0] div_wb_data,
   /* ID/EX pipeline register. */
   input logic idex_valid,
-  input logic [4:0] idex_wb_select,
+  input logic [3:0] idex_wb_select,
   input logic [31:0] idex_pc,
   input logic [31:0] idex_instr,
   input logic [31:0] idex_rs1_val,
@@ -148,7 +148,12 @@ module roco_cpu_ex_stage (
   output logic exmem_vec_last,
   output logic [2:0] exmem_vec_sew,
   output logic exmem_is_sfence,
-  output logic exmem_is_fence_i
+  output logic exmem_is_fence_i,
+  /* Multiply carry-save terms complete in MEM. */
+  output logic exmem_is_mul,
+  output logic exmem_mul_hi,
+  output logic [63:0] exmem_mul_sum,
+  output logic [63:0] exmem_mul_carry
 );
 
   logic vec_ex_we;
@@ -162,7 +167,9 @@ module roco_cpu_ex_stage (
   logic [33:0] mul_p1;
   logic [33:0] mul_p2;
   logic [31:0] mul_p3;
-  logic [31:0] mul_data;
+  logic [63:0] mul_sum1;
+  logic [63:0] mul_carry1;
+  logic idex_is_mul;
   logic [31:0] md_div_result;
   logic [31:0] ex_alu_result;
   logic idex_is_div;
@@ -300,6 +307,7 @@ module roco_cpu_ex_stage (
   );
 
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
+  assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst &&
                      !cancel_ex;
 
@@ -329,13 +337,13 @@ module roco_cpu_ex_stage (
       .p3(mul_p3)
   );
 
-  roco_cpu_mul_finish u_mul_finish (
+  roco_cpu_mul_term u_mul_term (
       .p0(mul_p0),
       .p1(mul_p1),
       .p2(mul_p2),
       .p3(mul_p3),
-      .variant(idex_md_op),
-      .result(mul_data)
+      .sum1(mul_sum1),
+      .carry1(mul_carry1)
   );
 
   // A divide leaves the pipeline immediately and writes the register
@@ -404,10 +412,9 @@ module roco_cpu_ex_stage (
   assign ex_be = is_vec_mem ? vmem_be : stall_active ? stall_be : ex_store_be;
   // Decode the mutually exclusive writeback producers in ID. EX data
   // meets one parallel merge instead of a priority chain after multiply.
-  assign ex_wbval = ({32{idex_wb_select[4]}} & (idex_pc + 32'd4)) |
-                    ({32{idex_wb_select[3]}} & csr_rdata) |
-                    ({32{idex_wb_select[2]}} & vec_scalar_wdata) |
-                    ({32{idex_wb_select[1]}} & mul_data) |
+  assign ex_wbval = ({32{idex_wb_select[3]}} & (idex_pc + 32'd4)) |
+                    ({32{idex_wb_select[2]}} & csr_rdata) |
+                    ({32{idex_wb_select[1]}} & vec_scalar_wdata) |
                     ({32{idex_wb_select[0]}} & ex_addr);
 
   // -------------------------------------------------- CSR file (EX and WB)
@@ -966,6 +973,10 @@ module roco_cpu_ex_stage (
       exmem_vec_sew <= '0;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
+      exmem_is_mul <= 1'b0;
+      exmem_mul_hi <= 1'b0;
+      exmem_mul_sum <= '0;
+      exmem_mul_carry <= '0;
     end else if (halt || fence_hold) begin
       // Hold while a FENCE.I wait is active.
     end else if (is_vec_mem && idex_valid) begin
@@ -998,6 +1009,10 @@ module roco_cpu_ex_stage (
       exmem_vec_sew <= vec_elem_sew;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
+      exmem_is_mul <= 1'b0;
+      exmem_mul_hi <= 1'b0;
+      exmem_mul_sum <= '0;
+      exmem_mul_carry <= '0;
     end else begin
       // Invalid payload may advance during a lookup miss or the first
       // reduction cycle. Miss operands are already saved separately;
@@ -1017,7 +1032,14 @@ module roco_cpu_ex_stage (
       exmem_regwrite <= idex_regwrite && !idex_is_div && (!idex_is_vec || vec_scalar_wb);
       exmem_is_load <= idex_is_load;
       exmem_forward_cache <= idex_is_load || idex_is_lr || idex_is_amo;
-      exmem_forward_wbval <= !(idex_is_load || idex_is_lr || idex_is_amo || idex_is_sc);
+      // A multiply completes in MEM, so it never forwards from the EX/MEM
+      // register. mul_conflict adds one bubble to a dependent instruction.
+      exmem_forward_wbval <= !(idex_is_load || idex_is_lr || idex_is_amo || idex_is_sc ||
+                               idex_is_mul);
+      exmem_is_mul <= idex_is_mul && idex_valid;
+      exmem_mul_hi <= (idex_md_op != `RV32_MD_MUL);
+      exmem_mul_sum <= mul_sum1;
+      exmem_mul_carry <= mul_carry1;
       exmem_is_store <= idex_is_store;
       exmem_is_amo <= idex_is_amo;
       exmem_is_lr <= idex_is_lr;

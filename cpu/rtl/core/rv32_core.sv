@@ -209,6 +209,7 @@ module rv32_core (
   logic [2:0] exmem_funct3;
   logic exmem_regwrite;
   logic exmem_is_load;
+  logic exmem_forward_cache, exmem_forward_wbval;
   logic exmem_is_store;
   logic exmem_is_amo;
   logic exmem_is_lr;
@@ -556,6 +557,8 @@ module rv32_core (
       .exmem_funct3(exmem_funct3),
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
+      .exmem_forward_cache(exmem_forward_cache),
+      .exmem_forward_wbval(exmem_forward_wbval),
       .exmem_is_store(exmem_is_store),
       .exmem_is_amo(exmem_is_amo),
       .exmem_is_lr(exmem_is_lr),
@@ -704,6 +707,8 @@ module rv32_core (
       .exmem_funct3(exmem_funct3),
       .exmem_regwrite(exmem_regwrite),
       .exmem_is_load(exmem_is_load),
+      .exmem_forward_cache(exmem_forward_cache),
+      .exmem_forward_wbval(exmem_forward_wbval),
       .exmem_is_store(exmem_is_store),
       .exmem_is_amo(exmem_is_amo),
       .exmem_is_lr(exmem_is_lr),

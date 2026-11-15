@@ -25,6 +25,8 @@ module rv32_mem_stage (
   input logic [2:0] exmem_funct3,
   input logic exmem_regwrite,
   input logic exmem_is_load,
+  input logic exmem_forward_cache,
+  input logic exmem_forward_wbval,
   input logic exmem_is_store,
   input logic exmem_is_amo,
   input logic exmem_is_lr,
@@ -73,7 +75,6 @@ module rv32_mem_stage (
 );
 
   logic [31:0] load_data;
-  logic [31:0] load_forward_data;
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
@@ -177,14 +178,12 @@ module rv32_mem_stage (
     endcase
   endfunction
   assign load_data = align_load(dmem_rsp_data, exmem_alu[1:0], exmem_funct3);
-  // The early cache copy registers the fully aligned scalar value.
-  assign load_forward_data = dmem_forward_data;
+  // Result selection is decoded before the EX/MEM register so the
+  // forwarding path does not start with a memory-op decode tree.
   assign forward_data =
       ({32{exmem_is_sc}} & sc_result) |
-      ({32{exmem_is_amo}} & dmem_forward_data) |
-      ({32{exmem_is_load || exmem_is_lr}} & load_forward_data) |
-      ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr)}} &
-       exmem_wbval);
+      ({32{exmem_forward_cache}} & dmem_forward_data) |
+      ({32{exmem_forward_wbval}} & exmem_wbval);
 
   // Load-reserved / store-conditional reservation. The set is one word
   // wide: any store to it, any store-conditional and any trap clears it.

@@ -136,6 +136,8 @@ module rv32_ex_stage (
   output logic [2:0] exmem_funct3,
   output logic exmem_regwrite,
   output logic exmem_is_load,
+  output logic exmem_forward_cache,
+  output logic exmem_forward_wbval,
   output logic exmem_is_store,
   output logic exmem_is_amo,
   output logic exmem_is_lr,
@@ -922,6 +924,8 @@ module rv32_ex_stage (
       exmem_funct3 <= '0;
       exmem_regwrite <= 1'b0;
       exmem_is_load <= 1'b0;
+      exmem_forward_cache <= 1'b0;
+      exmem_forward_wbval <= 1'b1;
       exmem_is_store <= 1'b0;
       exmem_is_amo <= 1'b0;
       exmem_is_lr <= 1'b0;
@@ -948,6 +952,8 @@ module rv32_ex_stage (
       exmem_funct3 <= idex_funct3;
       exmem_regwrite <= 1'b0;
       exmem_is_load <= 1'b0;
+      exmem_forward_cache <= 1'b0;
+      exmem_forward_wbval <= 1'b1;
       exmem_is_store <= 1'b0;
       exmem_is_amo <= 1'b0;
       exmem_is_lr <= 1'b0;
@@ -977,6 +983,8 @@ module rv32_ex_stage (
       // the value when it completes.
       exmem_regwrite <= idex_regwrite && !idex_is_div && (!idex_is_vec || vec_scalar_wb);
       exmem_is_load <= idex_is_load;
+      exmem_forward_cache <= idex_is_load || idex_is_lr || idex_is_amo;
+      exmem_forward_wbval <= !(idex_is_load || idex_is_lr || idex_is_amo || idex_is_sc);
       exmem_is_store <= idex_is_store;
       exmem_is_amo <= idex_is_amo;
       exmem_is_lr <= idex_is_lr;

@@ -4,9 +4,9 @@
 // compares branch operands independently of this result-selection path.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_alu (
+module roco_cpu_alu (
   input logic [31:0] a,
   input logic [31:0] b,
   input logic [3:0] op,

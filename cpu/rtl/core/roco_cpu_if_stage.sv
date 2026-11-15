@@ -15,7 +15,7 @@
 
 `default_nettype none
 
-module rv32_if_stage (
+module roco_cpu_if_stage (
   input logic clk,
   input logic rst,
   input logic halt,

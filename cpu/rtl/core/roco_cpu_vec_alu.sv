@@ -1,5 +1,5 @@
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
 // Vector element ALU.
 //
@@ -7,7 +7,7 @@
 // the configured SEW, then forces elements beyond vl to the tail
 // policy: agnostic lanes become all ones, undisturbed lanes keep the
 // destination value.
-module rv32_vec_alu (
+module roco_cpu_vec_alu (
   input logic [127:0] a,
   input logic [127:0] b,
   input logic [2:0] sew,

@@ -13,9 +13,9 @@
 // execute-stage contents.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_divider (
+module roco_cpu_divider (
   input logic clk,
   input logic rst,
   input logic halt,

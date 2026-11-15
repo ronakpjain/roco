@@ -12,7 +12,7 @@ module tb_regfile;
   logic [31:0] rdata1, rdata2;
   logic [31:0] expected[0:31];
 
-  rv32_regfile dut (.*);
+  roco_cpu_regfile dut (.*);
 
   always @(posedge clk) begin
     if (rst) begin

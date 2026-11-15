@@ -9,9 +9,9 @@
 // virtual address computed here; a page fault is resolved as a trap.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_ex_stage (
+module roco_cpu_ex_stage (
   input logic clk,
   input logic rst,
   input logic halt,
@@ -292,7 +292,7 @@ module rv32_ex_stage (
   assign ex_alu_a = idex_alu_a_pc ? idex_pc : rs1_fwd;
   assign ex_alu_b = idex_alu_b_imm ? idex_imm : rs2_fwd;
 
-  rv32_alu u_alu (
+  roco_cpu_alu u_alu (
       .a(ex_alu_a),
       .b(ex_alu_b),
       .op(idex_alu_op),
@@ -303,7 +303,7 @@ module rv32_ex_stage (
   assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst &&
                      !cancel_ex;
 
-  rv32_divider u_divider (
+  roco_cpu_divider u_divider (
       .clk(clk),
       .rst(rst),
       .halt(halt),
@@ -319,7 +319,7 @@ module rv32_ex_stage (
   // Explicit parallel DSP products plus a carry-save tree complete in EX.
   // MEM forwards the registered product, keeping carry propagation off a
   // dependent cache lookup's address path.
-  rv32_mul_prod u_mul_prod (
+  roco_cpu_mul_prod u_mul_prod (
       .a(rs1_fwd),
       .b(rs2_fwd),
       .variant(idex_md_op),
@@ -329,7 +329,7 @@ module rv32_ex_stage (
       .p3(mul_p3)
   );
 
-  rv32_mul_finish u_mul_finish (
+  roco_cpu_mul_finish u_mul_finish (
       .p0(mul_p0),
       .p1(mul_p1),
       .p2(mul_p2),
@@ -411,7 +411,7 @@ module rv32_ex_stage (
                     ({32{idex_wb_select[0]}} & ex_addr);
 
   // -------------------------------------------------- CSR file (EX and WB)
-  rv32_csr u_csr (
+  roco_cpu_csr u_csr (
       .clk(clk),
       .rst(rst),
       .raddr(idex_csr_addr),
@@ -750,7 +750,7 @@ module rv32_ex_stage (
   end
   assign vec_alu_b = (idex_instr[14:12] == 3'b000) ? vec_vs1_data : vec_bcast;
 
-  rv32_vec_alu u_vec_alu (
+  roco_cpu_vec_alu u_vec_alu (
       .a(vec_vs2_data),
       .b(vec_alu_b),
       .sew(vec_sew_cur),
@@ -758,7 +758,7 @@ module rv32_ex_stage (
       .result(vec_raw)
   );
 
-  rv32_vec_reduce u_vec_reduce (
+  roco_cpu_vec_reduce u_vec_reduce (
       .source(vec_vs2_data),
       .seed(vec_vs1_data[31:0]),
       .vl(vec_vl),

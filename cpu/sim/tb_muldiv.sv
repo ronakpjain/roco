@@ -40,7 +40,7 @@ module tb_muldiv;
 
   assign variant = op;
 
-  rv32_mul_prod u_prod (
+  roco_cpu_mul_prod u_prod (
       .a(a),
       .b(b),
       .variant(variant),
@@ -50,7 +50,7 @@ module tb_muldiv;
       .p3(p3)
   );
 
-  rv32_mul_finish u_finish (
+  roco_cpu_mul_finish u_finish (
       .p0(p0),
       .p1(p1),
       .p2(p2),
@@ -59,7 +59,7 @@ module tb_muldiv;
       .result(mul_result)
   );
 
-  rv32_divider u_div (
+  roco_cpu_divider u_div (
       .clk(clk),
       .rst(rst),
       .halt(halt),

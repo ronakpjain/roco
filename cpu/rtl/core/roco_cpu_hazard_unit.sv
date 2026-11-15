@@ -7,7 +7,7 @@
 
 `default_nettype none
 
-module rv32_hazard_unit (
+module roco_cpu_hazard_unit (
   input logic idex_valid,
   input logic idex_is_load,
   input logic [4:0] idex_rd,

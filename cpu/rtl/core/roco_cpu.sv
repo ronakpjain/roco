@@ -1,13 +1,13 @@
-// Pipelined RV32I processor core.
+// roco-cpu: pipelined RV32I processor core.
 //
 // Five stages, each in its own module:
-//   rv32_if_stage   program counter, fetch handshake, IF/ID register
-//   rv32_id_stage   decode, register file, ID/EX register
-//   rv32_ex_stage   ALU, forwarding, branches, traps, CSR file, EX/MEM
-//   rv32_mem_stage  data memory request, load alignment, MEM/WB register
-//   rv32_wb_stage   register-file write data and retire trace
-//   rv32_branch_predictor  bimodal predictor and BTB
-//   rv32_mmu        Sv32 TLBs and hardware page-table walker
+//   roco_cpu_if_stage   program counter, fetch handshake, IF/ID register
+//   roco_cpu_id_stage   decode, register file, ID/EX register
+//   roco_cpu_ex_stage   ALU, forwarding, branches, traps, CSR file, EX/MEM
+//   roco_cpu_mem_stage  data memory request, load alignment, MEM/WB register
+//   roco_cpu_wb_stage   register-file write data and retire trace
+//   roco_cpu_branch_predictor  bimodal predictor and BTB
+//   roco_cpu_mmu        Sv32 TLBs and hardware page-table walker
 //
 // Branches and jumps resolve in EX. A registered redirect reaches fetch
 // one cycle later and cancels the younger EX instruction. Full EX/MEM
@@ -22,7 +22,7 @@
 
 `default_nettype none
 
-module rv32_core (
+module roco_cpu (
   input logic clk,
   input logic rst,
   input logic [31:0] boot_addr,
@@ -330,7 +330,7 @@ module rv32_core (
   assign trace_rd = commit_rd;
   assign trace_wdata = commit_wdata;
 
-  rv32_if_stage u_if (
+  roco_cpu_if_stage u_if (
       .clk(clk),
       .rst(rst),
       .halt(halt),
@@ -360,7 +360,7 @@ module rv32_core (
       .fetch_pc(fetch_pc)
   );
 
-  rv32_id_stage u_id (
+  roco_cpu_id_stage u_id (
       .clk(clk),
       .rst(rst),
       .halt(halt),
@@ -443,7 +443,7 @@ module rv32_core (
       .idex_is_fence_i(idex_is_fence_i)
   );
 
-  rv32_ex_stage u_ex (
+  roco_cpu_ex_stage u_ex (
       .clk(clk),
       .rst(rst),
       .halt(halt),
@@ -581,7 +581,7 @@ module rv32_core (
   assign vec_vd_data = (vec_full_write && (exmem_rd == idex_instr[11:7])) ?
                       exmem_vec_data : vec_rf_vd_data;
 
-  rv32_vec u_vec (
+  roco_cpu_vec u_vec (
       .clk(clk),
       .rst(rst),
       .vs1(idex_instr[19:15]),
@@ -600,7 +600,7 @@ module rv32_core (
       .mem_wdata(vec_mem_wdata)
   );
 
-  rv32_mmu u_mmu (
+  roco_cpu_mmu u_mmu (
       .clk(clk),
       .rst(rst),
       .flush(mmu_flush),
@@ -673,7 +673,7 @@ module rv32_core (
     end
   end
 
-  rv32_branch_predictor u_bp (
+  roco_cpu_branch_predictor u_bp (
       .clk(clk),
       .rst(rst),
       .flush(fence_req),
@@ -689,7 +689,7 @@ module rv32_core (
       .ex_target(bp_update_target)
   );
 
-  rv32_mem_stage u_mem (
+  roco_cpu_mem_stage u_mem (
       .clk(clk),
       .rst(rst),
       .halt(halt),
@@ -749,7 +749,7 @@ module rv32_core (
       .memwb_regwrite(memwb_regwrite)
   );
 
-  rv32_wb_stage u_wb (
+  roco_cpu_wb_stage u_wb (
       .halt(halt),
       .memwb_valid(memwb_valid),
       .memwb_regwrite(memwb_regwrite),

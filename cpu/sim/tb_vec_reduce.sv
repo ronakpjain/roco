@@ -8,7 +8,7 @@ module tb_vec_reduce;
   logic [31:0] expected, mask;
   int width, lanes;
 
-  rv32_vec_reduce dut (.*);
+  roco_cpu_vec_reduce dut (.*);
 
   initial begin
     for (int size = 0; size < 3; size++) begin

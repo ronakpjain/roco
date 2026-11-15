@@ -8,7 +8,7 @@
 
 `default_nettype none
 
-module rv32_mem_stage (
+module roco_cpu_mem_stage (
   input logic clk,
   input logic rst,
   input logic halt,

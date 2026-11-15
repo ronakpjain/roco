@@ -60,7 +60,7 @@ module tb_mmu;
   int unsigned i;
   int unsigned n;
 
-  rv32_mmu u_mmu (
+  roco_cpu_mmu u_mmu (
       .clk(clk),
       .rst(rst),
       .flush(flush),

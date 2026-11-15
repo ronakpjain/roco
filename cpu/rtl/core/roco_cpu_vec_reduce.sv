@@ -2,7 +2,7 @@
 // Arithmetic is modulo SEW, so unused high bits never enter the tree.
 `default_nettype none
 
-module rv32_vec_reduce (
+module roco_cpu_vec_reduce (
   input logic [127:0] source,
   input logic [31:0] seed,
   input logic [4:0] vl,

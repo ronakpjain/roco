@@ -87,7 +87,7 @@ module tb_core;
   assign halt = (exit_code != 32'd0);
   assign boot_addr = MEM_BASE;
 
-  rv32_core u_core (
+  roco_cpu u_core (
       .clk(clk),
       .rst(rst),
       .boot_addr(boot_addr),

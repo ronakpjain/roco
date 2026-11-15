@@ -75,7 +75,7 @@ VL_FLAGS := --binary --timing -j 4 -Wno-fatal -I$(RTL_DIR)/common
 
 lint:
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
-		--top-module rv32_core $(SIM_RTL)
+		--top-module roco_cpu $(SIM_RTL)
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module sdram_ctrl $(SIM_RTL)
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
@@ -200,11 +200,11 @@ $(BUILD_DIR)/vl_tb_soc/tb_soc_vl: $(SIM_RTL) $(RTL_SVH) sim/tb_soc.sv sim/cpi_mo
 $(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv sim/cpi_monitor.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv sim/cpi_monitor.sv $(SIM_RTL)
 
-$(BUILD_DIR)/tb_muldiv.vvp: rtl/core/rv32_divider.sv rtl/core/rv32_mul_prod.sv \
-	rtl/core/rv32_mul_finish.sv sim/tb_muldiv.sv | build
+$(BUILD_DIR)/tb_muldiv.vvp: rtl/core/roco_cpu_divider.sv rtl/core/roco_cpu_mul_prod.sv \
+	rtl/core/roco_cpu_mul_finish.sv sim/tb_muldiv.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_muldiv -o $@ \
-		sim/tb_muldiv.sv rtl/core/rv32_divider.sv rtl/core/rv32_mul_prod.sv \
-		rtl/core/rv32_mul_finish.sv
+		sim/tb_muldiv.sv rtl/core/roco_cpu_divider.sv rtl/core/roco_cpu_mul_prod.sv \
+		rtl/core/roco_cpu_mul_finish.sv
 
 test-muldiv: $(BUILD_DIR)/tb_muldiv.vvp
 	$(VVP) $(BUILD_DIR)/tb_muldiv.vvp
@@ -229,14 +229,14 @@ $(BUILD_DIR)/tb_dcache.vvp: rtl/mem/dcache.sv sim/tb_dcache.sv | build
 test-dcache: $(BUILD_DIR)/tb_dcache.vvp
 	$(VVP) $<
 
-$(BUILD_DIR)/tb_regfile.vvp: rtl/core/rv32_regfile.sv sim/tb_regfile.sv | build
+$(BUILD_DIR)/tb_regfile.vvp: rtl/core/roco_cpu_regfile.sv sim/tb_regfile.sv | build
 	$(IVERILOG) -g2012 -s tb_regfile -o $@ $^
 
 .PHONY: test-regfile
 test-regfile: $(BUILD_DIR)/tb_regfile.vvp
 	$(VVP) $<
 
-$(BUILD_DIR)/tb_vec_regs.vvp: rtl/core/rv32_vec.sv sim/tb_vec_regs.sv | build
+$(BUILD_DIR)/tb_vec_regs.vvp: rtl/core/roco_cpu_vec.sv sim/tb_vec_regs.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_vec_regs -o $@ $^
 
 .PHONY: test-vector-regs
@@ -312,7 +312,7 @@ test-hello: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 test-core: $(BUILD_DIR)/basic.hex $(CORE_SIM_DEP)
 	$(CORE_SIM) +hex=$(BUILD_DIR)/basic.hex
 
-$(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/rv32_vec_reduce.sv sim/tb_vec_reduce.sv | build
+$(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/roco_cpu_vec_reduce.sv sim/tb_vec_reduce.sv | build
 	$(IVERILOG) -g2012 -s tb_vec_reduce -o $@ $^
 
 .PHONY: test-vector-reduce

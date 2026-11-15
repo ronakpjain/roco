@@ -22,7 +22,7 @@ Editable source: [docs/roco-cpu.drawio](docs/roco-cpu.drawio).
 `roco_top` contains the 24 MHz to 48 MHz PLL and reset synchronizer, and
 instantiates `roco_soc`. Inside the SoC:
 
-- `rv32_core` is the five-stage pipeline (IF, ID, EX, MEM, WB), built
+- `roco_cpu` is the five-stage pipeline (IF, ID, EX, MEM, WB), built
   from the stage modules listed below. It contains the Sv32 MMU.
 - `icache` and `dcache` are physically addressed and connect to
   `mem_arbiter`, which shares `sdram_ctrl` with the UART image loader and
@@ -47,14 +47,14 @@ its pipeline register:
 
 | Module | Responsibility |
 |---|---|
-| `rv32_if_stage.sv` | Program counter, fetch handshake, IF/ID register |
-| `rv32_decoder.sv` | Combinational instruction decode |
-| `rv32_id_stage.sv` | Register file, ID/EX register |
-| `rv32_ex_stage.sv` | Forwarding, ALU, branches, traps, CSR file, EX/MEM |
-| `rv32_mem_stage.sv` | Data memory request, load alignment, MEM/WB |
-| `rv32_wb_stage.sv` | Writeback select |
-| `rv32_branch_predictor.sv` | Bimodal counters and BTB |
-| `rv32_mmu.sv` | Sv32 TLBs, page-table walker, permission checks |
+| `roco_cpu_if_stage.sv` | Program counter, fetch handshake, IF/ID register |
+| `roco_cpu_decoder.sv` | Combinational instruction decode |
+| `roco_cpu_id_stage.sv` | Register file, ID/EX register |
+| `roco_cpu_ex_stage.sv` | Forwarding, ALU, branches, traps, CSR file, EX/MEM |
+| `roco_cpu_mem_stage.sv` | Data memory request, load alignment, MEM/WB |
+| `roco_cpu_wb_stage.sv` | Writeback select |
+| `roco_cpu_branch_predictor.sv` | Bimodal counters and BTB |
+| `roco_cpu_mmu.sv` | Sv32 TLBs, page-table walker, permission checks |
 
 ## Implemented ISA
 
@@ -278,7 +278,7 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
 | Path | Contents |
 |---|---|
 | `rtl/roco_top.sv` | Board top: PLL, reset, buttons, pins |
-| `rtl/roco_soc.sv` | CPU, caches, memory, peripherals, bootloader |
+| `rtl/roco_soc.sv` | SoC: roco_cpu, caches, memory, peripherals, bootloader |
 | `rtl/core/` | Pipeline stages, decoder, ALU, CSR, regfile, MMU |
 | `rtl/mem/` | I/D caches, arbiter, SDRAM controller |
 | `rtl/periph/` | UART and UART image loader |

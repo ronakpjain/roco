@@ -16,7 +16,7 @@ module tb_vec_regs;
   logic [31:0] mem_wdata;
   logic [127:0] expected[0:31];
 
-  rv32_vec dut (.*);
+  roco_cpu_vec dut (.*);
 
   always @(posedge clk) begin
     if (rst) begin

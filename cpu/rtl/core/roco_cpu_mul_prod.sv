@@ -1,9 +1,9 @@
 // EX stage: four parallel DSP products with signed high halves. Moving
 // sign handling into DSP inputs avoids serial high-word corrections in MEM.
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_mul_prod (
+module roco_cpu_mul_prod (
   input logic [31:0] a,
   input logic [31:0] b,
   input logic [2:0] variant,

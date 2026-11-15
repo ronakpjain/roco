@@ -11,9 +11,9 @@
 // privilege state.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_csr (
+module roco_cpu_csr (
   input logic clk,
   input logic rst,
   // Architectural read port (used in EX).

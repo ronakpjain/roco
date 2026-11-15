@@ -10,9 +10,9 @@
 // supplies at most one kind of write per cycle.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_vec (
+module roco_cpu_vec (
   input logic clk,
   input logic rst,
   /* Operand read ports (EX). */

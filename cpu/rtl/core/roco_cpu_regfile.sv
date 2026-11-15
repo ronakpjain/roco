@@ -6,7 +6,7 @@
 
 `default_nettype none
 
-module rv32_regfile (
+module roco_cpu_regfile (
   input logic clk,
   input logic rst,
   input logic [4:0] rs1,

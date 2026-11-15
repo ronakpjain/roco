@@ -21,9 +21,9 @@
 // SDRAM arbiter.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_mmu #(
+module roco_cpu_mmu #(
     parameter int TLB_ENTRIES = 16
 ) (
   input logic clk,

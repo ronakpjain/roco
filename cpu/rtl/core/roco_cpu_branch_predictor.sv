@@ -14,7 +14,7 @@
 
 `default_nettype none
 
-module rv32_branch_predictor #(
+module roco_cpu_branch_predictor #(
     parameter int ENTRIES = 32
 ) (
   input logic clk,

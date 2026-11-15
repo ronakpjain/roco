@@ -1,9 +1,9 @@
 // EX completion: compress the four signed partial products to two terms, then
 // use one carry-propagating sum. All arithmetic is modulo 2^64.
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_mul_finish (
+module roco_cpu_mul_finish (
   input logic [31:0] p0,
   input logic [33:0] p1,
   input logic [33:0] p2,

@@ -6,9 +6,9 @@
 // source-register information even while this stage is held.
 
 `default_nettype none
-`include "rv32_defs.svh"
+`include "roco_cpu_defs.svh"
 
-module rv32_id_stage (
+module roco_cpu_id_stage (
   input logic clk,
   input logic rst,
   input logic halt,
@@ -152,7 +152,7 @@ module rv32_id_stage (
   assign rs1_matches_wb = mem_can_forward && (dec_rs1 == exmem_rd);
   assign rs2_matches_wb = mem_can_forward && (dec_rs2 == exmem_rd);
 
-  rv32_decoder u_decoder (
+  roco_cpu_decoder u_decoder (
       .instr(if_instr),
       .rs1(dec_rs1),
       .rs2(dec_rs2),
@@ -194,7 +194,7 @@ module rv32_id_stage (
       .is_fence_i(dec_is_fence_i)
   );
 
-  rv32_regfile u_regfile (
+  roco_cpu_regfile u_regfile (
       .clk(clk),
       .rst(rst),
       .rs1(dec_rs1),

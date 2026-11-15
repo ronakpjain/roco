@@ -217,7 +217,7 @@ module roco_soc #(
   assign core_rst = rst || !boot_release;
 
   // ---------------------------------------------------------------- CPU
-  rv32_core u_cpu (
+  roco_cpu u_cpu (
       .clk(clk),
       .rst(core_rst),
       .boot_addr(BOOT_OVERRIDE ? 32'h1000_0000 : boot_addr),

@@ -4,7 +4,7 @@
 
 `default_nettype none
 
-module rv32_wb_stage (
+module roco_cpu_wb_stage (
   input logic halt,
   input logic memwb_valid,
   input logic memwb_regwrite,

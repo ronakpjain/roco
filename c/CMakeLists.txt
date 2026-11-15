@@ -10,19 +10,19 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-add_library(roco_isa src/isa.cpp)
-target_include_directories(roco_isa PUBLIC include)
-target_compile_options(roco_isa PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+add_library(roco_core src/isa.cpp src/elf.cpp)
+target_include_directories(roco_core PUBLIC include)
+target_compile_options(roco_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 add_executable(roco-as src/roco-as.cpp)
-target_link_libraries(roco-as PRIVATE roco_isa)
+target_link_libraries(roco-as PRIVATE roco_core)
 target_compile_options(roco-as PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 enable_testing()
 find_package(GTest REQUIRED)
 
-add_executable(roco_tests tests/isa_test.cpp)
-target_link_libraries(roco_tests PRIVATE roco_isa GTest::gtest_main)
+add_executable(roco_tests tests/isa_test.cpp tests/elf_test.cpp)
+target_link_libraries(roco_tests PRIVATE roco_core GTest::gtest_main)
 target_include_directories(roco_tests PRIVATE include)
 target_compile_options(roco_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 

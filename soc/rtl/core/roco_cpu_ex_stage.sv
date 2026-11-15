@@ -41,8 +41,10 @@ module roco_cpu_ex_stage (
   input logic [3:0] idex_alu_op,
   input logic idex_is_muldiv,
   input logic [2:0] idex_md_op,
-  input logic idex_alu_b_imm,
-  input logic idex_alu_a_pc,
+  input logic [31:0] idex_alu_a_val,
+  input logic [31:0] idex_alu_b_val,
+  input logic idex_alu_a_from_mem,
+  input logic idex_alu_b_from_mem,
   input logic idex_regwrite,
   input logic idex_is_load,
   input logic idex_is_store,
@@ -310,8 +312,8 @@ module roco_cpu_ex_stage (
   );
 
   // ------------------------------------------------------------------- ALU
-  assign ex_alu_a = idex_alu_a_pc ? idex_pc : rs1_fwd;
-  assign ex_alu_b = idex_alu_b_imm ? idex_imm : rs2_fwd;
+  assign ex_alu_a = idex_alu_a_val | ({32{idex_alu_a_from_mem}} & mem_data);
+  assign ex_alu_b = idex_alu_b_val | ({32{idex_alu_b_from_mem}} & mem_data);
 
   roco_cpu_alu u_alu (
       .a(ex_alu_a),

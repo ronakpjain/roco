@@ -116,8 +116,8 @@ module roco_cpu (
   logic idex_is_muldiv;
   logic [2:0] idex_md_op;
   logic idex_is_div;
-  logic idex_alu_b_imm;
-  logic idex_alu_a_pc;
+  logic [31:0] idex_alu_a_val, idex_alu_b_val;
+  logic idex_alu_a_from_mem, idex_alu_b_from_mem;
   logic idex_regwrite;
   logic idex_is_load;
   logic idex_is_store;
@@ -433,8 +433,10 @@ module roco_cpu (
       .idex_alu_op(idex_alu_op),
       .idex_is_muldiv(idex_is_muldiv),
       .idex_md_op(idex_md_op),
-      .idex_alu_b_imm(idex_alu_b_imm),
-      .idex_alu_a_pc(idex_alu_a_pc),
+      .idex_alu_a_val(idex_alu_a_val),
+      .idex_alu_b_val(idex_alu_b_val),
+      .idex_alu_a_from_mem(idex_alu_a_from_mem),
+      .idex_alu_b_from_mem(idex_alu_b_from_mem),
       .idex_regwrite(idex_regwrite),
       .idex_is_load(idex_is_load),
       .idex_is_store(idex_is_store),
@@ -497,8 +499,10 @@ module roco_cpu (
       .idex_alu_op(idex_alu_op),
       .idex_is_muldiv(idex_is_muldiv),
       .idex_md_op(idex_md_op),
-      .idex_alu_b_imm(idex_alu_b_imm),
-      .idex_alu_a_pc(idex_alu_a_pc),
+      .idex_alu_a_val(idex_alu_a_val),
+      .idex_alu_b_val(idex_alu_b_val),
+      .idex_alu_a_from_mem(idex_alu_a_from_mem),
+      .idex_alu_b_from_mem(idex_alu_b_from_mem),
       .idex_regwrite(idex_regwrite),
       .idex_is_load(idex_is_load),
       .idex_is_store(idex_is_store),

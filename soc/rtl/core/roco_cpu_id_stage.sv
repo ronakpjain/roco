@@ -65,8 +65,10 @@ module roco_cpu_id_stage (
   output logic [3:0] idex_alu_op,
   output logic idex_is_muldiv,
   output logic [2:0] idex_md_op,
-  output logic idex_alu_b_imm,
-  output logic idex_alu_a_pc,
+  output logic [31:0] idex_alu_a_val,
+  output logic [31:0] idex_alu_b_val,
+  output logic idex_alu_a_from_mem,
+  output logic idex_alu_b_from_mem,
   output logic idex_regwrite,
   output logic idex_is_load,
   output logic idex_is_store,
@@ -243,8 +245,10 @@ module roco_cpu_id_stage (
       idex_alu_op <= `RV32_ALU_ADD;
       idex_is_muldiv <= 1'b0;
       idex_md_op <= `RV32_MD_MUL;
-      idex_alu_b_imm <= 1'b0;
-      idex_alu_a_pc <= 1'b0;
+      idex_alu_a_val <= '0;
+      idex_alu_b_val <= '0;
+      idex_alu_a_from_mem <= 1'b0;
+      idex_alu_b_from_mem <= 1'b0;
       idex_regwrite <= 1'b0;
       idex_is_load <= 1'b0;
       idex_is_store <= 1'b0;
@@ -306,8 +310,13 @@ module roco_cpu_id_stage (
       idex_alu_op <= dec_alu_op;
       idex_is_muldiv <= dec_is_muldiv;
       idex_md_op <= dec_md_op;
-      idex_alu_b_imm <= dec_alu_b_imm;
-      idex_alu_a_pc <= dec_alu_a_pc;
+      // Select PC/immediate before the execution feedback path.
+      idex_alu_a_val <= dec_alu_a_pc ? if_pc :
+                       rs1_from_mem ? 32'd0 : rs1_matches_wb ? mem_wb_data : rf_rdata1;
+      idex_alu_b_val <= dec_alu_b_imm ? dec_imm :
+                       rs2_from_mem ? 32'd0 : rs2_matches_wb ? mem_wb_data : rf_rdata2;
+      idex_alu_a_from_mem <= rs1_from_mem && !dec_alu_a_pc;
+      idex_alu_b_from_mem <= rs2_from_mem && !dec_alu_b_imm;
       idex_regwrite <= dec_regwrite;
       idex_is_load <= dec_is_load;
       idex_is_store <= dec_is_store;

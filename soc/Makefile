@@ -215,8 +215,12 @@ $(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
 		sim/tb_sdram_ctrl.sv rtl/mem/sdram_ctrl.sv sim/sdram_model.sv
 
-test_sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp
+$(BUILD_DIR)/tb_mem_arbiter.vvp: rtl/mem/mem_arbiter.sv sim/tb_mem_arbiter.sv | build
+	$(IVERILOG) -g2012 -s tb_mem_arbiter -o $@ $^
+
+test_sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp $(BUILD_DIR)/tb_mem_arbiter.vvp
 	$(VVP) $(BUILD_DIR)/tb_sdram_ctrl.vvp
+	$(VVP) $(BUILD_DIR)/tb_mem_arbiter.vvp
 
 $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_mmu -o $@ sim/tb_mmu.sv $(SIM_RTL)

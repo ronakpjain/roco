@@ -82,7 +82,9 @@ module mem_arbiter (
   logic locked;
   logic [3:0] wr_rem;
 
-  assign sel = locked ? owner : pick;
+  // Choose a client before the command handshake. The registered grant
+  // keeps one client's late request out of another client's ready path.
+  assign sel = owner;
 
   always_comb begin
     pick = OWN_NONE;
@@ -177,7 +179,7 @@ module mem_arbiter (
         c_wvalid = i_wvalid;
         c_wdata = i_wdata;
         c_wbe = i_wbe;
-        i_ready = c_ready;
+        i_ready = c_ready && i_req;
         i_rvalid = c_rvalid;
         i_rdata = c_rdata;
         i_rlast = c_rlast;
@@ -190,7 +192,7 @@ module mem_arbiter (
         c_wvalid = d_wvalid;
         c_wdata = d_wdata;
         c_wbe = d_wbe;
-        d_ready = c_ready;
+        d_ready = c_ready && d_req;
         d_wready = c_wready;
         d_rvalid = c_rvalid;
         d_rdata = c_rdata;
@@ -204,7 +206,7 @@ module mem_arbiter (
         c_wvalid = b_wvalid;
         c_wdata = b_wdata;
         c_wbe = b_wbe;
-        b_ready = c_ready;
+        b_ready = c_ready && b_req;
         b_wready = c_wready;
       end
       OWN_P: begin
@@ -215,7 +217,7 @@ module mem_arbiter (
         c_wvalid = 1'b0;
         c_wdata = 32'd0;
         c_wbe = 4'd0;
-        p_ready = c_ready;
+        p_ready = c_ready && p_req;
         p_rvalid = c_rvalid;
         p_rdata = c_rdata;
         p_rlast = c_rlast;
@@ -232,7 +234,11 @@ module mem_arbiter (
       rr <= 3'd0;
       wr_rem <= 4'd0;
     end else if (!locked) begin
-      if (c_req && c_ready) begin
+      if (owner == OWN_NONE || !c_req) begin
+        // A client may withdraw a request before acceptance (for example
+        // a canceled page walk). Re-arbitrate instead of retaining it.
+        owner <= pick;
+      end else if (c_req && c_ready) begin
         locked <= 1'b1;
         owner <= sel;
         wr_rem <= c_len;
@@ -244,10 +250,10 @@ module mem_arbiter (
             rr <= 3'd2;
           end
           OWN_B: begin
-            rr <= 3'd3;
+            rr <= 3'd0;
           end
           OWN_P: begin
-            rr <= 3'd4;
+            rr <= 3'd3;
           end
           default: begin
             rr <= 3'd0;
@@ -257,10 +263,12 @@ module mem_arbiter (
     end else begin
       if (c_rvalid && c_rlast) begin
         locked <= 1'b0;
+        owner <= OWN_NONE;
       end
       if (c_wvalid && c_wready) begin
         if (wr_rem == 4'd0) begin
           locked <= 1'b0;
+          owner <= OWN_NONE;
         end else begin
           wr_rem <= wr_rem - 4'd1;
         end

@@ -107,8 +107,8 @@ module dcache #(
   localparam int BANK_DEPTH = 1 << BANK_ADDR_BITS;
   localparam int BANK_COUNT = DEPTH / BANK_DEPTH;
   logic [31:0] forward_bank_data[0:BANK_COUNT-1];
-  logic [IDX_BITS+OFF_BITS-1:0] forward_addr_q;
   logic [31:0] forward_raw, forward_mask;
+  logic [IDX_BITS+OFF_BITS-1:0] forward_raddr;
   logic [31:0] forward_store_data_q, forward_mask_q;
   logic forward_store_q;
   logic [1:0] lookup_offset_q, forward_offset;
@@ -217,19 +217,25 @@ module dcache #(
       default: format_load = word_data;
     endcase
   endfunction
-  // Read and align small banks in parallel, then select the registered
-  // bank in MEM. The full-depth mux no longer follows EX address arithmetic.
+  // The forwarding mirror is never used for writeback or flush reads.
+  // Only the live lookup and saved miss address belong on its read path.
+  assign forward_raddr = (pending_miss && !recovery_ready) ?
+                         lu_addr_q[IDX_HI:2] : lu_addr[IDX_HI:2];
+  // Read and align small banks in parallel. Select one bank before the
+  // register; MEM merges the resulting one-hot data with an OR tree.
   for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_forward_bank
     (* ram_style = "distributed" *) logic [7:0] lane0[0:BANK_DEPTH-1];
     (* ram_style = "distributed" *) logic [7:0] lane1[0:BANK_DEPTH-1];
     (* ram_style = "distributed" *) logic [7:0] lane2[0:BANK_DEPTH-1];
     (* ram_style = "distributed" *) logic [7:0] lane3[0:BANK_DEPTH-1];
     logic [31:0] word_data;
-    wire [BANK_ADDR_BITS-1:0] read_addr = ram_raddr[BANK_ADDR_BITS-1:0];
+    wire [BANK_ADDR_BITS-1:0] read_addr = forward_raddr[BANK_ADDR_BITS-1:0];
     wire [BANK_ADDR_BITS-1:0] write_addr = ram_waddr[BANK_ADDR_BITS-1:0];
     assign word_data = {lane3[read_addr], lane2[read_addr], lane1[read_addr], lane0[read_addr]};
     always_ff @(posedge clk) begin
-      forward_bank_data[bank] <= format_load(word_data, forward_offset, forward_funct3);
+      forward_bank_data[bank] <= (forward_raddr >> BANK_ADDR_BITS) == bank ? format_load(
+          word_data, forward_offset, forward_funct3
+      ) : 32'd0;
       if (ram_we && ((ram_waddr >> BANK_ADDR_BITS) == bank)) begin
         if (ram_wbe[0]) lane0[write_addr] <= ram_wdata[7:0];
         if (ram_wbe[1]) lane1[write_addr] <= ram_wdata[15:8];
@@ -238,7 +244,10 @@ module dcache #(
       end
     end
   end
-  assign forward_raw = forward_bank_data[forward_addr_q>>BANK_ADDR_BITS];
+  always_comb begin
+    forward_raw = '0;
+    for (int bank = 0; bank < BANK_COUNT; bank++) forward_raw |= forward_bank_data[bank];
+  end
   assign forward_store = (state == S_IDLE) && cm_valid && cm_we && lu_valid && (cm_addr == lu_addr);
   for (genvar b = 0; b < 4; b = b + 1) begin : g_forward_mask
     assign forward_mask[8*b+:8] = {8{cm_be[b]}};
@@ -249,7 +258,6 @@ module dcache #(
     ram_data <= {lane3[ram_raddr], lane2[ram_raddr], lane1[ram_raddr], lane0[ram_raddr]};
     // Register alignment and store matching independently. Formatting the
     // byte mask also selects the sign-extension bits of partial loads.
-    forward_addr_q <= ram_raddr;
     forward_store_q <= forward_store;
     forward_store_data_q <= format_load(cm_wdata, forward_offset, forward_funct3);
     forward_mask_q <= format_load(forward_mask, forward_offset, forward_funct3);

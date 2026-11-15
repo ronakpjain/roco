@@ -7,7 +7,9 @@
 
 `timescale 1ns / 1ps
 
-module tb_sdram_ctrl;
+module tb_sdram_ctrl #(
+    parameter int CLK_HZ = 48_000_000
+);
 
   localparam int CL = 3;
 
@@ -49,7 +51,8 @@ module tb_sdram_ctrl;
   integer failures;
 
   sdram_ctrl #(
-      .CL(CL)
+      .CL(CL),
+      .CLK_HZ(CLK_HZ)
   ) u_ctrl (
       .clk(clk),
       .rst(rst),
@@ -79,7 +82,8 @@ module tb_sdram_ctrl;
   );
 
   sdram_model #(
-      .CL(CL)
+      .CL(CL),
+      .REFRESH_MAX(CLK_HZ / 130_000 + 400)
   ) u_model (
       .clk(clk),
       .cke(1'b1),
@@ -101,7 +105,31 @@ module tb_sdram_ctrl;
 
   initial begin
     clk = 1'b0;
-    forever #5 clk = ~clk;
+    forever #(500_000_000.0 / CLK_HZ) clk = ~clk;
+  end
+
+  integer cycle_count = 0;
+  integer last_refresh = -1;
+  integer periodic_refreshes = 0;
+  always @(posedge clk) begin
+    cycle_count = cycle_count + 1;
+    if (rst) begin
+      last_refresh = -1;
+      periodic_refreshes = 0;
+    end else begin
+      if (last_refresh >= 0 && !sd_cs_n && cycle_count - last_refresh < u_ctrl.T_RFC)
+        $fatal(1, "command issued before refresh recovery completed");
+      if (!sd_cs_n && !sd_ras_n && !sd_cas_n && sd_we_n) begin
+        if (init_done && last_refresh >= 0) begin
+          // Row precharge can shift successive command times by a few clocks.
+          // The first refresh also drains the request pending during power-up.
+          if (periodic_refreshes > 0 && cycle_count - last_refresh < CLK_HZ / 130_000 - 16)
+            $fatal(1, "periodic refresh counter wrapped or truncated");
+          periodic_refreshes = periodic_refreshes + 1;
+        end
+        last_refresh = cycle_count;
+      end
+    end
   end
 
   task automatic tick();
@@ -272,6 +300,7 @@ module tb_sdram_ctrl;
     send_read(23'h000010, 4'd3, 4);
     check_burst(4, "retention");
 
+    if (periodic_refreshes < 2) $fatal(1, "missing periodic refreshes");
     if (errors != 0) begin
       $display("tb_sdram_ctrl: %0d SDRAM protocol errors", errors);
       failures = failures + 1;
@@ -279,7 +308,7 @@ module tb_sdram_ctrl;
     if (failures == 0) begin
       $display("tb_sdram_ctrl: PASS");
     end else begin
-      $display("tb_sdram_ctrl: FAIL (%0d)", failures);
+      $fatal(1, "tb_sdram_ctrl: FAIL (%0d)", failures);
     end
     $finish;
   end

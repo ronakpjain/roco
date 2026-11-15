@@ -187,6 +187,25 @@ module tb_dcache;
         $fatal(1, "registered forwarding bank selection");
       ack_read(bank * 64 + 2);
     end
+    // Matching offsets in different banks must not forward a store.
+    lookup(2);
+    if (!cm_ready) $fatal(1, "store bank was not warm");
+    cm_valid = 1'b1;
+    cm_we = 1'b1;
+    cm_addr = 23'd2;
+    cm_wdata = 32'hdeadbeef;
+    cm_be = 4'b0101;
+    lu_valid = 1'b1;
+    lu_addr = 23'd962;
+    @(negedge clk);
+    cm_valid = 1'b0;
+    cm_we = 1'b0;
+    lu_valid = 1'b0;
+    if (!cm_ready || cm_forward_data !== 32'hc00003c2) $fatal(1, "store forwarded across banks");
+    ack_read(962);
+    lookup(2);
+    if (!cm_ready || cm_forward_data !== 32'hc0ad00ef) $fatal(1, "partial store bank data");
+    ack_read(2);
     $display("tb_dcache: PASS");
     $finish;
   end

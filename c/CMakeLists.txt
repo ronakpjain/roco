@@ -10,8 +10,16 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-add_library(roco_core src/isa.cpp src/elf.cpp src/assembler.cpp src/linker.cpp)
-target_include_directories(roco_core PUBLIC include)
+add_library(roco_core
+  src/isa.cpp
+  src/elf/writer.cpp
+  src/elf/reader.cpp
+  src/assembler.cpp
+  src/linker.cpp
+  src/compiler.cpp
+  src/compiler/token.cpp
+)
+target_include_directories(roco_core PUBLIC include PRIVATE src)
 target_compile_options(roco_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 add_executable(roco-as src/roco-as.cpp)
@@ -22,10 +30,20 @@ add_executable(roco-ld src/roco-ld.cpp)
 target_link_libraries(roco-ld PRIVATE roco_core)
 target_compile_options(roco-ld PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
+add_executable(roco-cc src/roco-cc.cpp)
+target_link_libraries(roco-cc PRIVATE roco_core)
+target_compile_options(roco-cc PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+
 enable_testing()
 find_package(GTest REQUIRED)
 
-add_executable(roco_tests tests/isa_test.cpp tests/elf_test.cpp tests/assembler_test.cpp tests/linker_test.cpp)
+add_executable(roco_tests
+  tests/isa_test.cpp
+  tests/elf_test.cpp
+  tests/assembler_test.cpp
+  tests/linker_test.cpp
+  tests/compiler_test.cpp
+)
 target_link_libraries(roco_tests PRIVATE roco_core GTest::gtest_main)
 target_include_directories(roco_tests PRIVATE include)
 target_compile_options(roco_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
@@ -46,6 +64,13 @@ if(ROCO_VVP AND EXISTS "${ROCO_CPU_TESTBENCH}")
             $<TARGET_FILE:roco-as> $<TARGET_FILE:roco-ld>
             ${ROCO_VVP} ${ROCO_CPU_TESTBENCH})
   set_tests_properties(cpu_smoke PROPERTIES LABELS "cpu")
+
+  add_test(NAME cpu_smoke_c
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/run-c.sh
+            ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}
+            $<TARGET_FILE:roco-cc> $<TARGET_FILE:roco-as> $<TARGET_FILE:roco-ld>
+            ${ROCO_VVP} ${ROCO_CPU_TESTBENCH})
+  set_tests_properties(cpu_smoke_c PROPERTIES LABELS "cpu")
 endif()
 
 option(ROCO_BUILD_DOCS "Generate HTML documentation with Doxygen" ON)

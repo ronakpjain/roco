@@ -84,8 +84,7 @@ that toolchain code must respect.
   zero.
 - `FENCE.I` and `SFENCE.VMA` flush the whole D-cache before invalidating
   caches/TLBs. There is no cache coherence and no DMA master.
-- `misa`, PMP, the debug module, and hardware A/D updates are not
-  implemented.
+- PMP, the debug module, and hardware A/D updates are not implemented.
 
 ## Toolchain response
 

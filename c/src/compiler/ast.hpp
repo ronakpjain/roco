@@ -34,6 +34,7 @@ enum class ExprKind {
   Conditional,
   Call,
   Index,
+  Cast,
 };
 
 enum class UnaryOp {

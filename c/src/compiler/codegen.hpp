@@ -269,6 +269,10 @@ class Codegen {
         generate_address(expression, function);
         load(expression.type);
         return;
+      case ExprKind::Cast:
+        generate_expression(*expression.lhs, function);
+        convert_value(expression.type);
+        return;
     }
   }
 
@@ -653,6 +657,9 @@ class Codegen {
         return operand.global->decl->name;
       }
       throw Error("unsupported address constant in global initializer");
+    }
+    if (expression.kind == ExprKind::Cast) {
+      return static_expression(*expression.lhs);
     }
     if (expression.kind == ExprKind::Var && expression.global != nullptr) {
       if (expression.global->decl->type->kind == TypeKind::Array) {

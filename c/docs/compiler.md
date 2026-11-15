@@ -21,7 +21,7 @@ runtime objects, or use the `cpu_smoke_c` test as an end-to-end example.
 | Declarations | globals, locals, functions, prototypes, multiple declarators |
 | Initializers | scalar globals, array brace lists, string arrays, pointer-to-symbol/string globals |
 | Statements | compound, expression, `return`, `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue` |
-| Expressions | assignment and compound assignment, `?:`, `||`, `&&`, bitwise, equality, relational, shifts, `+ - * / %`, unary `+ - ! ~ & *`, pre/post `++`/`--`, `sizeof`, calls, subscripts |
+| Expressions | assignment and compound assignment, casts, `?:`, `||`, `&&`, bitwise, equality, relational, shifts, `+ - * / %`, unary `+ - ! ~ & *`, pre/post `++`/`--`, `sizeof`, calls, subscripts |
 | Functions | direct calls, up to eight arguments, recursion |
 | Literals | integer, character, adjacent string literal concatenation |
 
@@ -32,7 +32,7 @@ and indexed but brace-initialized local arrays are not implemented.
 
 - preprocessor (`#include`, `#define`, conditionals);
 - `struct`, `union`, `enum`, `typedef`, `_Bool`;
-- casts and function pointers;
+- function pointers;
 - `switch`, `goto`, labels;
 - floating point and 64-bit integer types;
 - local `static` storage and `extern` declarations inside functions;

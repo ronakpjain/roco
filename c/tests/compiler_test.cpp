@@ -54,7 +54,7 @@ TEST(CompilerTest, CompilesTypesGlobalsArraysAndStrings) {
     int table[3] = {1, 2, 3};
     int main(void) {
       int local[4];
-      local[0] = sizeof(int);
+      local[0] = (int)sizeof(int);
       if (local[0] != 4) return 3;
       if (table[2] != 3) return 4;
       if (message[0] != 'r') return 5;
@@ -73,6 +73,21 @@ TEST(CompilerTest, CompilesTypesGlobalsArraysAndStrings) {
   EXPECT_NE(assembly.find("lh"), std::string::npos);
   EXPECT_NE(assembly.find("lbu"), std::string::npos);
   // The generated assembly must be accepted by the assembler.
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
+TEST(CompilerTest, CompilesCasts) {
+  const std::string assembly = compile(R"(
+    int value = (int)0x1234;
+    int main(void) {
+      char c = (char)300;
+      unsigned char u = (unsigned char)-1;
+      int *p = (int *)&value;
+      return (int)c + (int)u + *p;
+    }
+  )");
+  EXPECT_NE(assembly.find(".word 4660"), std::string::npos);
+  EXPECT_NE(assembly.find("andi a0, a0, 255"), std::string::npos);
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 

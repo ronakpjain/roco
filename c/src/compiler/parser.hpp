@@ -992,6 +992,19 @@ class Parser {
       expression->lhs = std::move(operand);
       return expression;
     }
+    if (is_punct("(") && is_declaration_start(1)) {
+      advance();
+      const TypePtr target = parse_declspec();
+      const TypePtr full = parse_declarator(target, false, true).type;
+      expect_punct(")");
+      ExprPtr operand = parse_unary();
+      auto expression = std::make_unique<Expr>();
+      expression->kind = ExprKind::Cast;
+      expression->token = operand->token;
+      expression->type = full;
+      expression->lhs = std::move(operand);
+      return expression;
+    }
     if (consume_punct("++")) {
       return parse_increment(true, true);
     }
@@ -1389,6 +1402,34 @@ class Parser {
             return true;
         }
         return false;
+      }
+      case ExprKind::Cast: {
+        std::int64_t operand = 0;
+        if (!evaluate_constant(expression->lhs.get(), operand)) {
+          return false;
+        }
+        if (expression->type->kind == TypeKind::Char) {
+          operand &= 0xff;
+          if (!expression->type->is_unsigned && (operand & 0x80) != 0) {
+            operand -= 0x100;
+          }
+        } else if (expression->type->kind == TypeKind::Short) {
+          operand &= 0xffff;
+          if (!expression->type->is_unsigned && (operand & 0x8000) != 0) {
+            operand -= 0x10000;
+          }
+        } else if (expression->type->kind == TypeKind::Int ||
+                   expression->type->kind == TypeKind::Long ||
+                   expression->type->kind == TypeKind::Pointer) {
+          operand &= 0xffffffffLL;
+          if (operand & 0x80000000LL) {
+            operand -= 0x100000000LL;
+          }
+        } else {
+          return false;
+        }
+        value = operand;
+        return true;
       }
       case ExprKind::Conditional: {
         std::int64_t condition = 0;

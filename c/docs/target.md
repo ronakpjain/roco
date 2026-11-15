@@ -15,7 +15,7 @@ assembler or trap in the RTL.
 | Instruction fence | Zifencei |
 | Privilege | M, S, U; `MRET`, `SRET`, `ECALL`, `EBREAK` |
 | Memory management | Sv32 (runtime feature) |
-| Interrupts | machine timer/external wiring is present in the RTL |
+| Interrupts | machine timer/external; writable `mip` software bits |
 | Compressed instructions | not supported |
 | Floating point | not supported |
 
@@ -26,8 +26,8 @@ little-endian ELF32 RISC-V objects and uses 4-byte instruction alignment.
 Scalar behavior:
 
 - `WFI` is accepted as a no-op hint.
-- Misaligned loads and stores trap; hardware does not split them.
-  Declared objects must be naturally aligned.
+- Misaligned loads and stores trap. The ISA permits this; software can
+  emulate them, and naturally aligned objects avoid the trap.
 - `FENCE` is a no-op. `FENCE.I` writes back the D-cache and invalidates
   the I-cache.
 - `lr.w`, `sc.w`, and `amo*.w` accept the `aq`/`rl` bits. The single-hart,
@@ -85,13 +85,15 @@ code.
 ## Privilege and memory
 
 - `mtvec` and `stvec` support direct and vectored modes.
-- The core has machine timer and external interrupt inputs. There is no
-  software interrupt injection beyond the existing CSR state.
+- Machine timer and external interrupt inputs are wired. Software can
+  raise machine/supervisor software interrupts through writable `mip`
+  bits.
 - Sv32 supports 4 KiB pages and 4 MiB superpages. A/D bits are
-  software-managed: a PTE with A=0, or D=0 for a store, faults.
+  software-managed, as the ISA permits: a PTE with A=0, or D=0 for a
+  store, faults.
 - TLBs are 16-entry direct mapped and tagged by virtual page. `satp`
-  writes and `SFENCE.VMA` flush them completely; ASID selection and
-  address-specific flushes are ignored.
+  writes and `SFENCE.VMA` flush them completely. The ISA allows this;
+  ASID and address operands are accepted but do not narrow the flush.
 - Page tables must live in the SDRAM window. Physical PPN bits 21:20 are
   zero.
 - `FENCE.I` and `SFENCE.VMA` write back the whole D-cache before

@@ -196,6 +196,7 @@ module roco_cpu_ex_stage (
   logic scalar_mem_ready;
   logic scalar_is_mem;
   logic scalar_mem_prepare;
+  logic lookup_is_vec_q;
   logic [31:0] stall_alu;
   logic [31:0] stall_store_data;
   logic [3:0] stall_be;
@@ -417,7 +418,14 @@ module roco_cpu_ex_stage (
   assign scalar_is_mem = idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc;
   assign scalar_mem_prepare = idex_valid && scalar_is_mem && !scalar_mem_ready;
   assign memory_addr_held = stall_alu;
-  assign mem_access_addr = is_vec_mem ? vmem_addr : memory_addr_held;
+  // Both scalar and vector memory operations have a setup cycle. Stage
+  // lookup selectors too, so live decode flags cannot bypass the address
+  // register through MMU permission/hold logic.
+  always_ff @(posedge clk) begin
+    lookup_is_vec_q <= is_vec_mem;
+    ex_lu_we <= idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
+  end
+  assign mem_access_addr = lookup_is_vec_q ? vmem_addr : memory_addr_held;
   assign ex_addr =
       (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) ?
       dmem_lu_paddr : is_vec_mem ? dmem_lu_paddr : ex_alu_result;
@@ -698,7 +706,6 @@ module roco_cpu_ex_stage (
                        !halt && !cancel_ex;
   assign ex_lu_valid = ex_lu_present && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
-  assign ex_lu_we = idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !cancel_ex &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;

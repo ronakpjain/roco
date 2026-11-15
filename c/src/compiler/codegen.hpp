@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -25,9 +26,10 @@ class Codegen {
   explicit Codegen(Program program) : program_(std::move(program)) {}
 
   std::string generate() {
+    mark_reachable_functions();
     emit(".section .text");
     for (const auto& function : program_.functions) {
-      if (function->defined) {
+      if (function->defined && reachable_.count(function.get()) != 0) {
         generate_function(*function);
       }
     }
@@ -46,23 +48,109 @@ class Codegen {
 
   std::string new_label() { return ".L" + std::to_string(label_counter_++); }
 
+  struct TempValue {
+    bool in_register = false;
+    std::string reg;
+  };
+
   void push_a0() {
+    if (temp_stack_.size() < 7) {
+      const std::string reg = "t" + std::to_string(temp_stack_.size());
+      emit("  mv " + reg + ", a0");
+      temp_stack_.push_back({true, reg});
+      return;
+    }
     emit("  addi s1, s1, -4");
     emit("  sw a0, 0(s1)");
-    ++temp_depth_;
-    if (temp_depth_ > 256) {
+    temp_stack_.push_back({false, std::string()});
+    if (temp_stack_.size() > 256) {
       throw Error("expression is too deeply nested for the compiler frame");
     }
   }
 
   void pop_to(const std::string& reg) {
-    emit("  lw " + reg + ", 0(s1)");
-    emit("  addi s1, s1, 4");
-    --temp_depth_;
+    const TempValue value = temp_stack_.back();
+    temp_stack_.pop_back();
+    if (value.in_register) {
+      emit("  mv " + reg + ", " + value.reg);
+    } else {
+      emit("  lw " + reg + ", 0(s1)");
+      emit("  addi s1, s1, 4");
+    }
+  }
+
+  void spill_temporaries() {
+    for (const TempValue& value : temp_stack_) {
+      if (value.in_register) {
+        emit("  addi s1, s1, -4");
+        emit("  sw " + value.reg + ", 0(s1)");
+      }
+    }
+  }
+
+  void reload_temporaries() {
+    for (auto iterator = temp_stack_.rbegin(); iterator != temp_stack_.rend();
+         ++iterator) {
+      if (iterator->in_register) {
+        emit("  lw " + iterator->reg + ", 0(s1)");
+        emit("  addi s1, s1, 4");
+      }
+    }
+  }
+
+  void mark_reachable_functions() {
+    std::vector<Function*> worklist;
+    for (const auto& function : program_.functions) {
+      if (function->defined && !function->is_static) {
+        worklist.push_back(function.get());
+      }
+    }
+    while (!worklist.empty()) {
+      Function* function = worklist.back();
+      worklist.pop_back();
+      if (!function->defined || function->body == nullptr) {
+        continue;
+      }
+      if (!reachable_.insert(function).second) {
+        continue;
+      }
+      collect_calls(*function->body, worklist);
+    }
+  }
+
+  void collect_calls(const Stmt& statement, std::vector<Function*>& worklist) {
+    if (statement.expr) collect_calls(*statement.expr, worklist);
+    if (statement.inc) collect_calls(*statement.inc, worklist);
+    if (statement.init) collect_calls(*statement.init, worklist);
+    if (statement.then_stmt) collect_calls(*statement.then_stmt, worklist);
+    if (statement.else_stmt) collect_calls(*statement.else_stmt, worklist);
+    if (statement.body) collect_calls(*statement.body, worklist);
+    for (const auto& child : statement.statements) {
+      collect_calls(*child, worklist);
+    }
+    for (const auto& declaration : statement.declarations) {
+      if (declaration->init) collect_calls(*declaration->init, worklist);
+      for (const auto& element : declaration->init_list) {
+        collect_calls(*element, worklist);
+      }
+    }
+  }
+
+  void collect_calls(const Expr& expression, std::vector<Function*>& worklist) {
+    if (expression.function != nullptr && expression.kind == ExprKind::Call &&
+        expression.function->defined) {
+      worklist.push_back(expression.function);
+    }
+    if (expression.lhs) collect_calls(*expression.lhs, worklist);
+    if (expression.rhs) collect_calls(*expression.rhs, worklist);
+    if (expression.third) collect_calls(*expression.third, worklist);
+    for (const auto& argument : expression.args) {
+      collect_calls(*argument, worklist);
+    }
   }
 
   void generate_function(const Function& function) {
-    temp_depth_ = 0;
+    temp_stack_.clear();
     return_label_ = new_label();
     if (!function.is_static) {
       emit("  .globl " + function.name);
@@ -99,7 +187,7 @@ class Codegen {
     emit("  lw s1, 4(sp)");
     emit("  addi sp, sp, 16");
     emit("  ret");
-    if (temp_depth_ != 0) {
+    if (!temp_stack_.empty()) {
       throw Error("internal error: unbalanced compiler expression stack");
     }
   }
@@ -235,6 +323,10 @@ class Codegen {
         } else if (expression.global != nullptr) {
           object_type = expression.global->decl->type;
         }
+        if (object_type->kind != TypeKind::Array && expression.local != nullptr) {
+          load_from(expression.type, "s0", expression.local->offset);
+          return;
+        }
         generate_address(expression, function);
         if (object_type->kind != TypeKind::Array) {
           load(expression.type);
@@ -310,6 +402,30 @@ class Codegen {
   }
 
   void generate_increment(const Expr& expression, const Function& function) {
+    if (expression.lhs->kind == ExprKind::Var &&
+        expression.lhs->local != nullptr &&
+        expression.lhs->local->type->kind != TypeKind::Array) {
+      const int offset = expression.lhs->local->offset;
+      load_from(expression.lhs->type, "s0", offset);
+      emit("  mv a2, a0");
+      const bool increment = expression.unary == UnaryOp::PreIncrement ||
+                             expression.unary == UnaryOp::PostIncrement;
+      const std::int64_t delta = increment ? 1 : -1;
+      if (is_pointer(expression.type)) {
+        const std::int64_t step =
+            static_cast<std::int64_t>(expression.type->base->size) * delta;
+        emit("  addi a0, a0, " + std::to_string(step));
+      } else {
+        emit("  addi a0, a0, " + std::to_string(delta));
+      }
+      store_to(expression.lhs->type, "s0", offset);
+      convert_value(expression.lhs->type);
+      if (expression.unary == UnaryOp::PostIncrement ||
+          expression.unary == UnaryOp::PostDecrement) {
+        emit("  mv a0, a2");
+      }
+      return;
+    }
     generate_address(*expression.lhs, function);
     push_a0();
     load(expression.lhs->type);
@@ -336,6 +452,23 @@ class Codegen {
 
   void generate_assignment(const Expr& expression, const Function& function) {
     if (!expression.compound) {
+      if (expression.lhs->kind == ExprKind::Var &&
+          expression.lhs->local != nullptr &&
+          expression.lhs->local->type->kind != TypeKind::Array) {
+        generate_expression(*expression.rhs, function);
+        store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
+        convert_value(expression.lhs->type);
+        return;
+      }
+      if (expression.lhs->kind == ExprKind::Var &&
+          expression.lhs->global != nullptr &&
+          expression.lhs->global->decl->type->kind != TypeKind::Array) {
+        generate_expression(*expression.rhs, function);
+        emit("  la a1, " + expression.lhs->global->decl->name);
+        store(expression.lhs->type);
+        convert_value(expression.lhs->type);
+        return;
+      }
       generate_address(*expression.lhs, function);
       push_a0();
       generate_expression(*expression.rhs, function);
@@ -345,6 +478,35 @@ class Codegen {
       return;
     }
 
+    const bool local_compound =
+        expression.lhs->kind == ExprKind::Var &&
+        expression.lhs->local != nullptr &&
+        expression.lhs->local->type->kind != TypeKind::Array;
+    if (local_compound) {
+      generate_expression(*expression.rhs, function);
+      if (is_pointer(expression.lhs->type) &&
+          is_integer(expression.rhs->type)) {
+        const std::size_t scale = expression.lhs->type->base->size;
+        if (scale > 1) {
+          emit("  li a1, " + std::to_string(scale));
+          emit("  mul a0, a0, a1");
+        }
+      }
+      emit("  mv a2, a0");
+      load_into(expression.lhs->type, "a1", "s0",
+                expression.lhs->local->offset);
+      emit("  mv a0, a2");
+      bool is_unsigned = expression.lhs->type->is_unsigned ||
+                         expression.rhs->type->is_unsigned;
+      if (expression.binary == BinaryOp::Shr) {
+        is_unsigned = expression.lhs->type->is_unsigned;
+      }
+      apply_binary(expression.binary, expression.lhs->type,
+                   expression.rhs->type, is_unsigned);
+      store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
+      convert_value(expression.lhs->type);
+      return;
+    }
     generate_address(*expression.lhs, function);
     push_a0();
     load(expression.lhs->type);
@@ -369,6 +531,141 @@ class Codegen {
     pop_to("a1");
     store(expression.lhs->type);
     convert_value(expression.lhs->type);
+  }
+
+  static bool constant_int(const Expr& expression, std::int64_t& value) {
+    if (expression.kind == ExprKind::Int) {
+      value = expression.value;
+      return true;
+    }
+    if (expression.kind == ExprKind::Unary &&
+        expression.unary == UnaryOp::Negate && expression.lhs &&
+        constant_int(*expression.lhs, value)) {
+      value = -value;
+      return true;
+    }
+    return false;
+  }
+
+  static bool fits_signed_12(std::int64_t value) {
+    return value >= -2048 && value <= 2047;
+  }
+
+  bool emit_immediate(BinaryOp operation, std::int64_t value,
+                      const TypePtr& left_type, const TypePtr& right_type) {
+    if (!fits_signed_12(value)) {
+      return false;
+    }
+    const bool is_unsigned = left_type->is_unsigned ||
+                             right_type->is_unsigned ||
+                             is_pointer(left_type) || is_pointer(right_type);
+    switch (operation) {
+      case BinaryOp::Add:
+        if (value != 0) emit("  addi a0, a0, " + std::to_string(value));
+        return true;
+      case BinaryOp::Sub:
+        if (!fits_signed_12(-value)) return false;
+        if (value != 0) emit("  addi a0, a0, " + std::to_string(-value));
+        return true;
+      case BinaryOp::BitAnd:
+        emit("  andi a0, a0, " + std::to_string(value));
+        return true;
+      case BinaryOp::BitOr:
+        emit("  ori a0, a0, " + std::to_string(value));
+        return true;
+      case BinaryOp::BitXor:
+        emit("  xori a0, a0, " + std::to_string(value));
+        return true;
+      case BinaryOp::Shl:
+        if (value < 0 || value > 31) return false;
+        emit("  slli a0, a0, " + std::to_string(value));
+        return true;
+      case BinaryOp::Shr:
+        if (value < 0 || value > 31) return false;
+        emit(std::string(left_type->is_unsigned ? "  srli a0, a0, "
+                                                : "  srai a0, a0, ") +
+             std::to_string(value));
+        return true;
+      case BinaryOp::Eq:
+        emit("  xori a0, a0, " + std::to_string(value));
+        emit("  seqz a0, a0");
+        return true;
+      case BinaryOp::Ne:
+        emit("  xori a0, a0, " + std::to_string(value));
+        emit("  snez a0, a0");
+        return true;
+      case BinaryOp::Lt:
+        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
+                                     : "  slti a0, a0, ") +
+             std::to_string(value));
+        return true;
+      case BinaryOp::Ge:
+        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
+                                     : "  slti a0, a0, ") +
+             std::to_string(value));
+        emit("  xori a0, a0, 1");
+        return true;
+      case BinaryOp::Le:
+        if (!fits_signed_12(value + 1)) return false;
+        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
+                                     : "  slti a0, a0, ") +
+             std::to_string(value + 1));
+        return true;
+      case BinaryOp::Gt:
+        if (!fits_signed_12(value + 1)) return false;
+        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
+                                     : "  slti a0, a0, ") +
+             std::to_string(value + 1));
+        emit("  xori a0, a0, 1");
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  void load_into(const TypePtr& type, const std::string& reg,
+                 const std::string& base, int offset) {
+    switch (type->kind) {
+      case TypeKind::Char:
+        emit(std::string(type->is_unsigned ? "  lbu " : "  lb ") + reg + ", " +
+             std::to_string(offset) + "(" + base + ")");
+        return;
+      case TypeKind::Short:
+        emit(std::string(type->is_unsigned ? "  lhu " : "  lh ") + reg + ", " +
+             std::to_string(offset) + "(" + base + ")");
+        return;
+      case TypeKind::Int:
+      case TypeKind::Long:
+      case TypeKind::Pointer:
+        emit("  lw " + reg + ", " + std::to_string(offset) + "(" + base + ")");
+        return;
+      default:
+        break;
+    }
+    throw Error("cannot load a value of this type");
+  }
+
+  void load_from(const TypePtr& type, const std::string& base, int offset) {
+    load_into(type, "a0", base, offset);
+  }
+
+  void store_to(const TypePtr& type, const std::string& base, int offset) {
+    switch (type->kind) {
+      case TypeKind::Char:
+        emit("  sb a0, " + std::to_string(offset) + "(" + base + ")");
+        return;
+      case TypeKind::Short:
+        emit("  sh a0, " + std::to_string(offset) + "(" + base + ")");
+        return;
+      case TypeKind::Int:
+      case TypeKind::Long:
+      case TypeKind::Pointer:
+        emit("  sw a0, " + std::to_string(offset) + "(" + base + ")");
+        return;
+      default:
+        break;
+    }
+    throw Error("cannot store a value of this type");
   }
 
   void generate_binary(const Expr& expression, const Function& function) {
@@ -397,24 +694,38 @@ class Codegen {
       return;
     }
 
-    generate_expression(*expression.lhs, function);
-    push_a0();
-    generate_expression(*expression.rhs, function);
-
     const TypePtr left_type = expression.lhs->type;
     const TypePtr right_type = expression.rhs->type;
     const bool pointer_arith =
         (expression.binary == BinaryOp::Add ||
          expression.binary == BinaryOp::Sub) &&
         is_pointer(left_type);
-    if (pointer_arith && is_integer(right_type)) {
-      const std::size_t scale = left_type->base->size;
-      if (scale > 1) {
-        emit("  li a1, " + std::to_string(scale));
-        emit("  mul a0, a0, a1");
+    std::int64_t immediate = 0;
+    if (constant_int(*expression.rhs, immediate)) {
+      if (pointer_arith && is_integer(right_type)) {
+        immediate *= static_cast<std::int64_t>(left_type->base->size);
       }
+      generate_expression(*expression.lhs, function);
+      if (emit_immediate(expression.binary, immediate, left_type,
+                         right_type)) {
+        return;
+      }
+      push_a0();
+      emit("  li a0, " + std::to_string(immediate));
+      pop_to("a1");
+    } else {
+      generate_expression(*expression.lhs, function);
+      push_a0();
+      generate_expression(*expression.rhs, function);
+      if (pointer_arith && is_integer(right_type)) {
+        const std::size_t scale = left_type->base->size;
+        if (scale > 1) {
+          emit("  li a1, " + std::to_string(scale));
+          emit("  mul a0, a0, a1");
+        }
+      }
+      pop_to("a1");
     }
-    pop_to("a1");
     if (expression.binary == BinaryOp::Sub && is_pointer(left_type) &&
         is_pointer(right_type)) {
       emit("  sub a0, a1, a0");
@@ -505,16 +816,22 @@ class Codegen {
       fail(expression.token,
            "roco-cc currently supports at most eight call arguments");
     }
-    for (const auto& argument : expression.args) {
-      generate_expression(*argument, function);
-      push_a0();
+    if (expression.args.size() == 1) {
+      generate_expression(*expression.args[0], function);
+    } else {
+      for (const auto& argument : expression.args) {
+        generate_expression(*argument, function);
+        push_a0();
+      }
+      static const std::vector<std::string> arg_registers = {
+          "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
+      for (std::size_t i = expression.args.size(); i > 0; --i) {
+        pop_to(arg_registers[i - 1]);
+      }
     }
-    static const std::vector<std::string> arg_registers = {
-        "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
-    for (std::size_t i = expression.args.size(); i > 0; --i) {
-      pop_to(arg_registers[i - 1]);
-    }
+    spill_temporaries();
     emit("  call " + expression.function->name);
+    reload_temporaries();
   }
 
   void generate_address(const Expr& expression, const Function& function) {
@@ -834,9 +1151,10 @@ class Codegen {
 
   Program program_;
   std::ostringstream output_;
+  std::unordered_set<Function*> reachable_;
+  std::vector<TempValue> temp_stack_;
   std::uint64_t label_counter_ = 0;
   std::string return_label_;
-  int temp_depth_ = 0;
   std::vector<std::string> break_labels_;
   std::vector<std::string> continue_labels_;
 };

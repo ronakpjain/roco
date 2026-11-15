@@ -56,10 +56,22 @@ Expressions use a simple accumulator plus a temporary stack:
 - `s1` is a compiler-managed temporary stack pointer.
 
 Each function reserves a 16-byte save area, a frame for locals, and a
-1 KiB temporary area. `sp` stays 16-byte aligned at calls. Arguments are
-evaluated left to right and pushed to the temporary stack, then popped
-into `a0`-`a7` in reverse order before the call. This keeps nested
-expressions and nested calls simple at the cost of memory traffic.
+1 KiB fallback temporary area. `sp` stays 16-byte aligned at calls.
+Expressions use `t0`-`t6` as a small temporary stack; values spill to the
+memory temporary only beyond seven live operands or around calls.
+Arguments are evaluated left to right and popped into `a0`-`a7` in reverse
+order before the call. A single argument already in `a0` is passed
+directly.
+
+Codegen also performs these local optimizations:
+
+- only static functions reachable from a non-static entry point are emitted;
+- constant right operands use `addi`/`andi`/`ori`/`xori`, shifts, and
+  `slti`/`sltiu` instead of a temporary;
+- scalar local loads and stores use `s0`-relative offsets directly;
+- local increments and compound assignments update their slots without
+  first materializing an address;
+- pointer and array index scaling uses immediate shifts where possible.
 
 The backend does not use compressed instructions, floating point, or
 vector instructions yet. The assembler and linker support roco's vector

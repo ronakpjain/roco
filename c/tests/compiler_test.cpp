@@ -151,3 +151,28 @@ TEST(CompilerTest, SupportsTypedefsIncludesAndAttributes) {
   EXPECT_NE(assembly.find("main:"), std::string::npos);
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
+
+TEST(CompilerTest, RemovesUnusedStaticFunctions) {
+  const std::string assembly = compile(R"(
+    static int unused(void) { return 7; }
+    static int used(void) { return 3; }
+    int main(void) { return used(); }
+  )");
+  EXPECT_EQ(assembly.find("unused:"), std::string::npos);
+  EXPECT_NE(assembly.find("used:"), std::string::npos);
+  EXPECT_NE(assembly.find("call used"), std::string::npos);
+}
+
+TEST(CompilerTest, UsesImmediateAndDirectLocalForms) {
+  const std::string assembly = compile(R"(
+    int add_seven(int value) { return value + 7; }
+    int bump(void) {
+      int value = 1;
+      value++;
+      return value;
+    }
+  )");
+  EXPECT_NE(assembly.find("addi a0, a0, 7"), std::string::npos);
+  EXPECT_NE(assembly.find("sw a0,"), std::string::npos);
+  EXPECT_EQ(assembly.find("mv t0, a0\n  lw a0"), std::string::npos);
+}

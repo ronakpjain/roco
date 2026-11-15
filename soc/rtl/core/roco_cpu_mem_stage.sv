@@ -13,6 +13,9 @@ module roco_cpu_mem_stage (
   input logic rst,
   input logic halt,
   input logic fence_done,
+  input logic lookup_valid,
+  input logic [29:0] lookup_addr,
+  input logic lookup_sc,
   /* EX/MEM pipeline register. */
   input logic exmem_valid,
   input logic [31:0] exmem_pc,
@@ -85,9 +88,9 @@ module roco_cpu_mem_stage (
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
-  logic [31:0] amo_fast_data, amo_old_q, amo_sum;
+  logic [31:0] amo_old_q, amo_sum;
   logic amo_staged, amo_ready, amo_prepare;
-  assign amo_staged = exmem_is_amo && ((exmem_amo_op == 5'b00000) || exmem_amo_op[4]);
+  assign amo_staged = exmem_is_amo;
   assign amo_prepare = exmem_valid && amo_staged && !amo_ready;
   // Register the EBR output before arithmetic. The following cycle can
   // calculate and commit directly, avoiding a separate result-only cycle.
@@ -107,17 +110,6 @@ module roco_cpu_mem_stage (
       .subtract(1'b0),
       .result(amo_sum)
   );
-  // Fast atomics must have a separate datapath: selecting the general
-  // ALU output would leave an inactive add/compare path to the RAM port.
-  always_comb begin
-    case (exmem_amo_op)
-      5'b00001: amo_fast_data = exmem_store_data;
-      5'b00100: amo_fast_data = dmem_rsp_data ^ exmem_store_data;
-      5'b01000: amo_fast_data = dmem_rsp_data | exmem_store_data;
-      5'b01100: amo_fast_data = dmem_rsp_data & exmem_store_data;
-      default: amo_fast_data = 32'd0;
-    endcase
-  end
   logic [3:0] amo_lt;
   logic [3:1] amo_eq;
   logic amo_unsigned_lt, amo_less;
@@ -180,7 +172,7 @@ module roco_cpu_mem_stage (
   // unrelated producers before reaching the next instruction.
   assign result_data =
       ({32{exmem_is_sc}} & sc_result) |
-      ({32{exmem_is_amo}} & (amo_staged ? amo_old_q : dmem_rsp_data)) |
+      ({32{exmem_is_amo}} & amo_old_q) |
       ({32{exmem_is_load || exmem_is_lr}} & load_data) |
       ({32{exmem_is_mul}} & mul_result) |
       ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr ||
@@ -189,10 +181,18 @@ module roco_cpu_mem_stage (
   assign is_memory_op = exmem_is_load || exmem_is_store || exmem_is_amo || exmem_is_lr ||
                         exmem_is_sc || exmem_is_vload || exmem_is_vstore;
   assign dmem_addr = exmem_alu;
-  assign sc_ok = res_valid && (res_addr == exmem_alu[31:2]);
+  logic sc_match_q;
+  // Scalar address preparation drains older memory operations before
+  // this lookup. Keep the reservation comparison before EX/MEM, alongside
+  // the cache lookup, instead of in MEM write enables and result data.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) sc_match_q <= 1'b0;
+    else if (lookup_valid) sc_match_q <= res_valid && (res_addr == lookup_addr);
+  end
+  assign sc_ok = sc_match_q;
   assign sc_result = {31'd0, !sc_ok};
   assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
-  assign dmem_wdata = exmem_is_amo ? (amo_staged ? amo_data : amo_fast_data) : exmem_store_data;
+  assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
   // Requests become observable only at in-order commit. A pending memory
   // operation holds EX (including cache lookups) until it completes, and
@@ -283,4 +283,14 @@ module roco_cpu_mem_stage (
     end
   end
 
+`ifndef SYNTHESIS
+  always @(posedge clk) begin
+    if (!rst && lookup_valid && lookup_sc &&
+        (trap_taken || (commit_now && (exmem_is_lr || exmem_is_sc || store_now))))
+      $fatal(1, "SC lookup raced an older reservation update");
+    if (!rst && exmem_valid && exmem_is_sc &&
+        (sc_ok !== (res_valid && (res_addr == exmem_alu[31:2]))))
+      $fatal(1, "SC lookup lost its reservation/address association");
+  end
+`endif
 endmodule

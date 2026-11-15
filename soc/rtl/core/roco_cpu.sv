@@ -397,8 +397,14 @@ module roco_cpu (
   // Read the retirement counter only after all older MEM events have
   // updated it. Other CSR accesses retain their normal issue timing.
   assign instret_conflict = if_valid && instret_decode && (idex_valid || exmem_valid);
+  logic mem_result_late, mem_result_dependency;
+  assign mem_result_late = exmem_is_load || exmem_is_lr || exmem_is_amo || exmem_is_sc || exmem_is_mul;
+  assign mem_result_dependency = if_valid && exmem_valid && exmem_regwrite &&
+                                  mem_result_late && (exmem_rd != 5'd0) &&
+                                  ((dec_use_rs1 && dec_rs1 == exmem_rd) ||
+                                   (dec_use_rs2 && dec_rs2 == exmem_rd));
   assign bubble = div_conflict || load_dependency || mul_conflict || csr_write_conflict ||
-                  instret_conflict;
+                  instret_conflict || mem_result_dependency;
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
@@ -461,9 +467,9 @@ module roco_cpu (
       .bubble(bubble),
       .flush(ex_redirect_en || mem_redirect),
       .exmem_valid(exmem_valid),
-      .exmem_regwrite(exmem_regwrite),
+      .exmem_regwrite(exmem_regwrite && !mem_result_late),
       .exmem_rd(exmem_rd),
-      .mem_wb_data(commit_wdata),
+      .mem_wb_data(exmem_wbval),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),
@@ -817,6 +823,9 @@ module roco_cpu (
       .rst(rst),
       .halt(halt),
       .fence_done(fence_done),
+      .lookup_valid(dmem_lu_valid),
+      .lookup_addr(lookup_paddr[31:2]),
+      .lookup_sc(idex_is_sc),
       .exmem_valid(exmem_valid),
       .exmem_pc(exmem_pc),
       .exmem_instr(exmem_instr),

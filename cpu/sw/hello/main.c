@@ -13,6 +13,12 @@ static unsigned int crc32(const unsigned char *data, unsigned int length) {
   return ~crc;
 }
 
+static void print_hex(unsigned int value) {
+  for (int shift = 28; shift >= 0; shift -= 4) {
+    putc("0123456789abcdef"[(value >> shift) & 0xf]);
+  }
+}
+
 int main(void) {
   unsigned int before;
   unsigned int after;
@@ -41,38 +47,22 @@ int main(void) {
   *(volatile unsigned int *)0x8000004cu = inst_after - inst_before;
 
   puts("sum=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(sum >> shift) & 0xf]);
-  }
+  print_hex(sum);
   puts(" cycles=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(after - before) >> shift & 0xf]);
-  }
+  print_hex((after - before));
   puts(" instret=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(inst_after - inst_before) >> shift & 0xf]);
-  }
+  print_hex((inst_after - inst_before));
   puts("\r\nicache hits=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(ICACHE_HITS >> shift) & 0xf]);
-  }
+  print_hex(ICACHE_HITS);
   puts(" misses=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(ICACHE_MISSES >> shift) & 0xf]);
-  }
+  print_hex(ICACHE_MISSES);
   puts("\r\ndcache hits=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(DCACHE_HITS >> shift) & 0xf]);
-  }
+  print_hex(DCACHE_HITS);
   puts(" misses=");
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(DCACHE_MISSES >> shift) & 0xf]);
-  }
+  print_hex(DCACHE_MISSES);
   puts("\r\ncrc32=");
   unsigned int crc = crc32((const unsigned char *)0x10000000u, 64);
-  for (int shift = 28; shift >= 0; shift -= 4) {
-    putc("0123456789abcdef"[(crc >> shift) & 0xf]);
-  }
+  print_hex(crc);
   puts("\r\n");
 
   LEDS = 0x5;

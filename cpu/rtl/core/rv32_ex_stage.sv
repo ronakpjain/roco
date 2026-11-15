@@ -231,7 +231,10 @@ module rv32_ex_stage (
   logic [4:0] vec_vl;
   logic vec_vtype_vta;
   logic [2:0] vec_vtype_sew;
-  logic [31:0] unused_vstart;
+  logic [31:0] vec_vstart;
+  logic vec_vstart_we;
+  logic [4:0] vec_vstart_data;
+  logic vec_start_illegal;
   logic vec_vset_en;
   logic [4:0] vec_vset_vl;
   logic [31:0] vec_vset_vtype;
@@ -279,6 +282,8 @@ module rv32_ex_stage (
   logic [31:0] vec_store_elem;
   logic [3:0] vmem_be;
   logic [31:0] vmem_store_data;
+  logic [31:0] vmem_start_addr;
+  logic vmem_noop;
   logic [2:0] vec_elem_sew;
 
   // ------------------------------------------------------------- Forwarding
@@ -446,7 +451,9 @@ module rv32_ex_stage (
       .vl(vec_vl),
       .vtype_vta(vec_vtype_vta),
       .vtype_sew(vec_vtype_sew),
-      .vstart_out(unused_vstart),
+      .vstart_out(vec_vstart),
+      .vstart_we(vec_vstart_we),
+      .vstart_data(vec_vstart_data),
       .mstatus_mprv(csr_mprv),
       .mstatus_sum(csr_sum),
       .mstatus_mxr(csr_mxr),
@@ -562,7 +569,7 @@ module rv32_ex_stage (
       end
 
       if (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc ||
-          is_vec_mem) begin
+          (is_vec_mem && !vmem_done)) begin
         case (idex_funct3 == 3'b110 ? 3'b010 : idex_funct3)
           3'b001, 3'b101: begin
             ex_mem_misaligned = mem_access_addr[0];
@@ -588,7 +595,7 @@ module rv32_ex_stage (
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_INSTR_PAGE_FAULT;
         ex_trap_tval = idex_pc;
-      end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal) begin
+      end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_ILLEGAL;
         ex_trap_tval = idex_instr;
@@ -656,7 +663,7 @@ module rv32_ex_stage (
                           idex_is_branch ? (ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4)) :
                           idex_is_jal ? ex_branch_target : ex_jump_target;
   assign ex_trap_taken = trap_pending;
-  assign vec_fault = idex_ifault || idex_illegal || dmem_lu_fault ||
+  assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
   assign vec_mem_hold = vmem_hold && !vec_fault && !cancel_ex;
   // The decoder makes memory operations mutually exclusive with branches,
@@ -702,6 +709,15 @@ module rv32_ex_stage (
   assign vec_sew_cur = vec_vtype_sew;
   assign vec_vta_cur = vec_vtype_vta;
   assign is_vec_mem = idex_is_vload || idex_is_vstore;
+  // Reductions are not restartable; all other implemented vector forms
+  // either honor vstart or have the ISA's scalar-element move semantics.
+  assign vec_start_illegal = idex_is_vec && !idex_is_vset && !is_vec_mem &&
+                             (idex_instr[14:12] == 3'b010) &&
+                             (idex_vec_funct6 != `RV32_VOP_SCALAR) && (vec_vstart != 32'd0);
+  assign vec_vstart_we = idex_valid && (idex_is_vec || is_vec_mem) && !halt && !rst && !fence_hold &&
+                         !cancel_ex && ((trap_capture && is_vec_mem) ||
+                         (!ex_trap && (!is_vec_mem || vmem_done)));
+  assign vec_vstart_data = (trap_capture && is_vec_mem) ? vmem_idx : 5'd0;
 
   // vsetvli / vsetivli / vsetvl. An unsupported SEW or LMUL raises vill
   // and yields vl = 0.
@@ -784,7 +800,7 @@ module rv32_ex_stage (
         !fence_hold && !halt && !rst && !cancel_ex) begin
       if (idex_is_vset) begin
         vec_vset_en = 1'b1;
-      end else if (!is_vec_mem) begin
+      end else if (!is_vec_mem && !vec_start_illegal && (vec_vstart[4:0] < vec_vl)) begin
         if (idex_vec_funct6 == `RV32_VOP_MOVE) begin
           vec_ex_we_int = 1'b1;
           vec_ex_wdata_int = (idex_instr[14:12] == 3'b000) ? vec_vs1_data : vec_bcast;
@@ -805,19 +821,21 @@ module rv32_ex_stage (
         end
         // Tail policy for everything that writes a whole register.
         for (int k = 0; k < 16; k = k + 1) begin
-          if (k >= vec_wr_vl) begin
+          if ((k >= vec_wr_vl) || ((k < vec_vstart[4:0]) &&
+              !((k == 0) && (idex_vec_funct6 == `RV32_VOP_SCALAR) &&
+                (idex_instr[14:12] == 3'b110)))) begin
             case (vec_sew_cur)
               3'd0: begin
-                vec_ex_wdata_int[8*k+:8] = vec_vta_cur ? 8'hff : vec_vd_data[8*k+:8];
+                vec_ex_wdata_int[8*k+:8] = (vec_vta_cur && (k >= vec_vstart[4:0])) ? 8'hff : vec_vd_data[8*k+:8];
               end
               3'd1: begin
                 if (k < 8) begin
-                  vec_ex_wdata_int[16*k+:16] = vec_vta_cur ? 16'hffff : vec_vd_data[16*k+:16];
+                  vec_ex_wdata_int[16*k+:16] = (vec_vta_cur && (k >= vec_vstart[4:0])) ? 16'hffff : vec_vd_data[16*k+:16];
                 end
               end
               default: begin
                 if (k < 4) begin
-                  vec_ex_wdata_int[32*k+:32] = vec_vta_cur ? 32'hffff_ffff : vec_vd_data[32*k+:32];
+                  vec_ex_wdata_int[32*k+:32] = (vec_vta_cur && (k >= vec_vstart[4:0])) ? 32'hffff_ffff : vec_vd_data[32*k+:32];
                 end
               end
             endcase
@@ -836,9 +854,10 @@ module rv32_ex_stage (
   // cycle behind it. The last cycle issues nothing so that the next
   // instruction cannot reach EX while MEM is still writing the final
   // element.
-  assign vmem_idx = vmem_active ? vmem_k : 5'd0;
+  assign vmem_idx = vmem_active ? vmem_k : vec_vstart[4:0];
   assign vmem_total = vec_vl;
-  assign vmem_done = (vmem_total == 5'd0) || (vmem_active && (vmem_k >= vmem_total));
+  assign vmem_noop = !vmem_active && (vec_vstart[4:0] >= vmem_total);
+  assign vmem_done = vmem_noop || (vmem_active && (vmem_k >= vmem_total));
   assign vmem_issue = is_vec_mem && idex_valid && !vmem_done && !vec_fault && !rst && !halt &&
                       !fence_hold;
   assign vmem_hold = is_vec_mem && idex_valid && !vmem_done;
@@ -850,7 +869,12 @@ module rv32_ex_stage (
   // Keep the current element address in a register. Increment it only
   // after a successful lookup, keeping carry propagation off the cache
   // lookup path and preserving the address across misses.
-  assign vmem_addr = vmem_active ? vmem_base : memory_addr;
+  // Vector unit-stride addresses have no scalar immediate. Add the
+  // restart offset in parallel for the two possible EX operand sources.
+  assign vmem_start_addr =
+      ({32{idex_rs1_from_mem}} & (mem_data + ({27'd0, vec_vstart[4:0]} << vmem_shift))) |
+      ({32{idex_rs1_from_rf}} & (idex_rs1_val + ({27'd0, vec_vstart[4:0]} << vmem_shift)));
+  assign vmem_addr = vmem_active ? vmem_base : vmem_start_addr;
 
   always_comb begin
     case (idex_instr[14:12])
@@ -899,9 +923,9 @@ module rv32_ex_stage (
         vmem_base <= memory_addr;
       end else if (!vmem_active) begin
         vmem_active <= 1'b1;
-        // Latch forwarding once, but retry element zero after a miss.
-        vmem_k <= lu_stall ? 5'd0 : 5'd1;
-        vmem_base <= lu_stall ? memory_addr : (memory_addr + vmem_stride);
+        // Latch forwarding once, retrying the same restart element on a miss.
+        vmem_k <= lu_stall ? vmem_idx : (vmem_idx + 5'd1);
+        vmem_base <= lu_stall ? vmem_start_addr : (vmem_start_addr + vmem_stride);
       end else if (!lu_stall) begin
         vmem_k <= vmem_idx + 5'd1;
         vmem_base <= vmem_base + vmem_stride;
@@ -945,8 +969,8 @@ module rv32_ex_stage (
       // One element per cycle; the last cycle issues nothing.
       // VL zero still retires one no-op instruction without a memory
       // request. Nonzero vectors retire only with their final element.
-      exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_total == 5'd0)) && !cancel_ex;
-      exmem_vec_last <= (vmem_total == 5'd0) || (vmem_idx + 5'd1 == vmem_total);
+      exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_noop)) && !cancel_ex;
+      exmem_vec_last <= vmem_noop || (vmem_idx + 5'd1 == vmem_total);
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= dmem_lu_paddr;

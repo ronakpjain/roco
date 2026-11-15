@@ -36,6 +36,8 @@ module rv32_csr (
   input logic vset_en,
   input logic [4:0] vset_vl,
   input logic [31:0] vset_vtype,
+  input logic vstart_we,
+  input logic [4:0] vstart_data,
   /* Vector configuration state for the vector unit. */
   output logic [4:0] vl,
   output logic vtype_vta,
@@ -514,7 +516,9 @@ module rv32_csr (
 
       // vsetvl commits the new configuration alongside any software
       // write; it is always the instruction in EX.
+      if (vstart_we) vstart_q <= {27'd0, vstart_data};
       if (vset_en) begin
+        vstart_q <= '0;
         vl_q <= {27'd0, vset_vl};
         vtype_q <= vset_vtype;
       end

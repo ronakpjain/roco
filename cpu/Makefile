@@ -138,6 +138,20 @@ $(BUILD_DIR)/vector-c.bin: $(BUILD_DIR)/vector-c.elf
 $(BUILD_DIR)/vector-c.hex: $(BUILD_DIR)/vector-c.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/vector-start.elf: sw/tests/vector-start.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vector-start.bin: $(BUILD_DIR)/vector-start.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vector-start.hex: $(BUILD_DIR)/vector-start.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+.PHONY: test-vector-start
+test-vector-start: $(BUILD_DIR)/vector-start.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
+
 $(BUILD_DIR)/vector.elf: sw/tests/vector.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles \
 		-T sw/link.ld -o $@ $<

@@ -84,29 +84,32 @@ TEST(LinkerTest, LinksCrossObjectReferences) {
   const Section& text = section(result, ".text");
   const Section& rodata = section(result, ".rodata");
   EXPECT_EQ(text.address, 0x10000000U);
-  EXPECT_EQ(text.data.size(), 24U);
-  EXPECT_EQ(rodata.address, 0x10000018U);
+  EXPECT_EQ(text.data.size(), 28U);
+  EXPECT_EQ(rodata.address, 0x1000001cU);
   EXPECT_EQ(rodata.data,
             (std::vector<std::uint8_t>{'r', 'o', 'c', 'o', 0}));
 
   EXPECT_EQ(symbol(result, "_start").section, 0);
   EXPECT_EQ(symbol(result, "_start").value, 0U);
   EXPECT_EQ(symbol(result, "puts").section, 0);
-  EXPECT_EQ(symbol(result, "puts").value, 20U);
+  EXPECT_EQ(symbol(result, "puts").value, 24U);
   EXPECT_EQ(symbol(result, "message").section, 1);
   EXPECT_EQ(symbol(result, "message").value, 0U);
 
   EXPECT_EQ(word_at_offset(text, 0),
             roco::isa::encode_u(roco::isa::kOpcodeLui, 10, 0x10000));
   EXPECT_EQ(word_at_offset(text, 4),
-            roco::isa::encode_i(roco::isa::kOpcodeOpImm, 10, 0, 10, 0x018));
-  EXPECT_EQ(word_at_offset(text, 8), roco::isa::encode_j(1, 12));
-  EXPECT_EQ(word_at_offset(text, 12), roco::isa::encode_j(0, 4));
-  EXPECT_EQ(word_at_offset(text, 16), 0x00008067U);
+            roco::isa::encode_i(roco::isa::kOpcodeOpImm, 10, 0, 10, 0x01c));
+  EXPECT_EQ(word_at_offset(text, 8),
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 1, 0));
+  EXPECT_EQ(word_at_offset(text, 12),
+            roco::isa::encode_i(roco::isa::kOpcodeJalr, 1, 0, 1, 0x010));
+  EXPECT_EQ(word_at_offset(text, 16), roco::isa::encode_j(0, 4));
   EXPECT_EQ(word_at_offset(text, 20), 0x00008067U);
+  EXPECT_EQ(word_at_offset(text, 24), 0x00008067U);
 
   const auto flat = roco::flatten(result);
-  ASSERT_GE(flat.size(), 24U);
+  ASSERT_GE(flat.size(), 28U);
   EXPECT_EQ(flat[0], 0x37U);
   EXPECT_EQ(flat[text.data.size()], 'r');
 }

@@ -74,6 +74,21 @@ TEST(CompilerTest, CompilesTypesGlobalsArraysAndStrings) {
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
+TEST(CompilerTest, CompilesUnaryOperatorsAndShortInt) {
+  const std::string assembly = compile(R"(
+    int main(void) {
+      short int value = 3;
+      int a = 1;
+      int b = +a;
+      int c = ++a;
+      int d = a++;
+      return b + c + d + value;
+    }
+  )");
+  EXPECT_NE(assembly.find("lh a0"), std::string::npos);
+  EXPECT_NE(assembly.find("addi a0, a0, 1"), std::string::npos);
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

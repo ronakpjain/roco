@@ -578,7 +578,21 @@ class Assembler {
       return;
     }
     if (name == "call" || name == "tail") {
-      emit_jump(name == "call" ? 1 : 0, parse_expr());
+      const Expr target = parse_expr();
+      if (target.has_symbol) {
+        if (target.marker != Marker::None) {
+          fail("call and tail targets cannot carry a relocation marker");
+        }
+        const int temporary = name == "call" ? 1 : 6;
+        const std::uint32_t offset = place_instruction(isa::encode_u(
+            isa::kOpcodeAuipc, static_cast<std::uint32_t>(temporary), 0));
+        place_instruction(isa::encode_i(
+            isa::kOpcodeJalr, name == "call" ? 1U : 0U, 0,
+            static_cast<std::uint32_t>(temporary), 0));
+        add_relocation(offset, isa::Reloc::CallPlt, target);
+      } else {
+        emit_jump(name == "call" ? 1 : 0, target);
+      }
       return;
     }
     if (name == "beqz" || name == "bnez" || name == "bltz" ||

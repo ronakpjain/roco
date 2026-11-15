@@ -321,20 +321,8 @@ class Codegen {
     pop_to("a1");
     store(expression.lhs->type);
     convert_value(expression.lhs->type);
-    emit("  mv a0, a2");
-    if (expression.unary == UnaryOp::PreIncrement ||
-        expression.unary == UnaryOp::PreDecrement) {
-      // a2 holds the old value; update it to the new value.
-      if (is_pointer(expression.type)) {
-        const std::int64_t step = static_cast<std::int64_t>(
-            expression.type->base->size) *
-            (increment ? 1 : -1);
-        emit("  li a1, " + std::to_string(step));
-        emit("  add a2, a2, a1");
-      } else {
-        emit("  addi a2, a2, " + std::to_string(delta));
-      }
-      convert_value(expression.lhs->type);
+    if (expression.unary == UnaryOp::PostIncrement ||
+        expression.unary == UnaryOp::PostDecrement) {
       emit("  mv a0, a2");
     }
   }
@@ -364,8 +352,13 @@ class Codegen {
       }
     }
     pop_to("a1");
+    bool is_unsigned = expression.lhs->type->is_unsigned ||
+                       expression.rhs->type->is_unsigned;
+    if (expression.binary == BinaryOp::Shr) {
+      is_unsigned = expression.lhs->type->is_unsigned;
+    }
     apply_binary(expression.binary, expression.lhs->type, expression.rhs->type,
-                 expression.rhs->type->is_unsigned);
+                 is_unsigned);
     pop_to("a1");
     store(expression.lhs->type);
     convert_value(expression.lhs->type);
@@ -425,8 +418,14 @@ class Codegen {
       }
       return;
     }
-    apply_binary(expression.binary, left_type, right_type,
-                 left_type->is_unsigned || right_type->is_unsigned);
+    bool is_unsigned = left_type->is_unsigned || right_type->is_unsigned;
+    if (is_pointer(left_type) || is_pointer(right_type)) {
+      is_unsigned = true;
+    }
+    if (expression.binary == BinaryOp::Shr) {
+      is_unsigned = left_type->is_unsigned;
+    }
+    apply_binary(expression.binary, left_type, right_type, is_unsigned);
   }
 
   void apply_binary(BinaryOp operation, const TypePtr& left_type,

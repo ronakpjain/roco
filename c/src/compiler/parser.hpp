@@ -231,6 +231,9 @@ class Parser {
       if (saw_long && saw_int) {
         return is_unsigned ? type_long(true) : type_long(false);
       }
+      if (saw_short && saw_int) {
+        return type_short(is_unsigned);
+      }
       fail("conflicting type specifiers");
     }
     if (saw_void) {
@@ -363,6 +366,10 @@ class Parser {
       expect_punct(";");
       return;
     }
+    if (declarator.variadic) {
+      fail(declarator.token,
+           "variadic function definitions are not supported yet");
+    }
     function->defined = true;
     function->params = std::move(declarator.params);
     function->locals.clear();
@@ -452,7 +459,9 @@ class Parser {
       declaration.has_brace_init = true;
       if (!is_punct("}")) {
         while (true) {
-          declaration.init_list.push_back(parse_assignment());
+          ExprPtr element = parse_assignment();
+          fold_constant(element);
+          declaration.init_list.push_back(std::move(element));
           if (!consume_punct(",")) {
             break;
           }
@@ -481,6 +490,15 @@ class Parser {
       return;
     }
     declaration.init = parse_assignment();
+    fold_constant(declaration.init);
+  }
+
+  void fold_constant(ExprPtr& expression) {
+    std::int64_t value = 0;
+    if (expression != nullptr && evaluate_constant(expression.get(), value)) {
+      const Token token = expression->token;
+      expression = make_int(value, type_int(), token);
+    }
   }
 
   StmtPtr parse_statement() {
@@ -636,6 +654,7 @@ class Parser {
                "local brace initializers are not supported yet");
         }
         declaration->init = parse_assignment();
+        fold_constant(declaration->init);
       }
       if (declaration->type->kind == TypeKind::Array &&
           declaration->type->length == 0) {
@@ -893,12 +912,15 @@ class Parser {
 
   ExprPtr parse_unary() {
     if (consume_punct("+")) {
-      ExprPtr operand = parse_unary();
+      ExprPtr operand = decay_expression(parse_unary());
+      if (!is_integer(operand->type)) {
+        fail(operand->token, "unary '+' requires an integer");
+      }
       auto expression = std::make_unique<Expr>();
       expression->kind = ExprKind::Unary;
       expression->unary = UnaryOp::Plus;
       expression->token = operand->token;
-      expression->type = promote(decay_expression(std::move(operand))->type);
+      expression->type = promote(operand->type);
       expression->lhs = std::move(operand);
       return expression;
     }

@@ -212,4 +212,113 @@ TEST(AssemblerTest, RejectsInvalidInput) {
   EXPECT_THROW(roco::assemble("beq a0, a1, 3\n", "test.S"), roco::Error);
 }
 
+TEST(AssemblerTest, EncodesAtomicInstructions) {
+  const roco::Object object = roco::assemble(R"(
+    .text
+    lr.w a0, (a1)
+    lr.w.aq a0, (a1)
+    sc.w a0, a2, (a1)
+    sc.w.rl a0, a2, (a1)
+    amoswap.w a0, a2, (a1)
+    amoadd.w.aqrl a0, a2, (a1)
+    amoxor.w a0, a2, (a1)
+    amoand.w a0, a2, (a1)
+    amoor.w a0, a2, (a1)
+    amomin.w a0, a2, (a1)
+    amomax.w a0, a2, (a1)
+    amominu.w a0, a2, (a1)
+    amomaxu.w a0, a2, (a1)
+  )",
+                                       "test.S");
+  const auto text = words(section(object, ".text"));
+  ASSERT_EQ(text.size(), 13U);
+  EXPECT_EQ(text[0], 0x1005a52fU);
+  EXPECT_EQ(text[1], 0x1405a52fU);
+  EXPECT_EQ(text[2], 0x18c5a52fU);
+  EXPECT_EQ(text[3], 0x1ac5a52fU);
+  EXPECT_EQ(text[4], 0x08c5a52fU);
+  EXPECT_EQ(text[5], 0x06c5a52fU);
+  EXPECT_EQ(text[6], 0x20c5a52fU);
+  EXPECT_EQ(text[7], 0x60c5a52fU);
+  EXPECT_EQ(text[8], 0x40c5a52fU);
+  EXPECT_EQ(text[9], 0x80c5a52fU);
+  EXPECT_EQ(text[10], 0xa0c5a52fU);
+  EXPECT_EQ(text[11], 0xc0c5a52fU);
+  EXPECT_EQ(text[12], 0xe0c5a52fU);
+}
+
+TEST(AssemblerTest, EncodesRocoVectorSubset) {
+  const roco::Object object = roco::assemble(R"(
+    .text
+    vsetvli t0, a0, e32, m1, ta, ma
+    vsetivli t0, 4, e32, m1, ta, ma
+    vsetvl t0, a0, a1
+    vmv.x.s a0, v1
+    vmv.s.x v1, a0
+    vmv.v.v v1, v2
+    vmv.v.x v1, a0
+    vmv.v.i v1, 7
+    vredsum.vs v1, v2, v3
+    vadd.vv v1, v2, v3
+    vadd.vx v1, v2, a0
+    vadd.vi v1, v2, 7
+    vsub.vv v1, v2, v3
+    vand.vv v1, v2, v3
+    vor.vv v1, v2, v3
+    vxor.vv v1, v2, v3
+    vle8.v v1, (a0)
+    vle16.v v1, (a0)
+    vle32.v v1, (a0)
+    vse8.v v1, (a0)
+    vse16.v v1, (a0)
+    vse32.v v1, (a0)
+  )",
+                                       "test.S");
+  const auto text = words(section(object, ".text"));
+  ASSERT_EQ(text.size(), 22U);
+  EXPECT_EQ(text[0], 0x0d0572d7U);
+  EXPECT_EQ(text[1], 0xcd0272d7U);
+  EXPECT_EQ(text[2], 0x80b572d7U);
+  EXPECT_EQ(text[3], 0x42102557U);
+  EXPECT_EQ(text[4], 0x420560d7U);
+  EXPECT_EQ(text[5], 0x5e0100d7U);
+  EXPECT_EQ(text[6], 0x5e0540d7U);
+  EXPECT_EQ(text[7], 0x5e03b0d7U);
+  EXPECT_EQ(text[8], 0x0221a0d7U);
+  EXPECT_EQ(text[9], 0x022180d7U);
+  EXPECT_EQ(text[10], 0x022540d7U);
+  EXPECT_EQ(text[11], 0x0223b0d7U);
+  EXPECT_EQ(text[12], 0x0a2180d7U);
+  EXPECT_EQ(text[13], 0x262180d7U);
+  EXPECT_EQ(text[14], 0x2a2180d7U);
+  EXPECT_EQ(text[15], 0x2e2180d7U);
+  EXPECT_EQ(text[16], 0x02050087U);
+  EXPECT_EQ(text[17], 0x02055087U);
+  EXPECT_EQ(text[18], 0x02056087U);
+  EXPECT_EQ(text[19], 0x020500a7U);
+  EXPECT_EQ(text[20], 0x020550a7U);
+  EXPECT_EQ(text[21], 0x020560a7U);
+}
+
+TEST(AssemblerTest, RejectsUnsupportedRocoForms) {
+  EXPECT_THROW(roco::assemble("vadd.vv v1, v2, v3, v0.t\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("vsetvli t0, a0, e64, m1\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("vsetvli t0, a0, e32, m2\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("vmul.vv v1, v2, v3\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("vle32.v v1, 4(a0)\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("vse32.v v1, (a0), v0.t\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("vadd.vv v1, v2, v3, v0.t\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("lr.d a0, (a1)\n", "test.S"),
+               roco::Error);
+  EXPECT_THROW(roco::assemble("amoadd.w a0, a2, 4(a1)\n", "test.S"),
+               roco::Error);
+}
+
 }  // namespace

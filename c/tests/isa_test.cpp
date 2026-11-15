@@ -30,6 +30,16 @@ TEST(RegisterTest, ParsesNumericNames) {
   EXPECT_EQ(roco::isa::parse_register("bogus"), -1);
 }
 
+TEST(RegisterTest, ParsesVectorRegisters) {
+  EXPECT_EQ(roco::isa::parse_vector_register("v0"), 0);
+  EXPECT_EQ(roco::isa::parse_vector_register("v31"), 31);
+  EXPECT_EQ(roco::isa::parse_vector_register("v32"), -1);
+  EXPECT_EQ(roco::isa::parse_vector_register("v-1"), -1);
+  EXPECT_EQ(roco::isa::parse_vector_register("a0"), -1);
+  EXPECT_EQ(roco::isa::vector_register_name(10), "v10");
+  EXPECT_EQ(roco::isa::vector_register_name(32), "");
+}
+
 TEST(RegisterTest, FormatsNames) {
   EXPECT_EQ(roco::isa::register_name(0), "zero");
   EXPECT_EQ(roco::isa::register_name(10), "a0");
@@ -92,6 +102,8 @@ TEST(EncodingTest, SignExtendsAndChecksRanges) {
 TEST(CsrTest, ParsesNamesAndNumbers) {
   EXPECT_EQ(roco::isa::parse_csr("mstatus"), 0x300);
   EXPECT_EQ(roco::isa::parse_csr("satp"), 0x180);
+  EXPECT_EQ(roco::isa::parse_csr("vtype"), 0xc21);
+  EXPECT_EQ(roco::isa::parse_csr("vlenb"), 0xc22);
   EXPECT_EQ(roco::isa::parse_csr("0x300"), 0x300);
   EXPECT_EQ(roco::isa::parse_csr("4095"), 4095);
   EXPECT_FALSE(roco::isa::parse_csr("4096"));

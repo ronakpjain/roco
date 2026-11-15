@@ -43,11 +43,17 @@ inline constexpr std::uint32_t kFunct7Base = 0x00;
 inline constexpr std::uint32_t kFunct7Mul = 0x01;
 inline constexpr std::uint32_t kFunct7SubSra = 0x20;
 
-// Returns the register number for an ABI name or an xN name, or -1.
+// Returns the scalar register number for an ABI name or an xN name, or -1.
 int parse_register(std::string_view name);
 
 // ABI name for x0..x31. The argument must be in range.
 std::string_view register_name(int number);
+
+// Returns the vector register number for v0..v31, or -1.
+int parse_vector_register(std::string_view name);
+
+// Name for v0..v31, or an empty view when the number is out of range.
+std::string_view vector_register_name(int number);
 
 // Returns the CSR number for a symbolic name or a decimal/hex number.
 std::optional<std::uint32_t> parse_csr(std::string_view name);

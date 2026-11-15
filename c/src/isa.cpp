@@ -44,6 +44,8 @@ const std::unordered_map<std::string_view, std::uint32_t> kCsrs = {
     {"pmpcfg3", 0x3a3},   {"pmpaddr0", 0x3b0},  {"pmpaddr1", 0x3b1},
     {"pmpaddr2", 0x3b2},  {"pmpaddr3", 0x3b3},  {"pmpaddr4", 0x3b4},
     {"pmpaddr5", 0x3b5},  {"pmpaddr6", 0x3b6},  {"pmpaddr7", 0x3b7},
+    {"vstart", 0x008},    {"vl", 0xc20},        {"vtype", 0xc21},
+    {"vlenb", 0xc22},
 };
 
 }  // namespace
@@ -76,6 +78,33 @@ std::string_view register_name(int number) {
     return "";
   }
   return kRegisters[static_cast<std::size_t>(number)];
+}
+
+int parse_vector_register(std::string_view name) {
+  if (name.size() < 2 || name[0] != 'v') {
+    return -1;
+  }
+  unsigned value = 0;
+  const auto* first = name.data() + 1;
+  const auto* last = name.data() + name.size();
+  const auto result = std::from_chars(first, last, value, 10);
+  if (result.ec == std::errc{} && result.ptr == last && value < 32) {
+    return static_cast<int>(value);
+  }
+  return -1;
+}
+
+std::string_view vector_register_name(int number) {
+  static constexpr std::array<std::string_view, 32> names = {
+      "v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
+      "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
+      "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+      "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
+  };
+  if (number < 0 || number >= 32) {
+    return "";
+  }
+  return names[static_cast<std::size_t>(number)];
 }
 
 std::optional<std::uint32_t> parse_csr(std::string_view name) {

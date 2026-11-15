@@ -51,6 +51,11 @@ bool is_identifier_character(char character) {
          (character >= '0' && character <= '9');
 }
 
+bool ends_with(const std::string& text, std::string_view suffix) {
+  return text.size() >= suffix.size() &&
+         text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 char decode_escape(std::string_view source, std::size_t& index) {
   if (index >= source.size()) {
     return '\\';
@@ -583,10 +588,22 @@ class Assembler {
     if (peek().kind != TokenKind::Identifier) {
       fail("expected a register");
     }
-    const std::string name = advance().text;
-    const int number = isa::parse_register(name);
+    const Token token = advance();
+    const int number = isa::parse_register(token.text);
     if (number < 0) {
-      fail(peek(), "unknown register '" + name + "'");
+      fail(token, "unknown register '" + token.text + "'");
+    }
+    return number;
+  }
+
+  int parse_vector_register_operand() {
+    if (peek().kind != TokenKind::Identifier) {
+      fail("expected a vector register");
+    }
+    const Token token = advance();
+    const int number = isa::parse_vector_register(token.text);
+    if (number < 0) {
+      fail(token, "unknown vector register '" + token.text + "'");
     }
     return number;
   }
@@ -926,6 +943,15 @@ class Assembler {
   }
 
   void parse_instruction(const std::string& name) {
+    if (!name.empty() && name[0] == 'v') {
+      parse_vector_instruction(name);
+      return;
+    }
+    if (name.rfind("lr.", 0) == 0 || name.rfind("sc.", 0) == 0 ||
+        name.rfind("amo", 0) == 0) {
+      parse_atomic_instruction(name);
+      return;
+    }
     if (name == "nop") {
       emit_u32(isa::encode_i(isa::kOpcodeOpImm, 0, 0, 0, 0));
       return;
@@ -1067,7 +1093,7 @@ class Assembler {
                static_cast<int>(immediate), csr);
       return;
     }
-    if (name == "fence" || name == "fence.i") {
+    if (name == "fence" || name == "fence.i" || name == "fence.tso") {
       parse_fence(name);
       return;
     }
@@ -1524,6 +1550,10 @@ class Assembler {
       emit_u32(0x0000100f);
       return;
     }
+    if (name == "fence.tso") {
+      emit_u32(0x8330000f);
+      return;
+    }
     std::uint32_t predecessor = 0xf;
     std::uint32_t successor = 0xf;
     if (!at_end_of_line()) {
@@ -1547,6 +1577,297 @@ class Assembler {
     emit_u32(0x12000073 |
              (static_cast<std::uint32_t>(rs2) << 20) |
              (static_cast<std::uint32_t>(rs1) << 15));
+  }
+
+  std::uint32_t parse_vector_type() {
+    std::uint32_t sew = 0;
+    std::uint32_t vta = 0;
+    std::uint32_t vma = 0;
+    bool have_sew = false;
+    bool have_lmul = false;
+    bool have_tail = false;
+    bool have_mask = false;
+
+    if (at_end_of_line()) {
+      fail("expected a vector type such as e32,m1,ta,ma");
+    }
+    while (true) {
+      const Token token = peek();
+      const std::string part = expect_identifier();
+      if (part == "e8") {
+        if (have_sew) fail(token, "duplicate vector element width");
+        sew = 0;
+        have_sew = true;
+      } else if (part == "e16") {
+        if (have_sew) fail(token, "duplicate vector element width");
+        sew = 1;
+        have_sew = true;
+      } else if (part == "e32") {
+        if (have_sew) fail(token, "duplicate vector element width");
+        sew = 2;
+        have_sew = true;
+      } else if (part == "m1") {
+        if (have_lmul) fail(token, "duplicate vector LMUL");
+        have_lmul = true;
+      } else if (part == "ta" || part == "tu") {
+        if (have_tail) fail(token, "duplicate vector tail policy");
+        vta = part == "ta" ? 1 : 0;
+        have_tail = true;
+      } else if (part == "ma" || part == "mu") {
+        if (have_mask) fail(token, "duplicate vector mask policy");
+        // Masking is not implemented by roco, but accepting ma keeps common
+        // compiler output assembler-compatible.
+        vma = part == "ma" ? 1 : 0;
+        have_mask = true;
+      } else if (part.size() > 1 && part[0] == 'm') {
+        fail(token, "roco implements only LMUL=m1");
+      } else {
+        fail(token, "unknown vector type field '" + part + "'");
+      }
+      if (!consume_punct(',')) {
+        break;
+      }
+    }
+    if (!have_sew) {
+      fail("vector type requires e8, e16 or e32");
+    }
+    return (vma << 7) | (vta << 6) | (sew << 3);
+  }
+
+  void parse_vector_instruction(const std::string& name) {
+    if (name == "vsetvli") {
+      const int rd = parse_register_operand();
+      expect_punct(',');
+      const int rs1 = parse_register_operand();
+      expect_punct(',');
+      const std::uint32_t vtype = parse_vector_type();
+      emit_u32(isa::encode_i(0x57, static_cast<std::uint32_t>(rd), 7,
+                             static_cast<std::uint32_t>(rs1), vtype));
+      return;
+    }
+    if (name == "vsetivli") {
+      const int rd = parse_register_operand();
+      expect_punct(',');
+      const Expr avl_expression = parse_expr();
+      const std::int64_t avl =
+          require_constant(avl_expression, "vsetivli AVL");
+      if (avl < 0 || avl > 31) {
+        fail("vsetivli AVL must be in the range 0..31");
+      }
+      expect_punct(',');
+      const std::uint32_t vtype = parse_vector_type();
+      emit_u32(isa::encode_i(0x57, static_cast<std::uint32_t>(rd), 7,
+                             static_cast<std::uint32_t>(avl),
+                             0xc00U | vtype));
+      return;
+    }
+    if (name == "vsetvl") {
+      const int rd = parse_register_operand();
+      expect_punct(',');
+      const int rs1 = parse_register_operand();
+      expect_punct(',');
+      const int rs2 = parse_register_operand();
+      emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(rd), 7,
+                             static_cast<std::uint32_t>(rs1),
+                             static_cast<std::uint32_t>(rs2), 0x40));
+      return;
+    }
+    if (name == "vmv.v.v") {
+      const int vd = parse_vector_register_operand();
+      expect_punct(',');
+      const int vs1 = parse_vector_register_operand();
+      emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(vd), 0,
+                             static_cast<std::uint32_t>(vs1), 0,
+                             (0x17U << 1) | 1U));
+      return;
+    }
+    if (name == "vmv.v.x") {
+      const int vd = parse_vector_register_operand();
+      expect_punct(',');
+      const int rs1 = parse_register_operand();
+      emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(vd), 4,
+                             static_cast<std::uint32_t>(rs1), 0,
+                             (0x17U << 1) | 1U));
+      return;
+    }
+    if (name == "vmv.v.i") {
+      const int vd = parse_vector_register_operand();
+      expect_punct(',');
+      const Expr immediate = parse_expr();
+      const std::int64_t value =
+          require_constant(immediate, "vector immediate");
+      if (!isa::fits_signed(value, 5)) {
+        fail("vector immediate must fit in 5 signed bits");
+      }
+      emit_u32(isa::encode_r(
+          0x57, static_cast<std::uint32_t>(vd), 3,
+          static_cast<std::uint32_t>(value) & 0x1fU, 0, (0x17U << 1) | 1U));
+      return;
+    }
+    if (name == "vmv.x.s") {
+      const int rd = parse_register_operand();
+      expect_punct(',');
+      const int vs2 = parse_vector_register_operand();
+      emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(rd), 2, 0,
+                             static_cast<std::uint32_t>(vs2),
+                             (0x10U << 1) | 1U));
+      return;
+    }
+    if (name == "vmv.s.x") {
+      const int vd = parse_vector_register_operand();
+      expect_punct(',');
+      const int rs1 = parse_register_operand();
+      emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(vd), 6,
+                             static_cast<std::uint32_t>(rs1), 0,
+                             (0x10U << 1) | 1U));
+      return;
+    }
+    if (name == "vredsum.vs") {
+      const int vd = parse_vector_register_operand();
+      expect_punct(',');
+      const int vs2 = parse_vector_register_operand();
+      expect_punct(',');
+      const int vs1 = parse_vector_register_operand();
+      emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(vd), 2,
+                             static_cast<std::uint32_t>(vs1),
+                             static_cast<std::uint32_t>(vs2), 1));
+      return;
+    }
+    if (name == "vle8.v" || name == "vle16.v" || name == "vle32.v" ||
+        name == "vse8.v" || name == "vse16.v" || name == "vse32.v") {
+      const bool load = name.rfind("vle", 0) == 0;
+      std::uint32_t width = 0;
+      if (name.find("16") != std::string::npos) {
+        width = 5;
+      } else if (name.find("32") != std::string::npos) {
+        width = 6;
+      }
+      const int vd = parse_vector_register_operand();
+      expect_punct(',');
+      expect_punct('(');
+      const int rs1 = parse_register_operand();
+      expect_punct(')');
+      if (!at_end_of_line()) {
+        fail("roco supports only unmasked unit-stride vector memory accesses");
+      }
+      emit_u32((1U << 25) | (static_cast<std::uint32_t>(rs1) << 15) |
+               (width << 12) | (static_cast<std::uint32_t>(vd) << 7) |
+               (load ? 0x07U : 0x27U));
+      return;
+    }
+
+    static const std::unordered_map<std::string, std::uint32_t> operations = {
+        {"vadd.vv", 0x00}, {"vadd.vx", 0x00}, {"vadd.vi", 0x00},
+        {"vsub.vv", 0x02}, {"vsub.vx", 0x02}, {"vsub.vi", 0x02},
+        {"vand.vv", 0x09}, {"vand.vx", 0x09}, {"vand.vi", 0x09},
+        {"vor.vv", 0x0a},  {"vor.vx", 0x0a},  {"vor.vi", 0x0a},
+        {"vxor.vv", 0x0b}, {"vxor.vx", 0x0b}, {"vxor.vi", 0x0b},
+    };
+    const auto operation = operations.find(name);
+    if (operation == operations.end()) {
+      fail("unsupported vector instruction '" + name +
+           "'; roco implements only the Zve32x subset listed in the "
+           "toolchain documentation");
+    }
+    if (name.size() < 2) {
+      fail("invalid vector instruction");
+    }
+    const std::string suffix = name.substr(name.size() - 2);
+    const int vd = parse_vector_register_operand();
+    expect_punct(',');
+    const int vs2 = parse_vector_register_operand();
+    expect_punct(',');
+    std::uint32_t source = 0;
+    std::uint32_t funct3 = 0;
+    if (suffix == "vv") {
+      source = static_cast<std::uint32_t>(parse_vector_register_operand());
+      funct3 = 0;
+    } else if (suffix == "vx") {
+      source = static_cast<std::uint32_t>(parse_register_operand());
+      funct3 = 4;
+    } else {
+      const Expr immediate = parse_expr();
+      const std::int64_t value =
+          require_constant(immediate, "vector immediate");
+      if (!isa::fits_signed(value, 5)) {
+        fail("vector immediate must fit in 5 signed bits");
+      }
+      source = static_cast<std::uint32_t>(value) & 0x1fU;
+      funct3 = 3;
+    }
+    emit_u32(isa::encode_r(0x57, static_cast<std::uint32_t>(vd), funct3,
+                           source, static_cast<std::uint32_t>(vs2),
+                           (operation->second << 1) | 1U));
+  }
+
+  void parse_atomic_instruction(const std::string& name) {
+    std::string base = name;
+    bool acquire = false;
+    bool release = false;
+    if (ends_with(base, ".aqrl")) {
+      base.resize(base.size() - 5);
+      acquire = true;
+      release = true;
+    } else if (ends_with(base, ".aq")) {
+      base.resize(base.size() - 3);
+      acquire = true;
+    } else if (ends_with(base, ".rl")) {
+      base.resize(base.size() - 3);
+      release = true;
+    }
+    if (base.find(".d") != std::string::npos) {
+      fail("roco implements only 32-bit (.w) atomics");
+    }
+
+    static const std::unordered_map<std::string, std::uint32_t> operations = {
+        {"amoswap.w", 0x01}, {"amoadd.w", 0x00},  {"amoxor.w", 0x04},
+        {"amoand.w", 0x0c},  {"amoor.w", 0x08},   {"amomin.w", 0x10},
+        {"amomax.w", 0x14},  {"amominu.w", 0x18}, {"amomaxu.w", 0x1c},
+    };
+
+    std::uint32_t funct5 = 0;
+    bool is_load_reserved = false;
+    bool is_store_conditional = false;
+    if (base == "lr.w") {
+      funct5 = 0x02;
+      is_load_reserved = true;
+    } else if (base == "sc.w") {
+      funct5 = 0x03;
+      is_store_conditional = true;
+    } else {
+      const auto operation = operations.find(base);
+      if (operation == operations.end()) {
+        fail("unsupported atomic instruction '" + name + "'");
+      }
+      funct5 = operation->second;
+    }
+
+    const int rd = parse_register_operand();
+    expect_punct(',');
+    std::uint32_t rs2 = 0;
+    if (!is_load_reserved) {
+      rs2 = static_cast<std::uint32_t>(parse_register_operand());
+      expect_punct(',');
+    }
+    const MemoryOperand memory = parse_memory_operand();
+    if (memory.offset.has_symbol || memory.offset.marker != Marker::None ||
+        memory.offset.value != 0) {
+      fail("atomic addresses must use the form (rs1)");
+    }
+    std::uint32_t word = (funct5 << 27) | (rs2 << 20) |
+                         (static_cast<std::uint32_t>(memory.base) << 15) |
+                         (2U << 12) | (static_cast<std::uint32_t>(rd) << 7) |
+                         isa::kOpcodeAmo;
+    if (acquire) {
+      word |= 1U << 26;
+    }
+    if (release) {
+      word |= 1U << 25;
+    }
+    if (is_store_conditional && !acquire && !release) {
+      // No special work; kept for readability of the encoding above.
+    }
+    emit_u32(word);
   }
 
   void parse_directive(const std::string& name) {

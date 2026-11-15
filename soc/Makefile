@@ -295,7 +295,11 @@ $(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_mo
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
 		sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv $(SIM_RTL)
 
-test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(SOC_SIM_DEP)
+$(BUILD_DIR)/tb_icache.vvp: rtl/mem/icache.sv sim/tb_icache.sv | build
+	$(IVERILOG) -g2012 -s tb_icache -o $@ $^
+
+test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(SOC_SIM_DEP) $(BUILD_DIR)/tb_icache.vvp
+	$(VVP) $(BUILD_DIR)/tb_icache.vvp
 	$(SOC_SIM) +hex=$(BUILD_DIR)/basic.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/counter_clear.hex +check_counter_clear
 

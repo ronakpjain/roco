@@ -88,14 +88,22 @@ module icache #(
   assign mem_word_addr = fill_word_addr;
   assign mem_len = 4'(LINE_WORDS - 1);
 
+  // Response validity and the miss state publish these payloads. Capture
+  // them before the late TLB/cache hit decision, so that decision controls
+  // only narrow state bits rather than address-register enables.
+  always_ff @(posedge clk) begin
+    rsp_addr_q <= cpu_addr;
+    if (state == S_IDLE) begin
+      fill_word_addr <= cpu_addr[24:2] & LINE_MASK;
+      fill_idx <= cpu_addr[IDX_HI:IDX_LO];
+      fill_tag <= cpu_addr[31:IDX_HI+1];
+    end
+  end
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= S_IDLE;
       rsp_valid_q <= 1'b0;
-      rsp_addr_q <= '0;
-      fill_word_addr <= '0;
-      fill_idx <= '0;
-      fill_tag <= '0;
       beat <= '0;
       flush_pending <= 1'b0;
       for (i = 0; i < NUM_LINES; i = i + 1) begin
@@ -117,11 +125,7 @@ module icache #(
           if (cpu_req) begin
             if (lu_hit) begin
               rsp_valid_q <= 1'b1;
-              rsp_addr_q <= cpu_addr;
             end else begin
-              fill_word_addr <= cpu_addr[24:2] & LINE_MASK;
-              fill_idx <= cpu_addr[IDX_HI:IDX_LO];
-              fill_tag <= cpu_addr[31:IDX_HI+1];
               state <= S_REQ;
             end
           end

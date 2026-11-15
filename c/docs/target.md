@@ -25,7 +25,7 @@ little-endian ELF32 RISC-V objects and uses 4-byte instruction alignment.
 
 Scalar behavior:
 
-- `WFI` is not decoded and traps as an illegal instruction.
+- `WFI` is accepted as a no-op hint.
 - Misaligned loads and stores trap; hardware does not split them.
   Declared objects must be naturally aligned.
 - `FENCE` is a no-op. `FENCE.I` writes back the D-cache and invalidates
@@ -84,7 +84,7 @@ code.
 
 ## Privilege and memory
 
-- `mtvec` supports direct mode only.
+- `mtvec` and `stvec` support direct and vectored modes.
 - The core has machine timer and external interrupt inputs. There is no
   software interrupt injection beyond the existing CSR state.
 - Sv32 supports 4 KiB pages and 4 MiB superpages. A/D bits are

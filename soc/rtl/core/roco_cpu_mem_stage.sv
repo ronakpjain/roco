@@ -85,28 +85,28 @@ module roco_cpu_mem_stage (
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
-  logic [31:0] amo_fast_data, amo_result_q, amo_old_q;
+  logic [31:0] amo_fast_data, amo_old_q, amo_sum;
   logic amo_staged, amo_ready, amo_prepare;
-  logic [1:0] amo_phase;
-  assign amo_ready = (amo_phase == 2'd2);
   assign amo_staged = exmem_is_amo && ((exmem_amo_op == 5'b00000) || exmem_amo_op[4]);
   assign amo_prepare = exmem_valid && amo_staged && !amo_ready;
-  // EBR clock-to-output consumes much of the cycle. Capture the old
-  // value first, calculate from that local register, then commit exactly
-  // once from the result register. No request is published in phases 0/1.
+  // Register the EBR output before arithmetic. The following cycle can
+  // calculate and commit directly, avoiding a separate result-only cycle.
   always_ff @(posedge clk) begin
-    if (amo_phase == 2'd0) amo_old_q <= dmem_rsp_data;
-    if (amo_phase == 2'd1) amo_result_q <= amo_data;
+    if (!amo_ready) amo_old_q <= dmem_rsp_data;
   end
   always_ff @(posedge clk or posedge rst) begin
-    if (rst) amo_phase <= 2'd0;
+    if (rst) amo_ready <= 1'b0;
     else if (!halt && !fence_req) begin
-      if (!exmem_valid || !amo_staged) amo_phase <= 2'd0;
-      else if (amo_phase == 2'd0 && dmem_ready) amo_phase <= 2'd1;
-      else if (amo_phase == 2'd1) amo_phase <= 2'd2;
-      else if (amo_phase == 2'd2 && dmem_ready) amo_phase <= 2'd0;
+      if (!exmem_valid || !amo_staged) amo_ready <= 1'b0;
+      else if (dmem_ready) amo_ready <= !amo_ready;
     end
   end
+  roco_cpu_addsub u_amo_add (
+      .a(amo_old_q),
+      .b(exmem_store_data),
+      .subtract(1'b0),
+      .result(amo_sum)
+  );
   // Fast atomics must have a separate datapath: selecting the general
   // ALU output would leave an inactive add/compare path to the RAM port.
   always_comb begin
@@ -145,7 +145,7 @@ module roco_cpu_mem_stage (
   always_comb begin
     case (exmem_amo_op)
       5'b00000: begin  // AMOADD
-        amo_data = amo_old_q + exmem_store_data;
+        amo_data = amo_sum;
       end
       5'b00001: begin  // AMOSWAP
         amo_data = exmem_store_data;
@@ -192,7 +192,7 @@ module roco_cpu_mem_stage (
   assign sc_ok = res_valid && (res_addr == exmem_alu[31:2]);
   assign sc_result = {31'd0, !sc_ok};
   assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
-  assign dmem_wdata = exmem_is_amo ? (amo_staged ? amo_result_q : amo_fast_data) : exmem_store_data;
+  assign dmem_wdata = exmem_is_amo ? (amo_staged ? amo_data : amo_fast_data) : exmem_store_data;
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
   // Requests become observable only at in-order commit. A pending memory
   // operation holds EX (including cache lookups) until it completes, and

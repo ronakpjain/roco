@@ -304,7 +304,11 @@ $(BUILD_DIR)/tb_soc_boot.vvp: $(RTL_SV) sim/tb_soc_boot.sv sim/sdram_model.sv | 
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
 		sim/tb_soc_boot.sv sim/sdram_model.sv $(SIM_RTL)
 
-test_boot: $(BUILD_DIR)/hello_boot.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
+$(BUILD_DIR)/tb_uart_boot_restart.vvp: rtl/periph/uart_boot.sv sim/tb_uart_boot_restart.sv | build
+	$(IVERILOG) -g2012 -s tb_uart_boot_restart -o $@ $^
+
+test_boot: $(BUILD_DIR)/hello_boot.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp $(BUILD_DIR)/tb_uart_boot_restart.vvp
+	$(VVP) $(BUILD_DIR)/tb_uart_boot_restart.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello_boot.packet.hex
 
 .PHONY: test_hello

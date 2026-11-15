@@ -104,44 +104,83 @@ module uart_boot (
     end
   end
 
+  // Payload updates do not depend on the late CPU restart strobe. The
+  // parser state suppresses all visibility after restart, and a complete
+  // header initializes every field before another memory request occurs.
+  // boot_addr is meaningful only with boot_done asserted.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      base_q <= '0;
+      len_q <= '0;
+      crc_q <= '0;
+      crc_reg <= 32'hFFFF_FFFF;
+      byte_cnt <= '0;
+      word_buf <= '0;
+      word_be <= '0;
+      word_idx <= '0;
+      word_addr <= '0;
+      last_payload <= 1'b0;
+      boot_addr <= '0;
+    end else begin
+      case (state)
+        S_BASE: if (rx_valid && rx_ready) base_q <= (base_q >> 8) | ({24'd0, rx_data} << 24);
+        S_LEN: if (rx_valid && rx_ready) len_q <= (len_q >> 8) | ({24'd0, rx_data} << 24);
+        S_CRC: begin
+          if (rx_valid && rx_ready) begin
+            crc_q <= (crc_q >> 8) | ({24'd0, rx_data} << 24);
+            if (hdr_idx == 2'd3) begin
+              crc_reg <= 32'hFFFF_FFFF;
+              byte_cnt <= '0;
+              word_buf <= '0;
+              word_be <= '0;
+              word_idx <= '0;
+              word_addr <= base_q[24:2];
+              last_payload <= 1'b0;
+            end
+          end
+        end
+        S_DATA: begin
+          if (rx_valid && rx_ready) begin
+            crc_reg <= crc_x;
+            word_buf <= word_buf | ({24'd0, rx_data} << {word_idx, 3'b000});
+            word_be <= word_be | (4'b0001 << word_idx);
+            byte_cnt <= byte_cnt + 32'd1;
+            if (byte_cnt + 32'd1 == len_q) last_payload <= 1'b1;
+            else if (word_idx == 2'd3) word_idx <= '0;
+            else word_idx <= word_idx + 1'b1;
+          end
+        end
+        S_WR_BEAT: begin
+          if (mem_wready) begin
+            word_buf <= '0;
+            word_be <= '0;
+            word_idx <= '0;
+            word_addr <= word_addr + 1'b1;
+          end
+        end
+        S_FINISH: if (tx_done) boot_addr <= base_q;
+        default: begin
+        end
+      endcase
+    end
+  end
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= S_MAGIC;
       magic_idx <= '0;
       hdr_idx <= '0;
-      base_q <= '0;
-      len_q <= '0;
-      crc_q <= '0;
-      crc_reg <= 32'hFFFF_FFFF;
-      byte_cnt <= '0;
-      word_buf <= '0;
-      word_be <= '0;
-      word_idx <= '0;
-      word_addr <= '0;
-      last_payload <= 1'b0;
       tx_done <= 1'b0;
       boot_done <= 1'b0;
-      boot_addr <= '0;
       boot_error <= 1'b0;
     end else if (restart) begin
-      // Yosys only accepts an asynchronous reset guarded by the reset
-      // signal alone, so a restart repeats the same clear.
+      // Restart invalidates the parser and status, not the wide payload.
+      // A new header fully replaces fields before they can be consumed.
       state <= S_MAGIC;
       magic_idx <= '0;
       hdr_idx <= '0;
-      base_q <= '0;
-      len_q <= '0;
-      crc_q <= '0;
-      crc_reg <= 32'hFFFF_FFFF;
-      byte_cnt <= '0;
-      word_buf <= '0;
-      word_be <= '0;
-      word_idx <= '0;
-      word_addr <= '0;
-      last_payload <= 1'b0;
       tx_done <= 1'b0;
       boot_done <= 1'b0;
-      boot_addr <= '0;
       boot_error <= 1'b0;
     end else begin
       case (state)
@@ -164,7 +203,6 @@ module uart_boot (
         end
         S_BASE: begin
           if (rx_valid && rx_ready) begin
-            base_q <= (base_q >> 8) | ({24'd0, rx_data} << 24);
             if (hdr_idx == 2'd3) begin
               hdr_idx <= '0;
               state <= S_LEN;
@@ -175,7 +213,6 @@ module uart_boot (
         end
         S_LEN: begin
           if (rx_valid && rx_ready) begin
-            len_q <= (len_q >> 8) | ({24'd0, rx_data} << 24);
             if (hdr_idx == 2'd3) begin
               hdr_idx <= '0;
               state <= S_CRC;
@@ -186,7 +223,6 @@ module uart_boot (
         end
         S_CRC: begin
           if (rx_valid && rx_ready) begin
-            crc_q <= (crc_q >> 8) | ({24'd0, rx_data} << 24);
             if (hdr_idx == 2'd3) begin
               if ((base_q[1:0] != 2'b00) || (base_q < SDRAM_BASE) ||
                   (base_q >= SDRAM_LIMIT) || (len_q == 32'd0) ||
@@ -194,13 +230,6 @@ module uart_boot (
                 state <= S_ERROR;
                 tx_done <= 1'b0;
               end else begin
-                crc_reg <= 32'hFFFF_FFFF;
-                byte_cnt <= '0;
-                word_buf <= '0;
-                word_be <= '0;
-                word_idx <= '0;
-                word_addr <= base_q[24:2];
-                last_payload <= 1'b0;
                 state <= S_DATA;
               end
             end else begin
@@ -210,18 +239,10 @@ module uart_boot (
         end
         S_DATA: begin
           if (rx_valid && rx_ready) begin
-            crc_reg <= crc_x;
-            word_buf <= word_buf | ({24'd0, rx_data} << {word_idx, 3'b000});
-            word_be <= word_be | (4'b0001 << word_idx);
-            byte_cnt <= byte_cnt + 32'd1;
             if (byte_cnt + 32'd1 == len_q) begin
-              last_payload <= 1'b1;
               state <= S_WR_REQ;
             end else if (word_idx == 2'd3) begin
-              word_idx <= '0;
               state <= S_WR_REQ;
-            end else begin
-              word_idx <= word_idx + 1'b1;
             end
           end
         end
@@ -232,10 +253,6 @@ module uart_boot (
         end
         S_WR_BEAT: begin
           if (mem_wready) begin
-            word_buf <= '0;
-            word_be <= '0;
-            word_idx <= '0;
-            word_addr <= word_addr + 1'b1;
             if (last_payload) begin
               state <= S_END;
             end else begin
@@ -256,7 +273,6 @@ module uart_boot (
         S_FINISH: begin
           if (tx_done) begin
             boot_done <= 1'b1;
-            boot_addr <= base_q;
             state <= S_MAGIC;
             magic_idx <= '0;
           end else if (tx_valid && tx_ready) begin

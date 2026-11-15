@@ -1,4 +1,4 @@
-// roco-cpu: pipelined RV32I processor core.
+// roco_cpu: pipelined RV32I processor core.
 //
 // Five stages, each in its own module:
 //   roco_cpu_if_stage   program counter, fetch handshake, IF/ID register

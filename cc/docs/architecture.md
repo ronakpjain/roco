@@ -56,7 +56,7 @@ sections and their relocation records.
 
 ## Assembler
 
-`roco-as` performs one pass over the token stream. Forward references are
+`roco_as` performs one pass over the token stream. Forward references are
 legal because instruction immediates are emitted as zero and patched by a
 relocation, not because the assembler performs a second layout pass.
 

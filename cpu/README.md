@@ -1,4 +1,4 @@
-# roco-cpu
+# roco_cpu
 
 A five-stage pipelined RV32I processor with instruction and data caches,
 an Sv32 memory-management unit, an SDRAM controller, a UART bootloader
@@ -15,9 +15,9 @@ validation coverage.
 
 ## Block diagram
 
-![roco-cpu block diagram](docs/roco-cpu.png)
+![roco_cpu block diagram](docs/roco_cpu.png)
 
-Editable source: [docs/roco-cpu.drawio](docs/roco-cpu.drawio).
+Editable source: [docs/roco_cpu.drawio](docs/roco_cpu.drawio).
 
 `roco_top` contains the 24 MHz to 48 MHz PLL and reset synchronizer, and
 instantiates `roco_soc`. Inside the SoC:
@@ -200,20 +200,20 @@ The SDRAM controller needs about 200 us after reset; the script waits
 ## Building and testing
 
 Requirements: Icarus Verilog, Verilator, Yosys, Verible, Python 3, CMake,
-and a C++20 compiler for the sibling `../cc` toolchain. Directed tests use `../cc/build/roco-as`, `roco-ld`, and `roco-cc`; `make roco-tools`
+and a C++20 compiler for the sibling `../cc` toolchain. Directed tests use `../cc/build/roco_as`, `roco_ld`, and `roco_cc`; `make roco_tools`
 builds them. Only the official ISA suites need a RISC-V ELF toolchain
 (`riscv64-elf-gcc` on `PATH`, or pass `RISCV=/path/to/prefix`).
 `nextpnr-ecp5` and `ecppack` are only needed
 for a bitstream.
 
 ```sh
-make roco-tools  # build ../cc/roco-as, roco-ld and roco-cc
+make roco_tools  # build ../cc/roco_as, roco_ld and roco_cc
 make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test-core   # directed pipeline smoke test
 make test-cpi    # run core and SoC CPI regressions
 make test-atomic-order # atomic ordering under cache conflicts
 make test-vector-reduce # randomized reduction arithmetic checks
-make test-vector-c # C workload through roco-cc
+make test-vector-c # C workload through roco_cc
 make test-mm     # MMU unit test: translation, permissions, faults
 make test-vm     # Sv32 software test on the core and through the SoC
 make test-sdram  # SDRAM controller: bursts, refresh, retention

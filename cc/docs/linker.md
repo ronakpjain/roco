@@ -1,11 +1,11 @@
 # Linker
 
-`roco-ld` links ELF32 relocatable objects into a fixed-address roco
+`roco_ld` links ELF32 relocatable objects into a fixed-address roco
 image. It has no linker-script language: placement is deliberately
 predictable for this machine.
 
 ```bash
-roco-ld -o program.elf --binary program.bin --hex program.hex \
+roco_ld -o program.elf --binary program.bin --hex program.hex \
   startup.o program.o
 ```
 

@@ -170,7 +170,7 @@ class Codegen {
     for (std::size_t i = 0; i < function.params.size(); ++i) {
       if (i >= arg_registers.size()) {
         fail(function.params[i]->token,
-             "roco-cc currently supports at most eight parameters");
+             "roco_cc currently supports at most eight parameters");
       }
       emit("  sw " + arg_registers[i] + ", " +
            std::to_string(function.params[i]->offset) + "(s0)");
@@ -814,7 +814,7 @@ class Codegen {
   void generate_call(const Expr& expression, const Function& function) {
     if (expression.args.size() > 8) {
       fail(expression.token,
-           "roco-cc currently supports at most eight call arguments");
+           "roco_cc currently supports at most eight call arguments");
     }
     if (expression.args.size() == 1) {
       generate_expression(*expression.args[0], function);

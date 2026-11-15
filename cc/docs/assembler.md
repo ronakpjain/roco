@@ -1,10 +1,10 @@
 # Assembler reference
 
-`roco-as` turns one RISC-V assembly source file into an ELF32
+`roco_as` turns one RISC-V assembly source file into an ELF32
 little-endian relocatable object.
 
 ```bash
-roco-as -o program.o program.S
+roco_as -o program.o program.S
 ```
 
 The output defaults to the input name with a `.o` extension. Diagnostics

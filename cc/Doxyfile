@@ -1,8 +1,8 @@
-# Doxygen configuration for the roco-cc toolchain.
+# Doxygen configuration for the roco_cc toolchain.
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = "roco-cc"
+PROJECT_NAME           = "roco_cc"
 PROJECT_NUMBER         = 0.1.0
-PROJECT_BRIEF          = "C compiler, assembler and linker for the roco-cpu RV32 CPU"
+PROJECT_BRIEF          = "C compiler, assembler and linker for the roco_cpu RV32 CPU"
 OUTPUT_DIRECTORY       = docs
 CREATE_SUBDIRS         = NO
 ALLOW_UNICODE_NAMES    = YES

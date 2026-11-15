@@ -1,6 +1,6 @@
 # Target profile
 
-The tools target the roco-cpu five-stage RV32 CPU. This is the supported
+The tools target the roco_cpu five-stage RV32 CPU. This is the supported
 assembly boundary; unsupported instructions are rejected by the
 assembler or trap in the RTL.
 
@@ -117,7 +117,7 @@ The current C compiler emits scalar RV32IMA only. It does not auto-vectorize,
 so the vector caveats below apply to hand-written assembly and future
 backend work:
 
-- `roco-cc` supplies freestanding `<stdint.h>`; quoted headers are searched
+- `roco_cc` supplies freestanding `<stdint.h>`; quoted headers are searched
   relative to the source file.
 - `__attribute__((...))` is ignored, and inline assembly is not supported;
   put CSR access in a small `.S` helper.

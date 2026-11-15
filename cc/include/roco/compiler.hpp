@@ -21,7 +21,7 @@ namespace roco {
  *
  * @param source Complete C source text.
  * @param filename Display name used in diagnostics.
- * @return GNU-style RISC-V assembly accepted by roco-as.
+ * @return GNU-style RISC-V assembly accepted by roco_as.
  * @throws roco::Error on invalid input or unsupported C constructs.
  */
 std::string compile_to_assembly(std::string_view source,

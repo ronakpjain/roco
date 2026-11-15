@@ -257,7 +257,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "roco-pcb.kicad_pro",
+    "filename": "roco_pcb.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -425,7 +425,7 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "roco-pcb.kicad_sch",
+        "filename": "roco_pcb.kicad_sch",
         "name": "roco",
         "uuid": "4f145421-0158-43a7-b58f-b53bbe95a52c"
       }

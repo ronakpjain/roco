@@ -31,16 +31,16 @@ The `tests/e2e` program exercises startup, `.bss` clearing, loads,
 stores, branches, and the `tohost` halt path through the real core
 testbench. The sequence is:
 
-1. assemble `start.S` and `main.S` with `roco-as`;
-2. link with `roco-ld` and emit a word image;
+1. assemble `start.S` and `main.S` with `roco_as`;
+2. link with `roco_ld` and emit a word image;
 3. run `cpu/build/tb_core.vvp +hex=...` and require `PASS`.
 
 The check is enabled in CTest when `vvp` and the core testbench are
 available; otherwise it is skipped. This keeps GoogleTest simulator-free
 while still validating the complete toolchain against the RTL.
 
-`cpu_smoke_c` does the same from a C source file: `roco-cc` emits
-assembly, `roco-as` creates an object, `roco-ld` links it with the C
+`cpu_smoke_c` does the same from a C source file: `roco_cc` emits
+assembly, `roco_as` creates an object, `roco_ld` links it with the C
 startup, and the core testbench must print `PASS`. The CPU's `test-vector-c`,
 `test-boot`, and `test-hello` targets use the same compiler, assembler, and
 linker path. Directed core/SoC tests default to Verilator; UART boot, unit

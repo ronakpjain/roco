@@ -1,4 +1,4 @@
-/// @file roco-ld.cpp
+/// @file roco_ld.cpp
 /// @brief Command-line driver for the roco static linker.
 
 #include "roco/diagnostic.hpp"
@@ -18,7 +18,7 @@
 namespace {
 
 void usage() {
-  std::cerr << "usage: roco-ld [-o output.elf] [--binary output.bin] "
+  std::cerr << "usage: roco_ld [-o output.elf] [--binary output.bin] "
                "[--hex output.hex] [-e symbol] [--base address] "
                "[-Map map.txt] input.o...\n";
 }
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
       continue;
     }
     if (!argument.empty() && argument[0] == '-') {
-      std::cerr << "roco-ld: unknown option '" << argument << "'\n";
+      std::cerr << "roco_ld: unknown option '" << argument << "'\n";
       usage();
       return 2;
     }
@@ -188,10 +188,10 @@ int main(int argc, char** argv) {
     }
     return 0;
   } catch (const roco::Error& error) {
-    std::cerr << "roco-ld: " << error.what() << '\n';
+    std::cerr << "roco_ld: " << error.what() << '\n';
     return 1;
   } catch (const std::exception& error) {
-    std::cerr << "roco-ld: internal error: " << error.what() << '\n';
+    std::cerr << "roco_ld: internal error: " << error.what() << '\n';
     return 1;
   }
 }

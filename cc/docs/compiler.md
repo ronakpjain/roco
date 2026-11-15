@@ -1,16 +1,16 @@
 # C compiler
 
-`roco-cc` compiles a freestanding C subset to RV32 assembly or directly
-to an ELF object. The backend emits instructions accepted by `roco-as`
+`roco_cc` compiles a freestanding C subset to RV32 assembly or directly
+to an ELF object. The backend emits instructions accepted by `roco_as`
 and uses the standard RV32 ILP32 integer calling convention.
 
 ```bash
-roco-cc -E -o program.i program.c   # preprocessed C
-roco-cc -S -o program.s program.c   # assembly
-roco-cc -c -o program.o program.c   # ELF relocatable object
+roco_cc -E -o program.i program.c   # preprocessed C
+roco_cc -S -o program.s program.c   # assembly
+roco_cc -c -o program.o program.c   # ELF relocatable object
 ```
 
-`roco-cc` does not link. Use `roco-ld` with the startup object and any
+`roco_cc` does not link. Use `roco_ld` with the startup object and any
 runtime objects, or use the `cpu_smoke_c` test as an end-to-end example.
 
 ## Supported language

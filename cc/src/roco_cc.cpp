@@ -1,5 +1,5 @@
-/// @file roco-cc.cpp
-/// @brief Command-line driver for the roco-cc compiler.
+/// @file roco_cc.cpp
+/// @brief Command-line driver for the roco_cc compiler.
 
 #include "roco/assembler.hpp"
 #include "roco/compiler.hpp"
@@ -15,7 +15,7 @@
 namespace {
 
 void usage() {
-  std::cerr << "usage: roco-cc [-S|-c|-E] [-o output] input.c\n";
+  std::cerr << "usage: roco_cc [-S|-c|-E] [-o output] input.c\n";
 }
 
 void write_text(const std::filesystem::path& path, const std::string& text) {
@@ -77,12 +77,12 @@ int main(int argc, char** argv) {
       continue;
     }
     if (!argument.empty() && argument[0] == '-') {
-      std::cerr << "roco-cc: unknown option '" << argument << "'\n";
+      std::cerr << "roco_cc: unknown option '" << argument << "'\n";
       usage();
       return 2;
     }
     if (!input.empty()) {
-      std::cerr << "roco-cc: multiple input files are not supported\n";
+      std::cerr << "roco_cc: multiple input files are not supported\n";
       return 2;
     }
     input = argument;
@@ -111,10 +111,10 @@ int main(int argc, char** argv) {
     write_bytes(output, roco::elf::encode_object(object));
     return 0;
   } catch (const roco::Error& error) {
-    std::cerr << "roco-cc: " << error.what() << '\n';
+    std::cerr << "roco_cc: " << error.what() << '\n';
     return 1;
   } catch (const std::exception& error) {
-    std::cerr << "roco-cc: internal error: " << error.what() << '\n';
+    std::cerr << "roco_cc: internal error: " << error.what() << '\n';
     return 1;
   }
 }

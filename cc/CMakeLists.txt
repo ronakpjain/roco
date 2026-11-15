@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(roco-cc LANGUAGES CXX)
+project(roco_cc LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,17 +24,17 @@ target_compile_definitions(roco_core PRIVATE
   ROCO_INCLUDE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/include/freestanding")
 target_compile_options(roco_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
-add_executable(roco-as src/roco-as.cpp)
-target_link_libraries(roco-as PRIVATE roco_core)
-target_compile_options(roco-as PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+add_executable(roco_as src/roco_as.cpp)
+target_link_libraries(roco_as PRIVATE roco_core)
+target_compile_options(roco_as PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
-add_executable(roco-ld src/roco-ld.cpp)
-target_link_libraries(roco-ld PRIVATE roco_core)
-target_compile_options(roco-ld PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+add_executable(roco_ld src/roco_ld.cpp)
+target_link_libraries(roco_ld PRIVATE roco_core)
+target_compile_options(roco_ld PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
-add_executable(roco-cc src/roco-cc.cpp)
-target_link_libraries(roco-cc PRIVATE roco_core)
-target_compile_options(roco-cc PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+add_executable(roco_cc src/roco_cc.cpp)
+target_link_libraries(roco_cc PRIVATE roco_core)
+target_compile_options(roco_cc PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 enable_testing()
 find_package(GTest REQUIRED)
@@ -63,14 +63,14 @@ if(ROCO_VVP AND EXISTS "${ROCO_CPU_TESTBENCH}")
   add_test(NAME cpu_smoke
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/run.sh
             ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}
-            $<TARGET_FILE:roco-as> $<TARGET_FILE:roco-ld>
+            $<TARGET_FILE:roco_as> $<TARGET_FILE:roco_ld>
             ${ROCO_VVP} ${ROCO_CPU_TESTBENCH})
   set_tests_properties(cpu_smoke PROPERTIES LABELS "cpu")
 
   add_test(NAME cpu_smoke_c
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/run-c.sh
             ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}
-            $<TARGET_FILE:roco-cc> $<TARGET_FILE:roco-as> $<TARGET_FILE:roco-ld>
+            $<TARGET_FILE:roco_cc> $<TARGET_FILE:roco_as> $<TARGET_FILE:roco_ld>
             ${ROCO_VVP} ${ROCO_CPU_TESTBENCH})
   set_tests_properties(cpu_smoke_c PROPERTIES LABELS "cpu")
 endif()

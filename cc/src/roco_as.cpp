@@ -1,4 +1,4 @@
-/// @file roco-as.cpp
+/// @file roco_as.cpp
 /// @brief Command-line driver for the roco RISC-V assembler.
 
 #include "roco/assembler.hpp"
@@ -14,7 +14,7 @@
 namespace {
 
 void usage() {
-  std::cerr << "usage: roco-as [-o output.o] input.S\n";
+  std::cerr << "usage: roco_as [-o output.o] input.S\n";
 }
 
 void write_file(const std::filesystem::path& path,
@@ -51,12 +51,12 @@ int main(int argc, char** argv) {
       continue;
     }
     if (!argument.empty() && argument[0] == '-') {
-      std::cerr << "roco-as: unknown option '" << argument << "'\n";
+      std::cerr << "roco_as: unknown option '" << argument << "'\n";
       usage();
       return 2;
     }
     if (!input.empty()) {
-      std::cerr << "roco-as: multiple input files are not supported\n";
+      std::cerr << "roco_as: multiple input files are not supported\n";
       return 2;
     }
     input = argument;
@@ -77,10 +77,10 @@ int main(int argc, char** argv) {
     write_file(output, bytes);
     return 0;
   } catch (const roco::Error& error) {
-    std::cerr << "roco-as: " << error.what() << '\n';
+    std::cerr << "roco_as: " << error.what() << '\n';
     return 1;
   } catch (const std::exception& error) {
-    std::cerr << "roco-as: internal error: " << error.what() << '\n';
+    std::cerr << "roco_as: internal error: " << error.what() << '\n';
     return 1;
   }
 }

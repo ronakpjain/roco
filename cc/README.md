@@ -1,14 +1,14 @@
-# roco-cc
+# roco_cc
 
-A C toolchain for the roco-cpu RV32 CPU in `../cpu`, written from scratch
+A C toolchain for the roco_cpu RV32 CPU in `../cpu`, written from scratch
 in C++20. The host programs build with a normal desktop compiler;
 everything they emit targets the FPGA CPU. No binutils, GCC runtime, or
 external assembler is required.
 
 ```text
-hello.c   -> roco-cc -> hello.s
-hello.s   -> roco-as -> hello.o
-hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
+hello.c   -> roco_cc -> hello.s
+hello.s   -> roco_as -> hello.o
+hello.o   -> roco_ld -> hello.elf + hello.bin + hello.hex
 ```
 
 ## Status
@@ -16,10 +16,10 @@ hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
 | Component | State |
 | --- | --- |
 | RV32 instruction encoder | complete |
-| `roco-as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
+| `roco_as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
 | ELF32 objects | reader and writer complete |
-| `roco-ld` linker | fixed-layout ELF executable, binary, and hex output |
-| `roco-cc` C compiler | preprocessor, typedefs, types, pointers, arrays, functions, control flow |
+| `roco_ld` linker | fixed-layout ELF executable, binary, and hex output |
+| `roco_cc` C compiler | preprocessor, typedefs, types, pointers, arrays, functions, control flow |
 
 The assembler accepts the standard RV32 encodings and rejects instructions
 the roco RTL does not implement. See the [target profile](docs/target.md)
@@ -42,10 +42,10 @@ On macOS: `brew install googletest doxygen`.
 ## Usage
 
 ```bash
-./build/roco-cc -E -o hello.i hello.c   # preprocessed source
-./build/roco-cc -S -o hello.s hello.c
-./build/roco-as -o hello.o hello.s
-./build/roco-ld -o hello.elf --hex hello.hex hello.o
+./build/roco_cc -E -o hello.i hello.c   # preprocessed source
+./build/roco_cc -S -o hello.s hello.c
+./build/roco_as -o hello.o hello.s
+./build/roco_ld -o hello.elf --hex hello.hex hello.o
 ```
 
 The assembler accepts labels, numeric local labels, data directives,

@@ -1,4 +1,4 @@
-# roco-cpu
+# roco_cpu
 #
 # Requires: verible, iverilog, verilator, yosys and a RISC-V ELF toolchain
 # for software builds (riscv64-elf-gcc).
@@ -37,9 +37,9 @@ RISCV ?= $(shell command -v riscv64-elf-gcc >/dev/null 2>&1 && echo riscv64-elf 
 	    && echo /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf) || echo riscv64-elf)
 
 ROCO_DIR ?= ../cc
-ROCO_AS ?= $(ROCO_DIR)/build/roco-as
-ROCO_LD ?= $(ROCO_DIR)/build/roco-ld
-ROCO_CC ?= $(ROCO_DIR)/build/roco-cc
+ROCO_AS ?= $(ROCO_DIR)/build/roco_as
+ROCO_LD ?= $(ROCO_DIR)/build/roco_ld
+ROCO_CC ?= $(ROCO_DIR)/build/roco_cc
 
 FORMAT_FLAGS := --flagfile=.verible-verilog-format
 
@@ -88,13 +88,13 @@ hooks:
 build:
 	mkdir -p $(BUILD_DIR)
 
-# Directed assembly tests use the sibling roco-cc toolchain.
+# Directed assembly tests use the sibling roco_cc toolchain.
 $(ROCO_AS) $(ROCO_LD):
 	cmake -S $(ROCO_DIR) -B $(ROCO_DIR)/build
 	cmake --build $(ROCO_DIR)/build
 
-.PHONY: roco-tools
-roco-tools:
+.PHONY: roco_tools
+roco_tools:
 	cmake -S $(ROCO_DIR) -B $(ROCO_DIR)/build
 	cmake --build $(ROCO_DIR)/build
 
@@ -368,8 +368,8 @@ $(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf Makefile $
 	$(NEXTPNR) --45k --package CABGA381 --speed 6 $(PNR_FLAGS) \
 		--json $(BUILD_DIR)/roco.json --lpf constraints/roco.lpf \
 		--seed $(PNR_SEED) --textcfg $@.tmp \
-		--report $(BUILD_DIR)/roco-timing.json --detailed-timing-report \
-		--log $(BUILD_DIR)/roco-route.log
+		--report $(BUILD_DIR)/roco_timing.json --detailed-timing-report \
+		--log $(BUILD_DIR)/roco_route.log
 	mv $@.tmp $@
 
 $(BUILD_DIR)/roco.bit: $(BUILD_DIR)/roco.config

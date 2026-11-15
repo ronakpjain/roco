@@ -1,7 +1,7 @@
 // C workload for the vector-oriented testbench.
 //
 // The two kernels below are ordinary C loops with no vector intrinsics.
-// roco-cc currently emits scalar RV32IMA, so this checks the C ABI,
+// roco_cc currently emits scalar RV32IMA, so this checks the C ABI,
 // memory, and arithmetic paths rather than vector code generation.
 //
 // The drivers fill the arrays through volatile pointers so that the

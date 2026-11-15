@@ -7,7 +7,7 @@ constraints in `constraints/roco.lpf`.
 ## Reproduce
 
 Run `make bitstream` for a timing-enforced build. It produces
-`build/roco.bit`, `build/roco-timing.json`, and `build/roco-route.log`.
+`build/roco.bit`, `build/roco_timing.json`, and `build/roco_route.log`.
 A timing failure stops the build before the configuration is packaged.
 `make timing` is diagnostic: it permits timing failures and writes
 `build/timing-seed4.json` by default. A successful diagnostic command does

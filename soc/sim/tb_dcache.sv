@@ -73,9 +73,31 @@ module tb_dcache;
     end
   end
 
+  logic [1:0] expected_offset = 0;
+  logic [2:0] expected_funct3 = 3'b010;
+  always @(posedge clk) begin
+    if (lu_valid) begin
+      expected_offset <= lu_offset;
+      expected_funct3 <= lu_funct3;
+    end
+  end
+  function automatic [31:0] expected_load(input logic [31:0] word_data, input logic [1:0] offset,
+                                          input logic [2:0] funct3);
+    logic [31:0] shifted;
+    shifted = word_data >> (8 * offset);
+    case (funct3)
+      0: expected_load = {{24{shifted[7]}}, shifted[7:0]};
+      1: expected_load = {{16{shifted[15]}}, shifted[15:0]};
+      4: expected_load = {24'd0, shifted[7:0]};
+      5: expected_load = {16'd0, shifted[15:0]};
+      default: expected_load = word_data;
+    endcase
+  endfunction
   always @(negedge clk) begin
-    if (!rst && cm_ready && (cm_rdata !== cm_forward_data))
-      $fatal(1, "cache forwarding mirror differs from committed data");
+    if (!rst && cm_ready && (expected_load(
+            cm_rdata, expected_offset, expected_funct3
+        ) !== cm_forward_data))
+      $fatal(1, "formatted cache mirror differs from committed data");
   end
 
   task automatic lookup(input int word_addr);
@@ -206,6 +228,28 @@ module tb_dcache;
     lookup(2);
     if (!cm_ready || cm_forward_data !== 32'hc0ad00ef) $fatal(1, "partial store bank data");
     ack_read(2);
+    // Exercise signed/unsigned formatting at every byte offset in every
+    // bank, including the word modified by the partial store above.
+    for (int bank = 0; bank < 16; bank++) begin
+      for (int format = 0; format < 5; format++) begin
+        for (int offset = 0; offset < 4; offset++) begin
+          lu_offset = 2'(offset);
+          case (format)
+            0: lu_funct3 = 3'b000;
+            1: lu_funct3 = 3'b001;
+            2: lu_funct3 = 3'b100;
+            3: lu_funct3 = 3'b101;
+            default: lu_funct3 = 3'b010;
+          endcase
+          lookup(bank * 64 + 2);
+          if (!cm_ready || cm_forward_data !== expected_load(
+                  bank == 0 ? 32'hc0ad00ef : 32'hc0000000 + 32'(bank * 64 + 2), lu_offset, lu_funct3
+              ))
+            $fatal(1, "formatted bank lookup bank=%0d offset=%0d format=%0d", bank, offset, format);
+          ack_read(bank * 64 + 2);
+        end
+      end
+    end
     $display("tb_dcache: PASS");
     $finish;
   end

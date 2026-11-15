@@ -276,8 +276,9 @@ test_atomic: $(BUILD_DIR)/atomic.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic.hex
 
 .PHONY: test_atomic_mmio
-test_atomic_mmio: $(BUILD_DIR)/atomic_mmio.hex $(SOC_SIM_DEP)
+test_atomic_mmio: $(BUILD_DIR)/mmio_loads.hex $(BUILD_DIR)/atomic_mmio.hex $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic_mmio.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/mmio_loads.hex
 
 .PHONY: test_csr_intent
 test_csr_intent: $(BUILD_DIR)/counter_retire.hex $(BUILD_DIR)/csr_intent.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)

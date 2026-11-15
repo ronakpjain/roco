@@ -21,6 +21,11 @@ RISCV ?= $(shell command -v riscv64-elf-gcc >/dev/null 2>&1 && echo riscv64-elf 
 	|| (test -x /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf-gcc \
 	    && echo /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf) || echo riscv64-elf)
 
+ROCO_DIR ?= ../c
+ROCO_AS ?= $(ROCO_DIR)/build/roco-as
+ROCO_LD ?= $(ROCO_DIR)/build/roco-ld
+ROCO_CC ?= $(ROCO_DIR)/build/roco-cc
+
 FORMAT_FLAGS := --flagfile=.verible-verilog-format
 
 RTL_SV := $(shell find $(RTL_DIR) -name '*.sv')
@@ -66,66 +71,41 @@ hooks:
 build:
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/basic.elf: sw/tests/basic.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
+# Directed assembly tests use the sibling roco toolchain.
+$(ROCO_AS) $(ROCO_LD):
+	cmake -S $(ROCO_DIR) -B $(ROCO_DIR)/build
+	cmake --build $(ROCO_DIR)/build
 
-$(BUILD_DIR)/basic.bin: $(BUILD_DIR)/basic.elf
-	$(RISCV)-objcopy -O binary $< $@
+.PHONY: roco-tools
+roco-tools:
+	cmake -S $(ROCO_DIR) -B $(ROCO_DIR)/build
+	cmake --build $(ROCO_DIR)/build
 
-$(BUILD_DIR)/basic.hex: $(BUILD_DIR)/basic.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
+$(BUILD_DIR)/%.o: sw/tests/%.S $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
 
-$(BUILD_DIR)/redirect.elf: sw/tests/redirect.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+$(BUILD_DIR)/%.elf: $(BUILD_DIR)/%.o $(ROCO_LD) | build
+	$(ROCO_LD) -o $@ --binary $(BUILD_DIR)/$*.bin --hex $(BUILD_DIR)/$*.hex \
+		--map $(BUILD_DIR)/$*.map $<
 
-$(BUILD_DIR)/redirect.bin: $(BUILD_DIR)/redirect.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/redirect.hex: $(BUILD_DIR)/redirect.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
+$(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf
+	@test -f $@ || $(ROCO_LD) -o $(BUILD_DIR)/$*.elf --binary $(BUILD_DIR)/$*.bin \
+		--hex $@ --map $(BUILD_DIR)/$*.map $(BUILD_DIR)/$*.o
 
 .PHONY: test-redirect
 test-redirect: $(BUILD_DIR)/redirect.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/redirect.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/redirect.hex
 
-$(BUILD_DIR)/trap-pipeline.elf: sw/tests/trap-pipeline.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32ima_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/trap-pipeline.bin: $(BUILD_DIR)/trap-pipeline.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/trap-pipeline.hex: $(BUILD_DIR)/trap-pipeline.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 .PHONY: test-trap-pipeline
 test-trap-pipeline: $(BUILD_DIR)/trap-pipeline.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/trap-pipeline.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/trap-pipeline.hex
 
-$(BUILD_DIR)/satp-fetch.elf: sw/tests/satp-fetch.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/satp-fetch.bin: $(BUILD_DIR)/satp-fetch.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/satp-fetch.hex: $(BUILD_DIR)/satp-fetch.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 .PHONY: test-satp-fetch
 test-satp-fetch: $(BUILD_DIR)/satp-fetch.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
-
-$(BUILD_DIR)/csr-intent.elf: sw/tests/csr-intent.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/csr-intent.bin: $(BUILD_DIR)/csr-intent.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/csr-intent.hex: $(BUILD_DIR)/csr-intent.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
 
 $(BUILD_DIR)/vector-c.elf: sw/vector/crt0.S sw/vector/main.c sw/link.ld | build
 	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -O3 -mrvv-vector-bits=zvl \
@@ -138,122 +118,15 @@ $(BUILD_DIR)/vector-c.bin: $(BUILD_DIR)/vector-c.elf
 $(BUILD_DIR)/vector-c.hex: $(BUILD_DIR)/vector-c.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
-$(BUILD_DIR)/vector-start.elf: sw/tests/vector-start.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vector-start.bin: $(BUILD_DIR)/vector-start.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/vector-start.hex: $(BUILD_DIR)/vector-start.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 .PHONY: test-vector-start
 test-vector-start: $(BUILD_DIR)/vector-start.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
 
-$(BUILD_DIR)/vector.elf: sw/tests/vector.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vector.bin: $(BUILD_DIR)/vector.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/vector.hex: $(BUILD_DIR)/vector.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/vector-irq.elf: sw/tests/vector-irq.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vector-irq.bin: $(BUILD_DIR)/vector-irq.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/vector-irq.hex: $(BUILD_DIR)/vector-irq.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/vector-fence.elf: sw/tests/vector-fence.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b_zicsr_zifencei -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vector-fence.bin: $(BUILD_DIR)/vector-fence.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/vector-fence.hex: $(BUILD_DIR)/vector-fence.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/atomic-order.elf: sw/tests/atomic-order.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/atomic-order.bin: $(BUILD_DIR)/atomic-order.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/atomic-order.hex: $(BUILD_DIR)/atomic-order.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 .PHONY: test-atomic-order
 test-atomic-order: $(BUILD_DIR)/atomic-order.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000 +check_atomic_order
-
-$(BUILD_DIR)/atomic.elf: sw/tests/atomic.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/atomic.bin: $(BUILD_DIR)/atomic.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/atomic.hex: $(BUILD_DIR)/atomic.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/atomic-mmio.elf: sw/tests/atomic-mmio.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32ia -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/atomic-mmio.bin: $(BUILD_DIR)/atomic-mmio.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/atomic-mmio.hex: $(BUILD_DIR)/atomic-mmio.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/interrupt.elf: sw/tests/interrupt.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/interrupt.bin: $(BUILD_DIR)/interrupt.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/interrupt.hex: $(BUILD_DIR)/interrupt.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/vectored-irq.elf: sw/tests/vectored-irq.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vectored-irq.bin: $(BUILD_DIR)/vectored-irq.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/vectored-irq.hex: $(BUILD_DIR)/vectored-irq.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/muldiv.elf: sw/tests/muldiv.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/muldiv.bin: $(BUILD_DIR)/muldiv.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/muldiv.hex: $(BUILD_DIR)/muldiv.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/vm.elf: sw/tests/vm.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vm.bin: $(BUILD_DIR)/vm.elf
-	$(RISCV)-objcopy -O binary -j .text -j .data $< $@
-
-$(BUILD_DIR)/vm.hex: $(BUILD_DIR)/vm.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
 
 $(BUILD_DIR)/hello.elf: sw/crt0.S sw/hello/main.c sw/hello/roco_io.h sw/link.ld | build
 	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -ffreestanding -O2 -nostdlib -nostartfiles \
@@ -379,33 +252,6 @@ test-boot: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex
 
-$(BUILD_DIR)/cpi-jalr.elf: sw/tests/cpi-jalr.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/cpi-jalr.bin: $(BUILD_DIR)/cpi-jalr.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/cpi-jalr.hex: $(BUILD_DIR)/cpi-jalr.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/cpi-forward.elf: sw/tests/cpi-forward.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32ima_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/cpi-forward.bin: $(BUILD_DIR)/cpi-forward.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/cpi-forward.hex: $(BUILD_DIR)/cpi-forward.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/cpi-vector.elf: sw/tests/cpi-vector.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/cpi-vector.bin: $(BUILD_DIR)/cpi-vector.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/cpi-vector.hex: $(BUILD_DIR)/cpi-vector.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 $(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/rv32_vec_reduce.sv sim/tb_vec_reduce.sv | build
 	$(IVERILOG) -g2012 -s tb_vec_reduce -o $@ $^
 
@@ -413,32 +259,14 @@ $(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/rv32_vec_reduce.sv sim/tb_vec_reduce.sv
 test-vector-reduce: $(BUILD_DIR)/tb_vec_reduce.vvp
 	$(VVP) $<
 
-$(BUILD_DIR)/vector-retire.elf: sw/tests/vector-retire.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zicsr_zve32x_zvl128b -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/vector-retire.bin: $(BUILD_DIR)/vector-retire.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/vector-retire.hex: $(BUILD_DIR)/vector-retire.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 .PHONY: test-vector-retire
 test-vector-retire: $(BUILD_DIR)/vector-retire.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-retire.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-retire.hex
 
-$(BUILD_DIR)/cpi-vm.elf: sw/tests/cpi-vm.S sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
-
-$(BUILD_DIR)/cpi-vm.bin: $(BUILD_DIR)/cpi-vm.elf
-	$(RISCV)-objcopy -O binary $< $@
-
-$(BUILD_DIR)/cpi-vm.hex: $(BUILD_DIR)/cpi-vm.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
 .PHONY: test-cpi
 test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-vm.hex $(BUILD_DIR)/cpi-forward.hex $(BUILD_DIR)/cpi-vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(PYTHON) scripts/run_cpi_tests.py --riscv-prefix $(RISCV)-
+	$(PYTHON) scripts/run_cpi_tests.py
 
 test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vm.hex

@@ -2,9 +2,9 @@
 """Assert continuous retirement in warmed program regions."""
 import argparse
 import subprocess
+from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--riscv-prefix', default='riscv64-elf-')
 parser.add_argument('--case', help='run one image instead of the whole CPI suite')
 args = parser.parse_args()
 cases = {
@@ -19,12 +19,16 @@ if args.case:
     cases = {args.case: cases[args.case]}
 for image, windows in cases.items():
     symbols = {}
-    for line in subprocess.check_output(
-        [args.riscv_prefix + 'nm', f'build/{image}.elf'], text=True
-    ).splitlines():
+    in_symbols = False
+    for line in Path(f'build/{image}.map').read_text().splitlines():
+        if line.strip() == 'symbols:':
+            in_symbols = True
+            continue
+        if not in_symbols:
+            continue
         fields = line.split()
-        if len(fields) == 3:
-            symbols[fields[2]] = int(fields[0], 16)
+        if len(fields) == 2 and fields[0].startswith('0x'):
+            symbols[fields[1]] = int(fields[0], 16)
     for sim in ('core', 'soc'):
         for symbol in windows:
             result = subprocess.run(

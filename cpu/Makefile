@@ -384,8 +384,17 @@ test-vector-retire: $(BUILD_DIR)/vector-retire.hex $(BUILD_DIR)/tb_core.vvp $(BU
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-retire.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-retire.hex
 
+$(BUILD_DIR)/cpi-vm.elf: sw/tests/cpi-vm.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/cpi-vm.bin: $(BUILD_DIR)/cpi-vm.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/cpi-vm.hex: $(BUILD_DIR)/cpi-vm.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
 .PHONY: test-cpi
-test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-forward.hex $(BUILD_DIR)/cpi-vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-vm.hex $(BUILD_DIR)/cpi-forward.hex $(BUILD_DIR)/cpi-vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
 	$(PYTHON) scripts/run_cpi_tests.py --riscv-prefix $(RISCV)-
 
 test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp

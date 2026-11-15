@@ -13,7 +13,7 @@ module tb_soc;
   localparam int CLK_HZ = 48_000_000;
   localparam int BAUD = 1_000_000;
   localparam int DIV = CLK_HZ / BAUD;
-  localparam int IMAGE_WORDS = 4096;
+  localparam int IMAGE_WORDS = 16384;
 
   logic clk;
   logic rst;

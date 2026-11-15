@@ -48,10 +48,10 @@ used for this work were Yosys 0.71+post
   writeback. Every store/refill updates both copies. Hit latency is unchanged. Misses hold MEM
   until refill recovery has read the requested word; responses persist until
   commit. Store-to-load forwarding merges the preceding committed bytes.
-- The data MMU retains the most recent translation and permission context.
-  A new translated page or context adds one EX cycle; repeated accesses in
-  that context avoid the TLB-to-cache combinational path. Bare accesses do
-  not incur this translation cycle. SFENCE and SATP writes invalidate it.
+- The data MMU compares each TLB entry and its permissions in parallel,
+  then selects the physical page with a one-hot merge. Warm translated
+  accesses can alternate pages and load/store permission contexts without
+  adding an EX cycle. SFENCE and SATP writes invalidate the TLB.
 - Branch target prediction is checked in ID; branches still resolve in EX.
   Redirects reach fetch one cycle after EX resolution, adding one recovery
   cycle. Traps capture their PC/cause/value before applying entry and
@@ -81,11 +81,12 @@ constitute a board test.
 
 ## CPI checks
 
-`make test-cpi` asserts one architectural retirement every cycle in 11
+`make test-cpi` asserts one architectural retirement every cycle in 12
 warmed windows on each of the standalone core and cached SoC, for 128
 consecutive instructions per window. They cover stable JALR targets,
 load-to-ALU/store/load/branch/JALR/CSR dependencies, subword alignment,
-dependent multiplies, LR/SC, all AMO arithmetic classes, vector arithmetic,
+dependent multiplies, LR/SC, all AMO arithmetic classes, alternating warm
+translated pages and load/store contexts, vector arithmetic,
 and dependent reductions at all three supported element widths. Each
 program also checks architectural results and wrong-path side effects.
 
@@ -100,8 +101,7 @@ measurement window. `make test-vector-reduce` compares
 including zero length, partial VL, full VL and overflow.
 
 The windows exclude startup and predictor training. They do not establish
-CPI=1 for vector memory, alternating translated pages/permission contexts,
-uncached dependencies, fences, cache/TLB misses or branch mispredictions.
+CPI=1 for vector memory, uncached dependencies, fences, cache/TLB misses or branch mispredictions.
 Division is multi-cycle. The FPGA clock target remains 48 MHz; the current
 CPI optimizations do not yet meet that target. `make bitstream` rejects a
 route that misses timing. The reference result above is not timing

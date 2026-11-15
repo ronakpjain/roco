@@ -133,7 +133,6 @@ module rv32_mmu #(
   logic [TAG_BITS-1:0] i_tag;
   logic [TAG_BITS-1:0] d_tag;
   logic [TLB_W-1:0] i_ent;
-  logic [TLB_W-1:0] d_ent;
   logic i_tag_hit;
   logic d_tag_hit;
   logic i_perm_ok;
@@ -142,14 +141,10 @@ module rv32_mmu #(
   logic d_perm_fault;
   logic [31:0] i_phys;
   logic [19:0] d_ppn;
-  logic d_last_valid;
-  logic [19:0] d_last_vpn;
-  logic [19:0] d_last_ppn;
-  logic [4:0] d_last_context;
-  logic [4:0] d_context;
+  logic [TLB_ENTRIES-1:0] d_way_tags, d_way_allowed;
+  logic [19:0] d_way_ppn[0:TLB_ENTRIES-1];
   logic d_cached_hit;
-  assign d_context = {priv_data, mstatus_sum, mstatus_mxr, d_we};
-  assign d_cached_hit = d_last_valid && (d_last_vpn == d_vpn) && (d_last_context == d_context);
+  assign d_cached_hit = d_perm_ok;
   logic [31:0] level0_pte_addr;
   logic [19:0] pte_ppn;
   logic [19:0] leaf_ppn_4k;
@@ -179,7 +174,6 @@ module rv32_mmu #(
 
   always_comb begin
     i_ent = itlb[i_idx];
-    d_ent = dtlb[d_idx];
   end
 
   function automatic logic in_sdram(logic [31:0] addr);
@@ -242,7 +236,27 @@ module rv32_mmu #(
   endfunction
 
   assign i_tag_hit = i_valid[i_idx] && (i_ent[TAG_BITS-1:0] == i_tag);
-  assign d_tag_hit = d_valid[d_idx] && (d_ent[TAG_BITS-1:0] == d_tag);
+  // Compare constant entries in parallel, before selecting the PPN.
+  // Warm page and permission-context changes do not need a register cycle.
+  for (genvar way = 0; way < TLB_ENTRIES; way = way + 1) begin : g_d_lookup
+    assign d_way_tags[way] = d_valid[way] && (d_idx == IDX_BITS'(way)) &&
+                             (dtlb[way][TAG_BITS-1:0] == d_tag);
+    assign d_way_allowed[way] = d_way_tags[way] && tlb_perm_ok(
+        dtlb[way][P_A],
+        dtlb[way][P_R],
+        dtlb[way][P_W],
+        dtlb[way][P_X],
+        dtlb[way][P_U],
+        dtlb[way][P_D],
+        1'b0,
+        d_we,
+        priv_data,
+        mstatus_sum,
+        mstatus_mxr
+    );
+    assign d_way_ppn[way] = {20{d_way_allowed[way]}} & dtlb[way][TAG_BITS+19:TAG_BITS];
+  end
+  assign d_tag_hit = |d_way_tags;
   assign i_perm_ok = tlb_perm_ok(
       i_ent[P_A],
       i_ent[P_R],
@@ -256,24 +270,15 @@ module rv32_mmu #(
       mstatus_sum,
       mstatus_mxr
   );
-  assign d_perm_ok = tlb_perm_ok(
-      d_ent[P_A],
-      d_ent[P_R],
-      d_ent[P_W],
-      d_ent[P_X],
-      d_ent[P_U],
-      d_ent[P_D],
-      1'b0,
-      d_we,
-      priv_data,
-      mstatus_sum,
-      mstatus_mxr
-  );
+  assign d_perm_ok = |d_way_allowed;
   assign i_perm_fault = i_translate && i_req && i_tag_hit && !i_perm_ok;
   assign d_perm_fault = d_translate && d_req && !d_cached_hit && d_tag_hit && !d_perm_ok;
 
   assign i_phys = {i_ent[TAG_BITS+19:TAG_BITS], i_vaddr[11:0]};
-  assign d_ppn = d_ent[TAG_BITS+19:TAG_BITS];
+  always_comb begin
+    d_ppn = '0;
+    for (int way = 0; way < TLB_ENTRIES; way = way + 1) d_ppn |= d_way_ppn[way];
+  end
 
   assign i_hit = !i_translate || (i_tag_hit && i_perm_ok);
   assign i_miss = i_translate && i_req && !i_tag_hit;
@@ -286,26 +291,10 @@ module rv32_mmu #(
   assign i_rsp_valid = ic_rsp_valid && i_rsp_armed;
   assign i_rsp_addr = i_req_vaddr;
   assign i_rsp_data = ic_rsp_data;
-  assign d_paddr = d_translate ? {d_last_ppn, d_vaddr[11:0]} : d_vaddr;
+  assign d_paddr = d_translate ? {d_ppn, d_vaddr[11:0]} : d_vaddr;
   assign d_fault = !d_cached_hit &&
                    (d_perm_fault || (d_fault_pending && d_req && (d_vpn == d_fault_vpn)));
   assign d_fault_cause = d_fault_pending ? d_fault_cause_q : (d_we ? 4'd15 : 4'd13);
-
-  // Registered last translation: the main TLB and data-cache tag
-  // comparison occupy separate cycles on a new page/context. Same-page
-  // accesses keep their throughput, including vector element bursts.
-  // Privilege, SUM, MXR and load/store permissions form part of the key;
-  // SFENCE.VMA and every satp write invalidate both translation levels.
-  always_ff @(posedge clk) begin
-    if (rst || flush) begin
-      d_last_valid <= 1'b0;
-    end else if (d_req && d_translate && !d_cached_hit && d_tag_hit && d_perm_ok) begin
-      d_last_valid <= 1'b1;
-      d_last_vpn <= d_vpn;
-      d_last_ppn <= d_ppn;
-      d_last_context <= d_context;
-    end
-  end
 
   assign p_req = (wstate == W_PTE1_REQ) || (wstate == W_PTE0_REQ);
   assign p_word_addr = w_pte_addr[24:2];

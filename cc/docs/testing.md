@@ -41,11 +41,11 @@ while still validating the complete toolchain against the RTL.
 
 `cpu_smoke_c` does the same from a C source file: `roco_cc` emits
 assembly, `roco_as` creates an object, `roco_ld` links it with the C
-startup, and the core testbench must print `PASS`. The CPU's `test-vector-c`,
-`test-boot`, and `test-hello` targets use the same compiler, assembler, and
+startup, and the core testbench must print `PASS`. The CPU's `test_vector_c`,
+`test_boot`, and `test_hello` targets use the same compiler, assembler, and
 linker path. Directed core/SoC tests default to Verilator; UART boot, unit
-tests, and the official ISA suites stay on Icarus. `test-boot` uses a
-minimal UART image for a fast bootloader check; `test-hello` runs the full
+tests, and the official ISA suites stay on Icarus. `test_boot` uses a
+minimal UART image for a fast bootloader check; `test_hello` runs the full
 demo.
 
 ## Documentation

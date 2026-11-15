@@ -2,7 +2,7 @@
 """Build and run the official riscv-tests rv32ui suite on tb_core.
 
 The riscv-tests checkout is expected under third_party/riscv-tests
-(scripts/get-riscv-tests.sh fetches the pinned revision) or is taken
+(scripts/get_riscv_tests.sh fetches the pinned revision) or is taken
 from $RISCV_TESTS. Each test is linked at 0x1000_0000, converted to a
 $readmemh image, and run until the core stores to tohost.
 """
@@ -17,8 +17,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build" / "isa"
-ENV = ROOT / "tests" / "riscv-env"
-LINKER = ROOT / "tests" / "riscv-test.ld"
+ENV = ROOT / "tests" / "riscv_env"
+LINKER = ROOT / "tests" / "riscv_test.ld"
 SECTIONS = (".text", ".rodata", ".data")
 
 # Suites this core implements, with the matching compiler ISA string.
@@ -124,7 +124,7 @@ def main() -> int:
     suite = tests_dir / "isa" / args.suite
     if not suite.is_dir():
         print(f"riscv-tests not found at {tests_dir}", file=sys.stderr)
-        print("run scripts/get-riscv-tests.sh first", file=sys.stderr)
+        print("run scripts/get_riscv_tests.sh first", file=sys.stderr)
         return 2
 
     BUILD.mkdir(parents=True, exist_ok=True)

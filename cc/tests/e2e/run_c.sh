@@ -13,7 +13,7 @@ testbench=$7
 out="$build_dir/e2e-c"
 mkdir -p "$out"
 
-"$roco_as" -o "$out/start.o" "$source_dir/tests/e2e/start-c.S"
+"$roco_as" -o "$out/start.o" "$source_dir/tests/e2e/start_c.S"
 
 for source in main features; do
   "$roco_cc" -S -o "$out/$source.s" "$source_dir/tests/e2e/$source.c"

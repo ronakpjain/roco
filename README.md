@@ -20,9 +20,9 @@ Open [`pcb/roco_pcb.kicad_pro`](pcb/roco_pcb.kicad_pro) in KiCad 10.
 
 ## Documentation
 
-- [Parts selection](pcb/docs/parts-selection.md)
-- [Power budget](pcb/docs/power-budget.md)
-- [Pin plan](pcb/docs/pin-plan.csv)
+- [Parts selection](pcb/docs/parts_selection.md)
+- [Power budget](pcb/docs/power_budget.md)
+- [Pin plan](pcb/docs/pin_plan.csv)
 - [roco_cpu](cpu/README.md)
 - [roco_cc toolchain](cc/README.md)
-- [Datasheets](pcb/docs/datasheets/) and [sources](pcb/docs/datasheet-sources.csv)
+- [Datasheets](pcb/docs/datasheets/) and [sources](pcb/docs/datasheet_sources.csv)

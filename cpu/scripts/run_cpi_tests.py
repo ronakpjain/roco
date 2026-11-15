@@ -10,10 +10,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--case', help='run one image instead of the whole CPI suite')
 args = parser.parse_args()
 cases = {
-    'cpi-jalr': ('cpi_target_a', 'cpi_target_b'),
-    'cpi-vm': ('cpi_vm',),
-    'cpi-forward': ('cpi_load', 'cpi_load_control', 'cpi_mul', 'cpi_lrsc', 'cpi_amo', 'cpi_atomic_order'),
-    'cpi-vector': ('cpi_reduce8', 'cpi_reduce16', 'cpi_reduce32', 'cpi_vec_alu'),
+    'cpi_jalr': ('cpi_target_a', 'cpi_target_b'),
+    'cpi_vm': ('cpi_vm',),
+    'cpi_forward': ('cpi_load', 'cpi_load_control', 'cpi_mul', 'cpi_lrsc', 'cpi_amo', 'cpi_atomic_order'),
+    'cpi_vector': ('cpi_reduce8', 'cpi_reduce16', 'cpi_reduce32', 'cpi_vec_alu'),
 }
 if args.case:
     if args.case not in cases:

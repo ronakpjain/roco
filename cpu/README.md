@@ -209,19 +209,19 @@ for a bitstream.
 ```sh
 make roco_tools  # build ../cc/roco_as, roco_ld and roco_cc
 make lint        # Verilator lint of the core, SDRAM controller and SoC
-make test-core   # directed pipeline smoke test
-make test-cpi    # run core and SoC CPI regressions
-make test-atomic-order # atomic ordering under cache conflicts
-make test-vector-reduce # randomized reduction arithmetic checks
-make test-vector-c # C workload through roco_cc
-make test-mm     # MMU unit test: translation, permissions, faults
-make test-vm     # Sv32 software test on the core and through the SoC
-make test-sdram  # SDRAM controller: bursts, refresh, retention
-make test-soc    # same program through caches, arbiter and SDRAM
-make test-isa    # official riscv-tests rv32ui on the bare core
-make test-isa-soc # official riscv-tests rv32ui through the SoC
-make test-boot   # boot the minimal hello image over UART in simulation
-make test-hello  # full hello demo over UART (slower)
+make test_core   # directed pipeline smoke test
+make test_cpi    # run core and SoC CPI regressions
+make test_atomic_order # atomic ordering under cache conflicts
+make test_vector_reduce # randomized reduction arithmetic checks
+make test_vector_c # C workload through roco_cc
+make test_mm     # MMU unit test: translation, permissions, faults
+make test_vm     # Sv32 software test on the core and through the SoC
+make test_sdram  # SDRAM controller: bursts, refresh, retention
+make test_soc    # same program through caches, arbiter and SDRAM
+make test_isa    # official riscv-tests rv32ui on the bare core
+make test_isa_soc # official riscv-tests rv32ui through the SoC
+make test_boot   # boot the minimal hello image over UART in simulation
+make test_hello  # full hello demo over UART (slower)
 make synth       # Yosys synth_ecp5 -> build/roco.json
 make bitstream   # nextpnr-ecp5 + ecppack (if installed)
 ```
@@ -230,7 +230,7 @@ Directed core and SoC tests default to Verilator (`SIM=verilator`).
 The first run builds `build/vl_tb_core/tb_core_vl` and
 `build/vl_tb_soc/tb_soc_vl`; subsequent runs are compiled simulation and
 are much faster than Icarus. Unit tests, the boot/UART tests, and the
-official ISA suites stay on Icarus. Use `make test-core SIM=icarus` (or
+official ISA suites stay on Icarus. Use `make test_core SIM=icarus` (or
 `SIM=icarus` on any directed target) to run the same test through Icarus.
 
 `make format` applies the repository Verible profile. The pre-commit

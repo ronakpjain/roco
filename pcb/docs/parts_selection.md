@@ -76,4 +76,4 @@
 | Vishay TNPW0603 series | As needed | Precision feedback/divider and current-programming resistors. |
 | Vishay CRCW0603 series | As needed | General pulls, LED resistors and series terminations. |
 
-Datasheets and provenance: [datasheet-sources.csv](datasheet-sources.csv). Exact footprints, values and quantities need checking against the completed schematic before ordering.
+Datasheets and provenance: [datasheet_sources.csv](datasheet_sources.csv). Exact footprints, values and quantities need checking against the completed schematic before ordering.

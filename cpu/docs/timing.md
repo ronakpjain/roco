@@ -10,7 +10,7 @@ Run `make bitstream` for a timing-enforced build. It produces
 `build/roco.bit`, `build/roco_timing.json`, and `build/roco_route.log`.
 A timing failure stops the build before the configuration is packaged.
 `make timing` is diagnostic: it permits timing failures and writes
-`build/timing-seed4.json` by default. A successful diagnostic command does
+`build/timing_seed4.json` by default. A successful diagnostic command does
 not establish timing closure. Both targets share `PNR_SEED` and `PNR_FLAGS`.
 Defaults are seed 4 and `--placer-heap-timingweight 30`.
 To reproduce explicitly, use
@@ -35,16 +35,16 @@ nonzero register containing zero, as specified by
 These checks are simulation and FPGA routing validation; they do not
 constitute a board test.
 
-`make test-cpi` exercises warmed core and cached-SoC dependency loops.
-`make test-vector-reduce` compares 3,000 randomized reductions with a
+`make test_cpi` exercises warmed core and cached-SoC dependency loops.
+`make test_vector_reduce` compares 3,000 randomized reductions with a
 sequential arithmetic reference, including zero length, partial VL, full
 VL and overflow.
 
 Vector memory retires exactly once on its final element; VL zero retires
-one no-op without accessing memory. `make test-vector-retire` checks both
+one no-op without accessing memory. `make test_vector_retire` checks both
 cases through minstret on the core and SoC. Counter reads include the older
 instruction committing in MEM, keeping the observed count independent of
-fetch/cache stalls. `make test-trap-pipeline` checks trap PC/cause/value,
+fetch/cache stalls. `make test_trap_pipeline` checks trap PC/cause/value,
 reservation clearing and cancellation of younger stores, scalar, CSR and
 vector writes. The cache unit test compares the forwarding mirror against
 committed data across refills, byte writes, forwarding and eviction.

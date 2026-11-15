@@ -68,7 +68,7 @@ if(ROCO_VVP AND EXISTS "${ROCO_CPU_TESTBENCH}")
   set_tests_properties(cpu_smoke PROPERTIES LABELS "cpu")
 
   add_test(NAME cpu_smoke_c
-    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/run-c.sh
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/run_c.sh
             ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}
             $<TARGET_FILE:roco_cc> $<TARGET_FILE:roco_as> $<TARGET_FILE:roco_ld>
             ${ROCO_VVP} ${ROCO_CPU_TESTBENCH})

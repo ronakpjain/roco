@@ -1,5 +1,5 @@
 # roco Rev A pin constraints (LFE5U-45F-6BG381C).
-# Balls follow pcb/docs/pin-plan.csv.
+# Balls follow pcb/docs/pin_plan.csv.
 
 BLOCK RESETPATHS;
 BLOCK ASYNCPATHS;

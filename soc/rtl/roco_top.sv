@@ -1,13 +1,13 @@
 // roco board top level.
 //
-// 24 MHz reference on ball A4 -> EHXPLLL -> 48 MHz system clock.
+// 24 MHz reference on ball A4 -> EHXPLLL -> 96 MHz system clock.
 // The SoC drives the 16-bit SDRAM, the FT2232H UART, the four user LEDs
 // and samples the two user buttons. app_reset_n is the active-low board
-// reset; an unsynchronized release is filtered into the 48 MHz domain.
+// reset; an unsynchronized release is filtered into the 96 MHz domain.
 //
 // The SDRAM clock is the system clock routed to ball C13. Its
 // clock-to-pin delay and the board skew must be checked against the
-// IS42S16160J timing at 48 MHz; the clock is not phase shifted.
+// IS42S16160J timing at 96 MHz; the clock is not phase shifted.
 
 `default_nettype none
 
@@ -30,7 +30,9 @@ module roco_top (
   inout logic [15:0] sdram_dq
 );
 
-  logic clk_48;
+  localparam int SYS_CLK_HZ = 96_000_000;
+
+  logic clk_sys;
   logic clk_fb;
   logic pll_locked;
   logic unused_clk_os;
@@ -42,8 +44,8 @@ module roco_top (
 
   EHXPLLL #(
       .CLKI_DIV(1),
-      .CLKFB_DIV(2),
-      .CLKOP_DIV(12),
+      .CLKFB_DIV(4),
+      .CLKOP_DIV(6),
       .CLKOP_ENABLE("ENABLED"),
       .CLKOP_CPHASE(0),
       .CLKOP_FPHASE(0),
@@ -75,7 +77,7 @@ module roco_top (
       .ENCLKOS(1'b0),
       .ENCLKOS2(1'b0),
       .ENCLKOS3(1'b0),
-      .CLKOP(clk_48),
+      .CLKOP(clk_sys),
       .CLKOS(unused_clk_os),
       .CLKOS2(unused_clk_os2),
       .CLKOS3(unused_clk_os3),
@@ -85,20 +87,20 @@ module roco_top (
       .CLKINTFB(unused_pll_clkintfb)
   );
 
-  assign clk_fb = clk_48;
+  assign clk_fb = clk_sys;
 
   logic [2:0] rst_sync;
   logic [1:0] btn_meta;
   logic [1:0] btn_sync;
 
-  always_ff @(posedge clk_48) begin
+  always_ff @(posedge clk_sys) begin
     rst_sync <= {rst_sync[1:0], (app_reset_n && pll_locked)};
     btn_meta <= ~user_button_n;
     btn_sync <= btn_meta;
   end
 
-  logic rst_48;
-  assign rst_48 = !rst_sync[2];
+  logic rst_sys;
+  assign rst_sys = !rst_sync[2];
 
   logic [3:0] soc_leds;
   logic soc_halted;
@@ -114,14 +116,14 @@ module roco_top (
   logic [15:0] sdram_dq_in;
 
   roco_soc #(
-      .CLK_HZ(48_000_000),
+      .CLK_HZ(SYS_CLK_HZ),
       .BAUD(115200),
       .BOOT_OVERRIDE(1'b0),
       .ICACHE_LINES(128),
       .DCACHE_LINES(128)
   ) u_soc (
-      .clk(clk_48),
-      .rst(rst_48),
+      .clk(clk_sys),
+      .rst(rst_sys),
       .buttons(btn_sync),
       .leds(soc_leds),
       .uart_rx(uart_rx),

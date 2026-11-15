@@ -69,7 +69,9 @@ module roco_cpu_if_stage (
   logic push;
   logic fault_push;
   logic queue_push;
-  logic miss_now;
+  logic retry_pending;
+  logic [31:0] retry_pc;
+  logic [31:0] request_pc;
   logic [31:0] pc_next;
   // Asynchronous reset can only clear to a constant, so the image base
   // address is loaded on the first cycle after reset instead of during
@@ -89,18 +91,31 @@ module roco_cpu_if_stage (
   // A request may be issued on a redirect cycle. Flush discards its
   // response and overrides PC/queue updates below, so branch resolution
   // need not feed the instruction-cache request and miss-counter paths.
-  assign issue = !rst && !boot_load && !halt && !stall && !imem_busy && (q_count < 3'(DEPTH - 1));
-  assign miss_now = issue && imem_miss;
-  assign pc_next = pred_taken ? pred_target : (pc_if + 32'd4);
-  assign fault_push = imem_fault && !halt && !rst &&
-                      (imem_fault_addr == pc_if) && (q_count < 3'(DEPTH));
-  assign push = !fault_push && imem_rsp_valid && !halt && !rst &&
+  // Busy/miss feedback controls one retry-valid flop, not the wide PC
+  // register enable. Requests may repeat while busy; the cache/MMU ignores
+  // unaccepted requests and the response address still validates each push.
+  assign request_pc = retry_pending ? retry_pc : pc_if;
+  assign issue = !boot_load && !halt && !stall && (q_count < 3'(DEPTH - 1));
+  assign pc_next = pred_taken ? pred_target : (request_pc + 32'd4);
+  assign fault_push = imem_fault && !halt && (imem_fault_addr == request_pc) && (q_count < 3'(DEPTH));
+  assign push = !fault_push && imem_rsp_valid && !halt &&
                 (q_count < 3'(DEPTH)) && (imem_rsp_addr == last_req);
   assign queue_push = push || fault_push;
 
   assign imem_req = issue;
-  assign imem_addr = pc_if;
-  assign fetch_pc = pc_if;
+  assign imem_addr = request_pc;
+  assign fetch_pc = request_pc;
+
+  // Retry payload is captured independently of late acceptance control.
+  always_ff @(posedge clk) retry_pc <= request_pc;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) retry_pending <= 1'b0;
+    else if (boot_load) retry_pending <= 1'b0;
+    else if (!halt) begin
+      if (flush || fault_push) retry_pending <= 1'b0;
+      else if (issue) retry_pending <= imem_busy || imem_miss;
+    end
+  end
 
   assign if_valid = !q_empty;
   assign if_pc = q_pc[q_head];
@@ -175,13 +190,11 @@ module roco_cpu_if_stage (
 
       // Fetch issue and PC advance.
       if (fault_push) begin
-        pc_if <= pc_if + 32'd4;
-        last_req <= pc_if + 32'd4;
+        pc_if <= request_pc + 32'd4;
+        last_req <= request_pc + 32'd4;
       end else if (issue) begin
-        last_req <= pc_if;
-        if (!miss_now) begin
-          pc_if <= pc_next;
-        end
+        last_req <= request_pc;
+        pc_if <= pc_next;
       end
     end
   end

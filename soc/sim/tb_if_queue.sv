@@ -5,6 +5,9 @@ module tb_if_queue;
   logic rst = 1;
   logic flush = 0;
   logic consume = 0;
+  logic stall = 1;
+  logic busy = 0;
+  logic miss = 0;
   logic rsp_valid = 0;
   logic fault = 0;
   logic [31:0] rsp_addr = 0;
@@ -19,7 +22,7 @@ module tb_if_queue;
       .rst(rst),
       .halt(1'b0),
       .boot_addr(32'h80000000),
-      .stall(1'b1),
+      .stall(stall),
       .flush(flush),
       .redirect_pc(32'h80001000),
       .pred_taken(1'b0),
@@ -29,8 +32,8 @@ module tb_if_queue;
       .imem_rsp_valid(rsp_valid),
       .imem_rsp_addr(rsp_addr),
       .imem_rsp_data(rsp_data),
-      .imem_miss(1'b0),
-      .imem_busy(1'b0),
+      .imem_miss(miss),
+      .imem_busy(busy),
       .imem_fault(fault),
       .imem_fault_addr(fault_addr),
       .if_valid(valid),
@@ -102,6 +105,51 @@ module tb_if_queue;
     if (valid || fetch_pc !== 32'h80001000) $fatal(1, "full queue flush failed");
     repeat (10) tick();
     if (valid) $fatal(1, "speculative payload became visible without a push");
+    // Asynchronous reset wins over both a full queue and live response
+    // inputs; speculative writes during reset must never publish a slot.
+    fault = 1;
+    repeat (4) tick();
+    rsp_valid = 1;
+    rst = 1;
+    #1;
+    if (valid) $fatal(1, "asynchronous reset did not invalidate full queue");
+    repeat (3) tick();
+    if (valid) $fatal(1, "response during reset became visible");
+    fault = 0;
+    rsp_valid = 0;
+    rst = 0;
+    tick();
+    if (valid || fetch_pc !== 32'h80000000) $fatal(1, "reset did not restore boot fetch");
+    // A miss must retry the original PC without losing the first hit
+    // response or publishing it twice, then resume a one-per-cycle stream.
+    stall = 0;
+    miss = 1;
+    tick();
+    if (fetch_pc !== 32'h80000000) $fatal(1, "miss skipped request PC");
+    miss = 0;
+    busy = 1;
+    repeat (10) begin
+      tick();
+      if (fetch_pc !== 32'h80000000) $fatal(1, "busy retry changed request PC");
+    end
+    busy = 0;
+    tick();
+    if (fetch_pc !== 32'h80000004) $fatal(1, "retry did not resume sequential fetch");
+    rsp_valid = 1;
+    rsp_addr = 32'h80000000;
+    rsp_data = 32'h11111111;
+    tick();
+    check_head(32'h80000000, 1'b0, 32'h11111111);
+    consume = 1;
+    rsp_addr = 32'h80000004;
+    rsp_data = 32'h22222222;
+    tick();
+    check_head(32'h80000004, 1'b0, 32'h22222222);
+    rsp_valid = 0;
+    stall = 1;
+    tick();
+    consume = 0;
+    if (valid) $fatal(1, "retry duplicated a response");
     $display("tb_if_queue: PASS");
     $finish;
   end

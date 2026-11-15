@@ -603,7 +603,7 @@ module roco_cpu (
   // observed by a valid EX instruction, so use registered producer bits
   // here to keep global reset and halt off all 384 forwarding mux inputs.
   assign vec_forward_valid = exmem_valid && exmem_vec_we;
-  assign vec_full_write = vec_forward_valid && !halt && !rst;
+  assign vec_full_write = vec_forward_valid && !halt;
   assign vec_vs1_data = (vec_forward_valid && (exmem_rd == idex_instr[19:15])) ?
                         exmem_vec_data : vec_rf_vs1_data;
   assign vec_vs2_data = (vec_forward_valid && (exmem_rd == idex_instr[24:20])) ?

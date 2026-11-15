@@ -13,23 +13,31 @@ module roco_cpu_alu (
   output logic [31:0] result
 );
 
+  logic [31:0] addsub_result;
+  roco_cpu_addsub u_addsub (
+      .a(a),
+      .b(b),
+      .subtract(op == `RV32_ALU_SUB),
+      .result(addsub_result)
+  );
+
   always_comb begin
     result = '0;
     case (op)
       `RV32_ALU_ADD: begin
-        result = a + b;
+        result = addsub_result;
       end
       `RV32_ALU_SUB: begin
-        result = a - b;
+        result = addsub_result;
       end
       `RV32_ALU_SLL: begin
         result = a << b[4:0];
       end
       `RV32_ALU_SLT: begin
-        result = ($signed(a) < $signed(b)) ? 32'd1 : 32'd0;
+        result = {31'd0, $signed(a) < $signed(b)};
       end
       `RV32_ALU_SLTU: begin
-        result = (a < b) ? 32'd1 : 32'd0;
+        result = {31'd0, a < b};
       end
       `RV32_ALU_XOR: begin
         result = a ^ b;

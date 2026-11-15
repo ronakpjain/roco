@@ -323,7 +323,11 @@ test_hello: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 $(BUILD_DIR)/tb_compare.vvp: rtl/core/roco_cpu_compare.sv sim/tb_compare.sv | build
 	$(IVERILOG) -g2012 -s tb_compare -o $@ $^
 
-test_core: $(BUILD_DIR)/basic.hex $(CORE_SIM_DEP) $(BUILD_DIR)/tb_compare.vvp
+$(BUILD_DIR)/tb_alu.vvp: rtl/core/roco_cpu_alu.sv rtl/core/roco_cpu_addsub.sv rtl/core/roco_cpu_compare.sv sim/tb_alu.sv | build
+	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_alu -o $@ $^
+
+test_core: $(BUILD_DIR)/basic.hex $(CORE_SIM_DEP) $(BUILD_DIR)/tb_compare.vvp $(BUILD_DIR)/tb_alu.vvp
+	$(VVP) $(BUILD_DIR)/tb_alu.vvp
 	$(VVP) $(BUILD_DIR)/tb_compare.vvp
 	$(CORE_SIM) +hex=$(BUILD_DIR)/basic.hex
 

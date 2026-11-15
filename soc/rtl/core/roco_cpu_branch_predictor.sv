@@ -59,7 +59,10 @@ module roco_cpu_branch_predictor #(
   assign if_btb_hit = valid[if_idx] && (tags[if_idx] == if_tag);
 
   assign if_pred_taken = counters[if_idx][1] && if_btb_hit;
-  assign if_pred_target = if_btb_hit ? targets[if_idx] : (if_pc + 32'd4);
+  // The target is consumed only when if_pred_taken is asserted. Fetch
+  // computes its own sequential PC, so a miss need not select a fallback
+  // address through the tag comparator and wide target mux.
+  assign if_pred_target = targets[if_idx];
 
   always_comb begin
     counter_next = counters[ex_idx];

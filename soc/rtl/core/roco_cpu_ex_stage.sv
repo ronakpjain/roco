@@ -433,10 +433,12 @@ module roco_cpu_ex_stage (
   assign ex_be = is_vec_mem ? vmem_be : stall_be;
   // Decode the mutually exclusive writeback producers in ID. EX data
   // meets one parallel merge instead of a priority chain after multiply.
+  // Loads, SC and AMOs select their value in MEM. The scalar writeback
+  // word need not traverse the memory-address/translation mux.
   assign ex_wbval = ({32{idex_wb_select[3]}} & (idex_pc + 32'd4)) |
                     ({32{idex_wb_select[2]}} & csr_rdata) |
                     ({32{idex_wb_select[1]}} & vec_scalar_wdata) |
-                    ({32{idex_wb_select[0]}} & ex_addr);
+                    ({32{idex_wb_select[0]}} & ex_alu_result);
 
   // -------------------------------------------------- CSR file (EX and WB)
   roco_cpu_csr u_csr (
@@ -924,6 +926,13 @@ module roco_cpu_ex_stage (
       .result(vec_pipeline_result)
   );
 
+  // Only non-memory packets consume this word. Memory/fence holds retain
+  // the address and transaction metadata, but need not hold an unused
+  // scalar result. Keep their late wait signal off scalar feedback.
+  always_ff @(posedge clk) begin
+    if (!halt) exmem_wbval <= ex_wbval;
+  end
+
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -933,7 +942,6 @@ module roco_cpu_ex_stage (
       exmem_pc <= '0;
       exmem_instr <= 32'h0000_0013;
       exmem_alu <= '0;
-      exmem_wbval <= '0;
       exmem_store_data <= '0;
       exmem_be <= '0;
       exmem_rd <= '0;
@@ -969,7 +977,6 @@ module roco_cpu_ex_stage (
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= dmem_lu_paddr;
-      exmem_wbval <= '0;
       exmem_store_data <= ex_st;
       exmem_be <= ex_be;
       exmem_rd <= idex_instr[11:7];
@@ -1002,7 +1009,6 @@ module roco_cpu_ex_stage (
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
       exmem_alu <= ex_addr;
-      exmem_wbval <= ex_wbval;
       exmem_store_data <= ex_st;
       exmem_be <= ex_be;
       exmem_rd <= idex_rd;

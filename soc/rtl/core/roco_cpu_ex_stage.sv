@@ -274,9 +274,11 @@ module roco_cpu_ex_stage (
   logic [127:0] vec_pipeline_result;
   logic [127:0] vec_vs1_q, vec_vs2_q, vec_vd_q;
   logic [31:0] vec_scalar_q;
-  logic [4:0] vec_vl_q, vec_vstart_q;
+  logic [4:0] vec_write_vl;
+  logic [15:0] vec_active_bytes, vec_fill_bytes, vec_active_q, vec_fill_q;
+  logic [127:0] vec_reduce_input, vec_reduce_q;
   logic [2:0] vec_sew_q;
-  logic vec_vta_q;
+
   logic vec_scalar_wb;
   logic [31:0] vec_scalar_wdata;
   logic [4:0] vmem_idx;
@@ -888,6 +890,26 @@ module roco_cpu_ex_stage (
     end
   end
 
+  // Resolve lane masks while preparing operands, before reduction carry
+  // compression and result selection. Masks are byte-granular so tail
+  // handling does not add an SEW mux after the vector arithmetic.
+  assign vec_write_vl = ((idex_instr[31:26] == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110)) ||
+                        ((idex_instr[31:26] != `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b010)) ?
+                        5'd1 : vec_vl;
+  always_comb begin
+    for (int byte_index = 0; byte_index < 16; byte_index++) begin
+      int element;
+      element = byte_index >> ((vec_sew_cur == 0) ? 0 : (vec_sew_cur == 1) ? 1 : 2);
+      vec_active_bytes[byte_index] = (element < int'(vec_write_vl)) &&
+          ((element >= int'(vec_vstart[4:0])) ||
+           ((element == 0) && (idex_instr[31:26] == `RV32_VOP_SCALAR) &&
+            (idex_instr[14:12] == 3'b110)));
+      vec_fill_bytes[byte_index] = vec_vta_cur && (element >= int'(vec_vstart[4:0]));
+      vec_reduce_input[8*byte_index+:8] = (element < int'(vec_vl)) ?
+                                         vec_vs2_data[8*byte_index+:8] : 8'd0;
+    end
+  end
+
   // Register vector operands before arithmetic, then register the final
   // result before the MEM write port. The preparation cycle separates
   // register-file/forwarding routes from the wide arithmetic datapath.
@@ -897,10 +919,10 @@ module roco_cpu_ex_stage (
       vec_vs2_q <= vec_vs2_data;
       vec_vd_q <= vec_vd_data;
       vec_scalar_q <= vec_scalar_b;
-      vec_vl_q <= vec_vl;
-      vec_vstart_q <= vec_vstart[4:0];
+      vec_active_q <= vec_active_bytes;
+      vec_fill_q <= vec_fill_bytes;
+      vec_reduce_q <= vec_reduce_input;
       vec_sew_q <= vec_sew_cur;
-      vec_vta_q <= vec_vta_cur;
     end
     exmem_vec_data <= vec_pipeline_result;
   end
@@ -921,10 +943,10 @@ module roco_cpu_ex_stage (
       .scalar(vec_scalar_q),
       .op(idex_instr[31:26]),
       .form(idex_instr[14:12]),
-      .vl(vec_vl_q),
-      .vstart(vec_vstart_q),
+      .active_bytes(vec_active_q),
+      .fill_bytes(vec_fill_q),
+      .reduction_source(vec_reduce_q),
       .sew(vec_sew_q),
-      .vta(vec_vta_q),
       .result(vec_pipeline_result)
   );
 

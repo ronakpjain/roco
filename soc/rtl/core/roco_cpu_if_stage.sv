@@ -122,21 +122,18 @@ module roco_cpu_if_stage (
     end
   end
 
-  // Queue payloads hold no reset value; a slot is only observable once the
-  // pointers make it valid, so they stay out of the asynchronous reset cone.
+  // The tail slot is unobservable while the queue is not full. Refresh
+  // its payload speculatively; only pointer/count updates publish a push.
+  // This keeps late MMU/cache response validation off the wide payload
+  // register enables. A full queue must retain every occupied slot.
   always_ff @(posedge clk) begin
-    if (push) begin
-      q_pc[q_tail] <= imem_rsp_addr;
-      q_instr[q_tail] <= imem_rsp_data;
-      q_fault[q_tail] <= 1'b0;
-      q_pred_taken[q_tail] <= pending_pred_taken;
+    if (q_count < 3'(DEPTH)) begin
+      q_pc[q_tail] <= fault_push ? imem_fault_addr : imem_rsp_addr;
+      q_instr[q_tail] <= fault_push ? 32'h0000_0013 : imem_rsp_data;
+      q_fault[q_tail] <= fault_push;
+      q_pred_taken[q_tail] <= !fault_push && pending_pred_taken;
+      // Fault entries never execute a branch; their target is ignored.
       q_pred_target[q_tail] <= pending_pred_target;
-    end else if (fault_push) begin
-      q_pc[q_tail] <= imem_fault_addr;
-      q_instr[q_tail] <= 32'h0000_0013;
-      q_fault[q_tail] <= 1'b1;
-      q_pred_taken[q_tail] <= 1'b0;
-      q_pred_target[q_tail] <= '0;
     end
   end
 

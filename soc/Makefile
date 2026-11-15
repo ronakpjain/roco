@@ -352,7 +352,7 @@ $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 # Share routing settings between timing measurements and the shipped bitstream.
 PNR_SEED ?= 4
 PNR_FLAGS ?= --placer-heap-timingweight 30
-# Diagnostic route: report timing even when the unchanged 48 MHz PLL fails.
+# Diagnostic route: report timing even when the system clock target fails.
 TIMING_SEED ?= $(PNR_SEED)
 timing: $(BUILD_DIR)/roco.json
 	$(NEXTPNR) --45k --package CABGA381 --speed 6 $(PNR_FLAGS) \
@@ -383,3 +383,10 @@ $(BUILD_DIR)/roco.bit: $(BUILD_DIR)/roco.config
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+$(BUILD_DIR)/tb_if_queue.vvp: rtl/core/roco_cpu_if_stage.sv sim/tb_if_queue.sv | build
+	$(IVERILOG) -g2012 -s tb_if_queue -o $@ $^
+
+.PHONY: test_if_queue
+test_if_queue: $(BUILD_DIR)/tb_if_queue.vvp
+	$(VVP) $<

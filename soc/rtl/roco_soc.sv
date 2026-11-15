@@ -26,7 +26,7 @@
 `default_nettype none
 
 module roco_soc #(
-    parameter int CLK_HZ = 48_000_000,
+    parameter int CLK_HZ = 96_000_000,
     parameter int BAUD = 115200,
     parameter bit BOOT_OVERRIDE = 1'b0,
     parameter int ICACHE_LINES = 128,

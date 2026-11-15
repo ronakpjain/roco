@@ -9,7 +9,7 @@
 `timescale 1ns / 1ps
 
 module tb_soc_boot #(
-    parameter int CLK_HZ = 48_000_000
+    parameter int CLK_HZ = 96_000_000
 );
   localparam int BAUD = 1_000_000;
   localparam int DIV  = CLK_HZ / BAUD;

@@ -19,7 +19,7 @@
 `default_nettype none
 
 module sdram_ctrl #(
-    parameter int CLK_HZ = 48_000_000,
+    parameter int CLK_HZ = 96_000_000,
     parameter int CL = 3,
     parameter int T_POWERUP = CLK_HZ / 5000,
     parameter int REFRESH_CYCLES = CLK_HZ / 130_000

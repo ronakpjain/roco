@@ -8,7 +8,7 @@
 `default_nettype none
 
 module uart #(
-    parameter int CLK_HZ = 48_000_000,
+    parameter int CLK_HZ = 96_000_000,
     parameter int BAUD = 115200,
     parameter int FIFO_DEPTH = 16
 ) (

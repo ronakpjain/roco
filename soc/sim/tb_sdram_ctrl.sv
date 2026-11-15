@@ -8,7 +8,7 @@
 `timescale 1ns / 1ps
 
 module tb_sdram_ctrl #(
-    parameter int CLK_HZ = 48_000_000
+    parameter int CLK_HZ = 96_000_000
 );
 
   localparam int CL = 3;

@@ -87,13 +87,10 @@ module dcache #(
   logic valid_ram[0:NUM_LINES-1];
   logic dirty_ram[0:NUM_LINES-1];
   logic [MEM_TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
-  // Keep the synchronous lookup copy separate from the asynchronous
-  // eviction/flush port. Register the LUT-RAM output so hit readiness
-  // starts from a fabric flop, independent of block RAM output latency.
+  // Keep the lookup copy separate from the eviction/flush port. Compare
+  // tags in EX and register the hit bit so MEM readiness starts at one
+  // flop rather than a wide comparator feeding every pipeline hold.
   (* ram_style = "distributed" *) logic [MEM_TAG_BITS-1:0] lookup_tag_ram[0:NUM_LINES-1];
-  logic [MEM_TAG_BITS-1:0] lookup_tag_q;
-  logic [MEM_TAG_BITS-1:0] request_tag_q;
-  logic lookup_line_valid_q;
 
   logic [7:0] lane0[0:DEPTH-1];
   logic [7:0] lane1[0:DEPTH-1];
@@ -152,14 +149,10 @@ module dcache #(
   assign victim_word = {tag_ram[miss_idx], miss_idx, {(OFF_BITS) {1'b0}}};
   assign flush_word = {tag_ram[flush_idx], flush_idx, {(OFF_BITS) {1'b0}}};
 
-  // Read tags on the same edge as the data. Only the address reaches the
-  // lookup RAM in EX; full tag comparison starts from registers in MEM.
+  // Resolve the tag lookup alongside the data read, without adding a
+  // cache-hit cycle. Hold its registered response until MEM commits.
   logic lookup_hit_q;
-  assign lookup_hit_q = lookup_line_valid_q && (lookup_tag_q == request_tag_q);
   always_ff @(posedge clk) begin
-    if (lu_valid && (state == S_IDLE)) begin
-      lookup_tag_q <= lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]];
-    end
     if ((state == S_FILL) && mem_rvalid && mem_rlast) begin
       lookup_tag_ram[miss_idx] <= miss_tag;
     end
@@ -170,8 +163,7 @@ module dcache #(
   assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
-      lookup_line_valid_q <= 1'b0;
-      request_tag_q <= '0;
+      lookup_hit_q <= 1'b0;
       lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
       recovery_ready <= 1'b0;
@@ -179,10 +171,10 @@ module dcache #(
       lookup_valid_q <= lu_valid && (state == S_IDLE);
       // Keep each response until MEM commits it.
       if (lu_valid) begin
-        lookup_line_valid_q <= (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]];
-        request_tag_q <= lu_addr[24:IDX_HI+1];
+        lookup_hit_q <= (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
+                        (lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
       end else if (cm_valid) begin
-        lookup_line_valid_q <= 1'b0;
+        lookup_hit_q <= 1'b0;
       end
       // One registered RAM read after refill makes the missed word ready.
       if (pending_miss && (state == S_IDLE) && !recovery_ready) begin

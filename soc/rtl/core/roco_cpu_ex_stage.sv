@@ -157,7 +157,6 @@ module roco_cpu_ex_stage (
 );
 
   logic vec_ex_we;
-  logic [127:0] vec_ex_wdata;
   logic [31:0] rs1_fwd;
   logic [31:0] rs2_fwd;
   logic [31:0] ex_alu_a;
@@ -194,7 +193,9 @@ module roco_cpu_ex_stage (
   logic [31:0] csr_trap_cause;
   logic [31:0] csr_trap_tval;
   logic branch_mispredict;
-  logic stall_active;
+  logic scalar_mem_ready;
+  logic scalar_is_mem;
+  logic scalar_mem_prepare;
   logic [31:0] stall_alu;
   logic [31:0] stall_store_data;
   logic [3:0] stall_be;
@@ -263,16 +264,18 @@ module roco_cpu_ex_stage (
   logic vset_vill;
   logic vset_reg_form;
   logic [31:0] vec_scalar_b;
-  logic [127:0] vec_alu_b;
-  logic [127:0] vec_bcast;
-  logic [127:0] vec_raw;
-  logic [127:0] vec_reduce_sum;
-  logic vec_ex_we_int;
   logic vec_exec_eligible;
-  logic [127:0] vec_ex_wdata_int;
+  logic vec_operand_ready;
+  logic vec_arith_work;
+  logic vec_arith_prepare;
+  logic [127:0] vec_pipeline_result;
+  logic [127:0] vec_vs1_q, vec_vs2_q, vec_vd_q;
+  logic [31:0] vec_scalar_q;
+  logic [4:0] vec_vl_q, vec_vstart_q;
+  logic [2:0] vec_sew_q;
+  logic vec_vta_q;
   logic vec_scalar_wb;
   logic [31:0] vec_scalar_wdata;
-  logic [4:0] vec_wr_vl;
   logic [4:0] vmem_idx;
   logic [4:0] vmem_total;
   logic [4:0] vmem_k;
@@ -318,8 +321,7 @@ module roco_cpu_ex_stage (
 
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
-  assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst &&
-                     !cancel_ex;
+  assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !cancel_ex;
 
   roco_cpu_divider u_divider (
       .clk(clk),
@@ -366,8 +368,7 @@ module roco_cpu_ex_stage (
   // pending while normal WB owns it, and keep the scoreboard busy until
   // the divider result is actually written.
   assign div_busy = div_engine_busy || div_write_pending;
-  assign div_wb_en = (div_wb_en_raw || div_write_pending) && (div_rd_q != 5'd0) &&
-                     !wb_we && !halt && !rst;
+  assign div_wb_en = (div_wb_en_raw || div_write_pending) && (div_rd_q != 5'd0) && !wb_we && !halt;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       div_write_pending <= 1'b0;
@@ -413,13 +414,15 @@ module roco_cpu_ex_stage (
       ({32{idex_rs1_from_mem}} & (mem_data + idex_imm)) |
       ({32{idex_rs1_from_wb}} & (wb_data + idex_imm)) |
       ({32{idex_rs1_from_rf}} & (idex_rs1_val + idex_imm));
-  assign memory_addr_held = stall_active ? stall_alu : memory_addr;
+  assign scalar_is_mem = idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc;
+  assign scalar_mem_prepare = idex_valid && scalar_is_mem && !scalar_mem_ready;
+  assign memory_addr_held = stall_alu;
   assign mem_access_addr = is_vec_mem ? vmem_addr : memory_addr_held;
   assign ex_addr =
       (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) ?
       dmem_lu_paddr : is_vec_mem ? dmem_lu_paddr : ex_alu_result;
-  assign ex_st = is_vec_mem ? vmem_store_data : stall_active ? stall_store_data : ex_store_data;
-  assign ex_be = is_vec_mem ? vmem_be : stall_active ? stall_be : ex_store_be;
+  assign ex_st = is_vec_mem ? vmem_store_data : stall_store_data;
+  assign ex_be = is_vec_mem ? vmem_be : stall_be;
   // Decode the mutually exclusive writeback producers in ID. EX data
   // meets one parallel merge instead of a priority chain after multiply.
   assign ex_wbval = ({32{idex_wb_select[3]}} & (idex_pc + 32'd4)) |
@@ -439,7 +442,7 @@ module roco_cpu_ex_stage (
       .wr_en(csr_wr_en),
       .wr_addr(idex_csr_addr),
       .wr_data(csr_wdata),
-      .trap_en(trap_pending && !halt && !rst),
+      .trap_en(trap_pending && !halt),
       .trap_pc(csr_trap_pc),
       .trap_cause(csr_trap_cause),
       .trap_tval(csr_trap_tval),
@@ -498,7 +501,7 @@ module roco_cpu_ex_stage (
   // satp writes and the TLB flush/write-enable path.
   assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
                      csr_read_ok && csr_write_ok && !idex_illegal && !idex_ifault &&
-                     !dmem_lu_fault && !fence_hold && !halt && !rst && !cancel_ex;
+                     !dmem_lu_fault && !fence_hold && !halt && !cancel_ex;
 
   always_comb begin
     case (idex_csr_op)
@@ -581,8 +584,7 @@ module roco_cpu_ex_stage (
         endcase
       end
 
-      if (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc ||
-          (is_vec_mem && vmem_active && !vmem_done)) begin
+      if ((scalar_is_mem && scalar_mem_ready) || (is_vec_mem && vmem_active && !vmem_done)) begin
         case (idex_funct3 == 3'b110 ? 3'b010 : idex_funct3)
           3'b001, 3'b101: begin
             ex_mem_misaligned = mem_access_addr[0];
@@ -652,7 +654,7 @@ module roco_cpu_ex_stage (
   // and entry are delayed one cycle, keeping forwarded load data off CSR
   // state updates and the trap-vector selection/redirect payload mux.
   assign cancel_ex = redirect_from_mem || trap_pending;
-  assign ex_redirect_int = ex_redirect && !ex_trap && !fence_hold && !halt && !rst && !cancel_ex;
+  assign ex_redirect_int = ex_redirect && !ex_trap && !fence_hold && !halt && !cancel_ex;
   assign irq_take = irq_req && !ex_redirect &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
@@ -671,7 +673,7 @@ module roco_cpu_ex_stage (
     csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
     csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
   end
-  assign ex_redirect_en = (ex_redirect_int || trap_pending) && !halt && !rst;
+  assign ex_redirect_en = (ex_redirect_int || trap_pending) && !halt;
   // Select the payload by instruction class, independently of prediction
   // correctness and current trap validity. Pending traps have priority.
   assign ex_redirect_pc = trap_pending ? csr_trap_vector :
@@ -682,19 +684,22 @@ module roco_cpu_ex_stage (
   assign ex_trap_taken = trap_pending;
   assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
-  assign vec_mem_hold = vmem_hold && !vec_fault && !cancel_ex;
+  assign vec_arith_work = idex_is_vec && !idex_is_vset && !is_vec_mem;
+  assign vec_arith_prepare = idex_valid && vec_arith_work && !vec_operand_ready;
+  assign vec_mem_hold = (vmem_hold || scalar_mem_prepare || vec_arith_prepare) &&
+                        !vec_fault && !cancel_ex;
   // The decoder makes memory operations mutually exclusive with branches,
   // CSR accesses and system instructions. Only illegal decode and memory
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
   assign ex_lu_present = idex_valid &&
-                       (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr ||
-                        idex_is_sc || (is_vec_mem && vmem_active && !vmem_done)) &&
+                       ((scalar_is_mem && scalar_mem_ready) ||
+                        (is_vec_mem && vmem_active && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
-                       !rst && !halt && !cancel_ex;
+                       !halt && !cancel_ex;
   assign ex_lu_valid = ex_lu_present && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
   assign ex_lu_we = idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
-  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !rst && !cancel_ex &&
+  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !cancel_ex &&
                       (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
   assign btb_is_jal = idex_is_jal;
@@ -702,20 +707,26 @@ module roco_cpu_ex_stage (
   assign btb_taken = (idex_is_branch && ex_branch_taken) || idex_is_jal || idex_is_jalr;
   assign btb_target = idex_is_jalr ? ex_jump_target : ex_branch_target;
 
+  // Resolve forwarding and address generation before entering the MMU
+  // and cache lookup network. Keep the captured operands across retries.
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
-      stall_active <= 1'b0;
+      scalar_mem_ready <= 1'b0;
       stall_alu <= '0;
       stall_store_data <= '0;
       stall_be <= '0;
-    end else begin
-      stall_active <= lu_stall;
-      // Capture the first lookup's operands before a miss can remove a
-      // forwarding source. Only the valid bit depends on the cache hit.
-      if (!stall_active) begin
+    end else if (cancel_ex) begin
+      scalar_mem_ready <= 1'b0;
+    end else if (!halt && !fence_hold) begin
+      if (!idex_valid || !scalar_is_mem) begin
+        scalar_mem_ready <= 1'b0;
+      end else if (!scalar_mem_ready) begin
+        scalar_mem_ready <= 1'b1;
         stall_alu <= memory_addr;
         stall_store_data <= ex_store_data;
         stall_be <= ex_store_be;
+      end else if (!lu_stall) begin
+        scalar_mem_ready <= 1'b0;
       end
     end
   end
@@ -731,7 +742,7 @@ module roco_cpu_ex_stage (
   assign vec_start_illegal = idex_is_vec && !idex_is_vset && !is_vec_mem &&
                              (idex_instr[14:12] == 3'b010) &&
                              (idex_vec_funct6 != `RV32_VOP_SCALAR) && (vec_vstart != 32'd0);
-  assign vec_vstart_we = idex_valid && (idex_is_vec || is_vec_mem) && !halt && !rst && !fence_hold &&
+  assign vec_vstart_we = !vec_arith_prepare && idex_valid && (idex_is_vec || is_vec_mem) && !halt && !fence_hold &&
                          !cancel_ex && ((trap_capture && is_vec_mem) ||
                          (!ex_trap && (!is_vec_mem || vmem_done)));
   assign vec_vstart_data = (trap_capture && is_vec_mem) ? vmem_idx : 5'd0;
@@ -755,118 +766,29 @@ module roco_cpu_ex_stage (
 
   assign vec_scalar_b = (idex_instr[14:12] == 3'b011) ?
                         {{27{idex_instr[19]}}, idex_instr[19:15]} : rs1_fwd;
-  // Scalar operands broadcast at the element width, not at XLEN.
-  always_comb begin
-    case (vec_sew_cur)
-      3'd0: begin
-        vec_bcast = {16{vec_scalar_b[7:0]}};
-      end
-      3'd1: begin
-        vec_bcast = {8{vec_scalar_b[15:0]}};
-      end
-      default: begin
-        vec_bcast = {4{vec_scalar_b}};
-      end
-    endcase
-  end
-  assign vec_alu_b = (idex_instr[14:12] == 3'b000) ? vec_vs1_data : vec_bcast;
-
-  roco_cpu_vec_alu u_vec_alu (
-      .a(vec_vs2_data),
-      .b(vec_alu_b),
-      .sew(vec_sew_cur),
-      .op(idex_vec_funct6),
-      .result(vec_raw)
-  );
-
-  roco_cpu_vec_reduce u_vec_reduce (
-      .source(vec_vs2_data),
-      .seed(vec_vs1_data[31:0]),
-      .vl(vec_vl),
-      .sew(vec_sew_cur),
-      .result(vec_reduce_sum[31:0])
-  );
-  assign vec_reduce_sum[127:32] = '0;
-
-  // Scalar-element moves and reductions define only destination element
-  // zero. Every other element follows the tail policy, independently of vl.
-  assign vec_wr_vl = ((idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110)) ||
-                     ((idex_vec_funct6 != `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b010)) ?
-                     5'd1 : vec_vl;
-
   // Select scalar vector results by instruction class, without the
   // fault/hold write-enable cone. EX/MEM validity qualifies their commit.
   assign vec_scalar_wb = idex_is_vset ||
                         (idex_is_vec && !is_vec_mem &&
                          (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b010));
   assign vec_scalar_wdata = idex_is_vset ? vset_new_vl :
-                            (vec_sew_cur == 3'd0) ?
-                            {{24{vec_vs2_data[7]}}, vec_vs2_data[7:0]} :
-                            (vec_sew_cur == 3'd1) ?
-                            {{16{vec_vs2_data[15]}}, vec_vs2_data[15:0]} : vec_vs2_data[31:0];
+                            (vec_sew_q == 3'd0) ?
+                            {{24{vec_vs2_q[7]}}, vec_vs2_q[7:0]} :
+                            (vec_sew_q == 3'd1) ?
+                            {{16{vec_vs2_q[15]}}, vec_vs2_q[15:0]} : vec_vs2_q[31:0];
 
   // The payload register advances every cycle. Cancellation/reset/hold
   // qualify only its write-valid bit, not the wide result selection mux.
   assign vec_exec_eligible = idex_valid && idex_is_vec && !idex_ifault &&
                              !idex_illegal && !dmem_lu_fault && !fence_hold &&
-                             !halt && !rst && !cancel_ex;
+                             !halt && !cancel_ex;
   assign vec_vset_en = vec_exec_eligible && idex_is_vset;
 
-  always_comb begin
-    vec_ex_we_int = 1'b0;
-    vec_ex_wdata_int = vec_raw;
-    vec_vset_vl = vset_new_vl[4:0];
-    vec_vset_vtype = vset_new_vtype;
-    // Arithmetic/configuration instructions never issue a data lookup.
-    // Their write enable must not depend on the memory hit/stall path.
-    if (idex_is_vec) begin
-      if (!idex_is_vset && !is_vec_mem && !vec_start_illegal && (vec_vstart[4:0] < vec_vl)) begin
-        if (idex_vec_funct6 == `RV32_VOP_MOVE) begin
-          vec_ex_we_int = 1'b1;
-          vec_ex_wdata_int = (idex_instr[14:12] == 3'b000) ? vec_vs1_data : vec_bcast;
-        end else if (idex_vec_funct6 == `RV32_VOP_SCALAR) begin
-          if (idex_instr[14:12] == 3'b010) begin
-            // Scalar result selection is independent of write eligibility.
-          end else begin
-            // vmv.s.x: the scalar becomes element 0.
-            vec_ex_we_int = 1'b1;
-            vec_ex_wdata_int = {128{1'b0}} | {vec_vd_data[127:32], rs1_fwd};
-          end
-        end else if (idex_instr[14:12] == 3'b010) begin
-          // vredsum.vs
-          vec_ex_we_int = 1'b1;
-          vec_ex_wdata_int = vec_reduce_sum;
-        end else begin
-          vec_ex_we_int = 1'b1;
-        end
-        // Tail policy for everything that writes a whole register.
-        for (int k = 0; k < 16; k = k + 1) begin
-          if ((k >= vec_wr_vl) || ((k < vec_vstart[4:0]) &&
-              !((k == 0) && (idex_vec_funct6 == `RV32_VOP_SCALAR) &&
-                (idex_instr[14:12] == 3'b110)))) begin
-            case (vec_sew_cur)
-              3'd0: begin
-                vec_ex_wdata_int[8*k+:8] = (vec_vta_cur && (k >= vec_vstart[4:0])) ? 8'hff : vec_vd_data[8*k+:8];
-              end
-              3'd1: begin
-                if (k < 8) begin
-                  vec_ex_wdata_int[16*k+:16] = (vec_vta_cur && (k >= vec_vstart[4:0])) ? 16'hffff : vec_vd_data[16*k+:16];
-                end
-              end
-              default: begin
-                if (k < 4) begin
-                  vec_ex_wdata_int[32*k+:32] = (vec_vta_cur && (k >= vec_vstart[4:0])) ? 32'hffff_ffff : vec_vd_data[32*k+:32];
-                end
-              end
-            endcase
-          end
-        end
-      end
-    end
-  end
-
-  assign vec_ex_we = vec_ex_we_int && vec_exec_eligible;
-  assign vec_ex_wdata = vec_ex_wdata_int;
+  assign vec_vset_vl = vset_new_vl[4:0];
+  assign vec_vset_vtype = vset_new_vtype;
+  assign vec_ex_we = vec_exec_eligible && !idex_is_vset && !is_vec_mem &&
+                     !vec_start_illegal && (vec_vstart[4:0] < vec_vl) &&
+                     !((idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b010));
 
   // ----------------------------------------- Vector memory sequencing
   // One element per cycle. The execute stage keeps the instruction while
@@ -878,7 +800,7 @@ module roco_cpu_ex_stage (
   assign vmem_total = vec_vl;
   assign vmem_noop = !vmem_active && (vec_vstart[4:0] >= vmem_total);
   assign vmem_done = vmem_noop || (vmem_active && (vmem_k >= vmem_total));
-  assign vmem_issue = is_vec_mem && idex_valid && vmem_active && !vmem_done && !vec_fault && !rst && !halt &&
+  assign vmem_issue = is_vec_mem && idex_valid && vmem_active && !vmem_done && !vec_fault && !halt &&
                       !fence_hold;
   assign vmem_hold = is_vec_mem && idex_valid && !vmem_done;
 
@@ -915,13 +837,13 @@ module roco_cpu_ex_stage (
   always_comb begin
     case (idex_instr[14:12])
       3'b000: begin
-        vec_store_elem = {24'd0, vec_vd_data[8*vmem_idx+:8]};
+        vec_store_elem = {24'd0, vec_vd_q[8*vmem_idx+:8]};
       end
       3'b101: begin
-        vec_store_elem = {16'd0, vec_vd_data[16*vmem_idx[2:0]+:16]};
+        vec_store_elem = {16'd0, vec_vd_q[16*vmem_idx[2:0]+:16]};
       end
       default: begin
-        vec_store_elem = vec_vd_data[32*vmem_idx[1:0]+:32];
+        vec_store_elem = vec_vd_q[32*vmem_idx[1:0]+:32];
       end
     endcase
   end
@@ -955,9 +877,45 @@ module roco_cpu_ex_stage (
     end
   end
 
-  // Vector payload advances independently of the late memory hold. It is
-  // visible only when the matching EX/MEM valid and vector-write bits set.
-  always_ff @(posedge clk) exmem_vec_data <= vec_ex_wdata;
+  // Register vector operands before arithmetic, then register the final
+  // result before the MEM write port. The preparation cycle separates
+  // register-file/forwarding routes from the wide arithmetic datapath.
+  always_ff @(posedge clk) begin
+    if (!vec_operand_ready) begin
+      vec_vs1_q <= vec_vs1_data;
+      vec_vs2_q <= vec_vs2_data;
+      vec_vd_q <= vec_vd_data;
+      vec_scalar_q <= vec_scalar_b;
+      vec_vl_q <= vec_vl;
+      vec_vstart_q <= vec_vstart[4:0];
+      vec_sew_q <= vec_sew_cur;
+      vec_vta_q <= vec_vta_cur;
+    end
+    exmem_vec_data <= vec_pipeline_result;
+  end
+
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) vec_operand_ready <= 1'b0;
+    else if (cancel_ex) vec_operand_ready <= 1'b0;
+    else if (!halt && !fence_hold) begin
+      if (!idex_valid || !vec_arith_work) vec_operand_ready <= 1'b0;
+      else vec_operand_ready <= !vec_operand_ready;
+    end
+  end
+
+  roco_cpu_vec_execute u_vec_execute (
+      .vs1(vec_vs1_q),
+      .vs2(vec_vs2_q),
+      .old_vd(vec_vd_q),
+      .scalar(vec_scalar_q),
+      .op(idex_instr[31:26]),
+      .form(idex_instr[14:12]),
+      .vl(vec_vl_q),
+      .vstart(vec_vstart_q),
+      .sew(vec_sew_q),
+      .vta(vec_vta_q),
+      .result(vec_pipeline_result)
+  );
 
   // ------------------------------------------------------ EX/MEM register
   always_ff @(posedge clk or posedge rst) begin
@@ -1032,7 +990,7 @@ module roco_cpu_ex_stage (
       // Invalid payload may advance during a lookup miss or the first
       // reduction cycle. Miss operands are already saved separately;
       // only validity needs the late cache-hit signal.
-      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !cancel_ex;
+      exmem_valid <= idex_valid && !ex_trap && !lu_stall && !scalar_mem_prepare && !vec_arith_prepare && !cancel_ex;
       exmem_vec_we <= vec_ex_we;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;

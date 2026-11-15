@@ -188,7 +188,7 @@ module roco_cpu_ex_stage (
   logic ex_redirect;
   logic ex_redirect_int;
   logic irq_take;
-  logic trap_pending;
+  logic trap_pending, trap_commit;
   logic cancel_ex;
   logic trap_capture;
   logic [31:0] csr_trap_pc;
@@ -219,7 +219,9 @@ module roco_cpu_ex_stage (
   logic csr_write_intent;
   logic is_satp_write;
   logic [31:0] csr_wdata;
-  logic csr_wr_en;
+  logic csr_wr_en, csr_issue, csr_commit_q;
+  logic [11:0] csr_commit_addr_q;
+  logic [31:0] csr_commit_data_q;
   logic [31:0] csr_trap_vector;
   logic [31:0] unused_csr_mtvec;
   logic [31:0] unused_csr_stvec;
@@ -454,9 +456,9 @@ module roco_cpu_ex_stage (
       .read_ok(csr_read_ok),
       .write_ok(csr_write_ok),
       .wr_en(csr_wr_en),
-      .wr_addr(idex_csr_addr),
-      .wr_data(csr_wdata),
-      .trap_en(trap_pending && !halt),
+      .wr_addr(csr_commit_addr_q),
+      .wr_data(csr_commit_data_q),
+      .trap_en(trap_commit && !halt),
       .trap_pc(csr_trap_pc),
       .trap_cause(csr_trap_cause),
       .trap_tval(csr_trap_tval),
@@ -513,9 +515,21 @@ module roco_cpu_ex_stage (
   // CSR instructions cannot branch or access memory. Qualify their
   // own traps directly so branch comparison and alignment do not feed
   // satp writes and the TLB flush/write-enable path.
-  assign csr_wr_en = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
+  assign csr_issue = idex_valid && idex_is_csr && csr_write_intent && csr_exists &&
                      csr_read_ok && csr_write_ok && !idex_illegal && !idex_ifault &&
                      !dmem_lu_fault && !fence_hold && !halt && !cancel_ex;
+
+  // Only this packet-valid bit sees backend readiness. The CSR bank
+  // write ports start at registers, rather than the memory-ready cone.
+  always_ff @(posedge clk) begin
+    csr_commit_addr_q <= idex_csr_addr;
+    csr_commit_data_q <= csr_wdata;
+  end
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) csr_commit_q <= 1'b0;
+    else csr_commit_q <= csr_issue;
+  end
+  assign csr_wr_en = csr_commit_q && !halt;
 
   always_comb begin
     case (idex_csr_op)
@@ -676,18 +690,23 @@ module roco_cpu_ex_stage (
   assign trap_capture = (irq_take || ex_trap) && !fence_hold && !halt && !rst && !cancel_ex;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) trap_pending <= 1'b0;
-    else trap_pending <= trap_capture;
+    else if (!(trap_pending && csr_commit_q)) trap_pending <= trap_capture;
   end
 
   // Payload does not need the late trap-valid enable, and it carries no
   // reset value. Only pending makes it visible, and younger EX side
   // effects are canceled then.
   always_ff @(posedge clk) begin
-    csr_trap_pc <= ex_trap ? idex_pc : irq_next_pc;
-    csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
-    csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
+    if (!trap_pending) begin
+      csr_trap_pc <= ex_trap ? idex_pc : irq_next_pc;
+      csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
+      csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
+    end
   end
-  assign ex_redirect_en = (ex_redirect_int || trap_pending) && !halt;
+  // A trap captured with a CSR write must enter after that write applies,
+  // so saved status and trap-vector selection see the architectural state.
+  assign trap_commit = trap_pending && !csr_commit_q;
+  assign ex_redirect_en = (ex_redirect_int || trap_commit) && !halt;
   // Select the payload by instruction class, independently of prediction
   // correctness and current trap validity. Pending traps have priority.
   assign ex_redirect_pc = trap_pending ? csr_trap_vector :
@@ -695,7 +714,7 @@ module roco_cpu_ex_stage (
                           is_satp_write ? (idex_pc + 32'd4) :
                           idex_is_branch ? (ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4)) :
                           idex_is_jal ? ex_branch_target : ex_jump_target;
-  assign ex_trap_taken = trap_pending;
+  assign ex_trap_taken = trap_commit;
   assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
   assign vec_arith_work = idex_is_vec && !idex_is_vset && !is_vec_mem;

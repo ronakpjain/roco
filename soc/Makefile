@@ -298,10 +298,11 @@ $(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_mo
 $(BUILD_DIR)/tb_icache.vvp: rtl/mem/icache.sv sim/tb_icache.sv | build
 	$(IVERILOG) -g2012 -s tb_icache -o $@ $^
 
-test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(SOC_SIM_DEP) $(BUILD_DIR)/tb_icache.vvp
+test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(BUILD_DIR)/csr_irq_order.hex $(SOC_SIM_DEP) $(BUILD_DIR)/tb_icache.vvp
 	$(VVP) $(BUILD_DIR)/tb_icache.vvp
 	$(SOC_SIM) +hex=$(BUILD_DIR)/basic.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/counter_clear.hex +check_counter_clear
+	$(SOC_SIM) +hex=$(BUILD_DIR)/csr_irq_order.hex
 
 test_isa_soc: $(BUILD_DIR)/tb_soc.vvp
 	./scripts/get_riscv_tests.sh
@@ -330,10 +331,11 @@ $(BUILD_DIR)/tb_compare.vvp: rtl/core/roco_cpu_compare.sv sim/tb_compare.sv | bu
 $(BUILD_DIR)/tb_alu.vvp: rtl/core/roco_cpu_alu.sv rtl/core/roco_cpu_addsub.sv rtl/core/roco_cpu_compare.sv sim/tb_alu.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_alu -o $@ $^
 
-test_core: $(BUILD_DIR)/basic.hex $(CORE_SIM_DEP) $(BUILD_DIR)/tb_compare.vvp $(BUILD_DIR)/tb_alu.vvp
+test_core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/csr_irq_order.hex $(CORE_SIM_DEP) $(BUILD_DIR)/tb_compare.vvp $(BUILD_DIR)/tb_alu.vvp
 	$(VVP) $(BUILD_DIR)/tb_alu.vvp
 	$(VVP) $(BUILD_DIR)/tb_compare.vvp
 	$(CORE_SIM) +hex=$(BUILD_DIR)/basic.hex
+	$(CORE_SIM) +hex=$(BUILD_DIR)/csr_irq_order.hex
 
 $(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/roco_cpu_vec_reduce.sv sim/tb_vec_reduce.sv | build
 	$(IVERILOG) -g2012 -s tb_vec_reduce -o $@ $^

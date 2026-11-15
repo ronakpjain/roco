@@ -340,7 +340,12 @@ module roco_cpu (
   assign mul_conflict = if_valid && idex_valid && idex_is_mul && (idex_rd != 5'd0) &&
                         ((dec_use_rs1 && (dec_rs1 == idex_rd)) ||
                          (dec_use_rs2 && (dec_rs2 == idex_rd)));
-  assign bubble = div_conflict || load_dependency || mul_conflict;
+  // CSR writes apply with their MEM packet. Leave one bubble before a
+  // younger instruction can consume privilege/vector/CSR state.
+  logic csr_write_conflict;
+  assign csr_write_conflict = if_valid && idex_valid && idex_is_csr &&
+                              ((idex_csr_op == 2'd0) || (idex_rs1 != 5'd0));
+  assign bubble = div_conflict || load_dependency || mul_conflict || csr_write_conflict;
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];

@@ -12,7 +12,7 @@ module tb_icache;
   logic ready = 0, rvalid = 0, rlast = 0;
   logic [31:0] rdata = 0;
   icache #(
-      .NUM_LINES(4)
+      .NUM_LINES(128)
   ) dut (
       .clk(clk),
       .rst(rst),
@@ -100,6 +100,21 @@ module tb_icache;
     @(negedge clk);
     assert (rsp && rsp_data == 32'h10000203)
     else $fatal(1, "refill failed");
+    // Exercise every physical tag bank with different low indices, then
+    // revisit all banks after unrelated fills have changed the live port.
+    req = 0;
+    for (int bank = 0; bank < 8; bank++)
+    fill(32'h10001000 + 32'(bank * 256 + ((bank * 3) % 16) * 16), 0);
+    for (int bank = 7; bank >= 0; bank--) begin
+      req = 1;
+      addr = 32'h10001000 + 32'(bank * 256 + ((bank * 3) % 16) * 16 + 12);
+      #1;
+      assert (!miss && hit_pulse)
+      else $fatal(1, "tag bank lost its line");
+      @(negedge clk);
+      assert (rsp && rsp_addr == addr && rsp_data == addr - 9)
+      else $fatal(1, "tag bank data/address mismatch");
+    end
     rst = 1;
     req = 0;
     @(negedge clk);
@@ -112,7 +127,7 @@ module tb_icache;
     $finish;
   end
   initial begin
-    #10000;
+    #100000;
     $fatal(1, "timeout");
   end
 endmodule

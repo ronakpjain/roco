@@ -146,7 +146,7 @@ module roco_cpu_id_stage (
   // directly into the next EX instruction.
   assign dec_is_div = dec_is_muldiv && dec_md_op[2];
   assign ex_can_forward = idex_valid && idex_regwrite &&
-                          !idex_is_load && !idex_is_lr && !idex_is_amo &&
+                          !idex_is_load && !idex_is_lr && !idex_is_amo && !idex_is_sc &&
                           !idex_is_muldiv && (idex_rd != 5'd0);
   assign mem_can_forward = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0);
   assign rs1_from_mem = ex_can_forward && (dec_rs1 == idex_rd);

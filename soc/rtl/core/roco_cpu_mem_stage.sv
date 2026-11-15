@@ -240,7 +240,7 @@ module roco_cpu_mem_stage (
   // Memory results bypass into ID after one dependency bubble. EX only
   // consumes results produced by EX/MEM registers, keeping cache read,
   // alignment and forwarding routing off the next address calculation.
-  assign forward_data = ({32{exmem_is_sc}} & sc_result) | ({32{exmem_forward_wbval}} & exmem_wbval);
+  assign forward_data = exmem_wbval;
 
   // Load-reserved / store-conditional reservation. The set is one word
   // wide: any store to it, any store-conditional and any trap clears it.

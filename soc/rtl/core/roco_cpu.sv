@@ -329,7 +329,7 @@ module roco_cpu (
   // instruction. ID captures the final MEM value; EX forwarding then
   // starts at EX/MEM flops instead of the cache read and alignment muxes.
   assign load_dependency = idex_valid &&
-                               (idex_is_load || idex_is_lr || idex_is_amo) &&
+                               (idex_is_load || idex_is_lr || idex_is_amo || idex_is_sc) &&
                                (idex_rd != 5'd0) && if_valid &&
                                ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                                 (dec_use_rs2 && dec_rs2 == idex_rd));

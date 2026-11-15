@@ -2,6 +2,8 @@
 module tb_compare;
   logic [31:0] a, b;
   logic equal, signed_lt, unsigned_lt;
+  logic [31:0] difference, successor;
+  roco_cpu_sub_pair u_sub_pair (.*);
   roco_cpu_compare dut (.*);
   task automatic check(input logic [31:0] x, input logic [31:0] y);
     a = x;
@@ -9,9 +11,12 @@ module tb_compare;
     #1;
     if (equal !== (x == y) || unsigned_lt !== (x < y) || signed_lt !== ($signed(x) < $signed(y)))
       $fatal(1, "comparison mismatch a=%h b=%h", x, y);
+    if (difference !== (x - y) || successor !== (x - y + 32'd1))
+      $fatal(1, "consecutive subtraction mismatch a=%h b=%h", x, y);
   endtask
   initial begin
     check(0, 0);
+    check(0, 1);
     check(32'h80000000, 32'h7fffffff);
     check(32'hffffffff, 0);
     check(0, 32'hffffffff);

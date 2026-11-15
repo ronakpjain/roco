@@ -98,8 +98,13 @@ module roco_cpu_id_stage (
 );
 
   logic [31:0] dec_imm;
-  logic [31:0] pred_jalr_base;
-  assign pred_jalr_base = if_pred_target - dec_imm;
+  logic [31:0] pred_jalr_base, pred_jalr_next;
+  roco_cpu_sub_pair u_predicted_base (
+      .a(if_pred_target),
+      .b(dec_imm),
+      .difference(pred_jalr_base),
+      .successor(pred_jalr_next)
+  );
   logic [2:0] dec_funct3;
   logic dec_alu_b_imm;
   logic dec_alu_a_pc;
@@ -289,10 +294,12 @@ module roco_cpu_id_stage (
       // B/JAL targets depend only on decode operands. Validate the BTB
       // target here so EX redirect control does not wait for an adder
       // followed by a full-width equality comparison.
-      idex_pred_target_match <= ((if_pc + dec_imm) == if_pred_target);
+      // pc + imm == target iff pc == target - imm, modulo XLEN.
+      // Share the predicted-base subtraction with JALR validation.
+      idex_pred_target_match <= (if_pc == pred_jalr_base);
       // JALR's masked sum can match either of two source values.
       idex_pred_jalr_base <= pred_jalr_base;
-      idex_pred_jalr_next <= pred_jalr_base + 32'd1;
+      idex_pred_jalr_next <= pred_jalr_next;
       idex_pred_jalr_aligned <= !if_pred_target[0];
       // The current MEM producer will be WB when this instruction reaches
       // EX. Resolve that source before ID/EX instead of adding a WB mux

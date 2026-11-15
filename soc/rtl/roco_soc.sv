@@ -72,6 +72,7 @@ module roco_soc #(
   logic [2:0] dmem_lu_funct3;
   logic dmem_ready;
   logic dmem_req;
+  logic dmem_valid;
   logic dmem_we;
   logic [31:0] dmem_addr;
   logic [31:0] dmem_wdata;
@@ -237,6 +238,7 @@ module roco_soc #(
       .dmem_lu_funct3(dmem_lu_funct3),
       .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
+      .dmem_valid(dmem_valid),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),
@@ -417,7 +419,7 @@ module roco_soc #(
   assign uart_tx_data = boot_tx_valid ? boot_tx_data : mmio_tx_byte;
   assign boot_tx_ready = uart_tx_ready;
   assign uart_rx_ready = boot_rx_ready | mmio_rx_pop;
-  assign uart_rx_clear = dmem_req && !dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0004);
+  assign uart_rx_clear = dmem_valid && !dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0004);
 
   uart #(
       .CLK_HZ(CLK_HZ),
@@ -462,11 +464,13 @@ module roco_soc #(
   );
 
   // --------------------------------------------------------------- MMIO
-  assign mmio_tx_push = dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0000);
+  // This region is always ready, so transaction validity is already its
+  // commit strobe. Keep the cache-ready path out of peripheral controls.
+  assign mmio_tx_push = dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0000);
   assign mmio_tx_byte = dmem_wdata[7:0];
-  assign mmio_rx_pop = dmem_req && !dmem_we && !dmem_in_sdram &&
+  assign mmio_rx_pop = dmem_valid && !dmem_we && !dmem_in_sdram &&
                       (dmem_addr[15:0] == 16'h0000) && uart_rx_valid;
-  assign boot_restart = dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
+  assign boot_restart = dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
 
   always_comb begin
     mmio_rdata = 32'd0;
@@ -554,7 +558,7 @@ module roco_soc #(
       dc_misses_base <= dc_misses;
       dc_hit_q <= dc_hit;
       dc_miss_q <= dc_miss;
-      dc_clear_q <= dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0030);
+      dc_clear_q <= dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0030);
     end
   end
 
@@ -578,7 +582,7 @@ module roco_soc #(
         i_unc_rsp_addr <= imem_addr;
         i_unc_rsp_data <= 32'h0000_0000;
       end
-      if (dmem_req && !dmem_in_sdram) begin
+      if (dmem_valid && !dmem_in_sdram) begin
         if (dmem_we) begin
           case (dmem_addr[15:0])
             16'h0010: begin

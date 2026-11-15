@@ -108,6 +108,7 @@ module tb_core;
       .dmem_lu_funct3(dmem_lu_funct3),
       .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
+      .dmem_valid(),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),

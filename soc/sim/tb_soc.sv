@@ -285,6 +285,13 @@ module tb_soc #(
     end
   end
 
+  // MMIO is always ready: validity and the old commit strobe must agree
+  // before changing any peripheral, including during cache misses/traps.
+  always @(posedge clk) begin
+    if (!rst && !u_soc.dmem_in_sdram && u_soc.dmem_valid !== u_soc.dmem_req)
+      $fatal(1, "MMIO validity differs from ready-qualified commit");
+  end
+
   always @(posedge clk) begin
     if (!rst && halted) begin
       if ($test$plusargs("measure_execution"))

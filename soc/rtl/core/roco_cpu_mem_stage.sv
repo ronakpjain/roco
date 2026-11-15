@@ -55,6 +55,7 @@ module roco_cpu_mem_stage (
   input logic [63:0] exmem_mul_carry,
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
+  output logic dmem_valid,
   output logic dmem_we,
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
@@ -164,6 +165,10 @@ module roco_cpu_mem_stage (
   // operation holds EX (including cache lookups) until it completes, and
   // there is no posted store buffer. This uniformly enforces both acquire
   // and release ordering; aq/rl do not need additional stalls or flushes.
+  // Separate transaction validity from the ready-qualified commit strobe.
+  // Always-ready MMIO can use validity directly without routing the
+  // unrelated cache hit comparator through peripheral write enables.
+  assign dmem_valid = !rst && !halt && exmem_valid && !fence_req && is_memory_op;
   assign dmem_req = commit_valid && is_memory_op;
   assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_ready;
   assign commit_valid = !rst && !halt && exmem_valid && !fence_req && !mem_wait;

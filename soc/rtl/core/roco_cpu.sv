@@ -44,7 +44,8 @@ module roco_cpu (
   output logic [1:0] dmem_lu_offset,
   output logic [2:0] dmem_lu_funct3,
   input logic dmem_ready,
-  output logic dmem_req,
+  output logic dmem_req,  // Ready-qualified commit strobe.
+  output logic dmem_valid,  // In-order validity before memory readiness.
   output logic dmem_we,
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
@@ -767,6 +768,7 @@ module roco_cpu (
       .vec_mem_wdata(vec_mem_wdata),
       .vec_element_commit(vec_element_commit),
       .dmem_req(dmem_req),
+      .dmem_valid(dmem_valid),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),

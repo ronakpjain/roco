@@ -478,68 +478,66 @@ module roco_soc #(
                       (dmem_addr[15:0] == 16'h0000) && uart_rx_valid;
   assign boot_restart = dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
 
-  always_comb begin
-    mmio_rdata = 32'd0;
-    case (dmem_addr[15:0])
-      16'h0000: begin
-        mmio_rdata = {24'd0, uart_rx_data};
-      end
-      16'h0004: begin
-        mmio_rdata = {28'd0, uart_rx_overflow, 1'b0, uart_rx_valid, uart_tx_ready};
-      end
-      16'h0010: begin
-        mmio_rdata = {28'd0, led_reg};
-      end
-      16'h0014: begin
-        mmio_rdata = {30'd0, buttons};
-      end
-      16'h0018: begin
-        mmio_rdata = mtime[31:0];
-      end
-      16'h001c: begin
-        mmio_rdata = mtime[63:32];
-      end
-      16'h0020: begin
-        mmio_rdata = mtimecmp[31:0];
-      end
-      16'h0024: begin
-        mmio_rdata = mtimecmp[63:32];
-      end
-      16'h0028: begin
-        mmio_rdata = {31'd0, (mtime >= mtimecmp)};
-      end
-      16'h0030: begin
-        mmio_rdata = ic_hits;
-      end
-      16'h0034: begin
-        mmio_rdata = ic_misses;
-      end
-      16'h0038: begin
-        mmio_rdata = dc_hits;
-      end
-      16'h003c: begin
-        mmio_rdata = dc_misses;
-      end
-      16'h0048: begin
-        mmio_rdata = dbg0;
-      end
-      16'h004c: begin
-        mmio_rdata = dbg1;
-      end
-      16'h0100: begin
-        mmio_rdata = {28'd0, sdram_init_done, boot_error, boot_busy, boot_done_eff};
-      end
-      16'h0104: begin
-        mmio_rdata = boot_addr;
-      end
-      16'h1000: begin
-        mmio_rdata = exit_code;
-      end
+  logic [17:0] mmio_read_select_q;
+  function automatic logic [17:0] mmio_read_decode(input logic [15:0] address);
+    mmio_read_decode = '0;
+    case (address)
+      16'h0000: mmio_read_decode[0] = 1'b1;
+      16'h0004: mmio_read_decode[1] = 1'b1;
+      16'h0010: mmio_read_decode[2] = 1'b1;
+      16'h0014: mmio_read_decode[3] = 1'b1;
+      16'h0018: mmio_read_decode[4] = 1'b1;
+      16'h001c: mmio_read_decode[5] = 1'b1;
+      16'h0020: mmio_read_decode[6] = 1'b1;
+      16'h0024: mmio_read_decode[7] = 1'b1;
+      16'h0028: mmio_read_decode[8] = 1'b1;
+      16'h0030: mmio_read_decode[9] = 1'b1;
+      16'h0034: mmio_read_decode[10] = 1'b1;
+      16'h0038: mmio_read_decode[11] = 1'b1;
+      16'h003c: mmio_read_decode[12] = 1'b1;
+      16'h0048: mmio_read_decode[13] = 1'b1;
+      16'h004c: mmio_read_decode[14] = 1'b1;
+      16'h0100: mmio_read_decode[15] = 1'b1;
+      16'h0104: mmio_read_decode[16] = 1'b1;
+      16'h1000: mmio_read_decode[17] = 1'b1;
       default: begin
-        mmio_rdata = 32'd0;
       end
     endcase
+  endfunction
+
+  // Preserve read selection with the cache lookup while MEM waits.
+  always_ff @(posedge clk) begin
+    if (dmem_lu_valid) mmio_read_select_q <= mmio_read_decode({dmem_lu_addr[15:2], dmem_lu_offset});
   end
+
+  always_comb begin
+    mmio_rdata = '0;
+    mmio_rdata |= {32{mmio_read_select_q[0]}} & {24'd0, uart_rx_data};
+    mmio_rdata |= {32{mmio_read_select_q[1]}} & {28'd0, uart_rx_overflow, 1'b0, uart_rx_valid, uart_tx_ready};
+    mmio_rdata |= {32{mmio_read_select_q[2]}} & {28'd0, led_reg};
+    mmio_rdata |= {32{mmio_read_select_q[3]}} & {30'd0, buttons};
+    mmio_rdata |= {32{mmio_read_select_q[4]}} & mtime[31:0];
+    mmio_rdata |= {32{mmio_read_select_q[5]}} & mtime[63:32];
+    mmio_rdata |= {32{mmio_read_select_q[6]}} & mtimecmp[31:0];
+    mmio_rdata |= {32{mmio_read_select_q[7]}} & mtimecmp[63:32];
+    mmio_rdata |= {32{mmio_read_select_q[8]}} & {31'd0, (mtime >= mtimecmp)};
+    mmio_rdata |= {32{mmio_read_select_q[9]}} & ic_hits;
+    mmio_rdata |= {32{mmio_read_select_q[10]}} & ic_misses;
+    mmio_rdata |= {32{mmio_read_select_q[11]}} & dc_hits;
+    mmio_rdata |= {32{mmio_read_select_q[12]}} & dc_misses;
+    mmio_rdata |= {32{mmio_read_select_q[13]}} & dbg0;
+    mmio_rdata |= {32{mmio_read_select_q[14]}} & dbg1;
+    mmio_rdata |= {32{mmio_read_select_q[15]}} & {28'd0, sdram_init_done, boot_error, boot_busy, boot_done_eff};
+    mmio_rdata |= {32{mmio_read_select_q[16]}} & boot_addr;
+    mmio_rdata |= {32{mmio_read_select_q[17]}} & exit_code;
+  end
+
+`ifndef SYNTHESIS
+  always @(posedge clk) begin
+    if (!rst && dmem_valid && (mmio_read_select_q !== mmio_read_decode(dmem_addr[15:0])))
+      $fatal(1, "MMIO selector lost its MEM address association");
+  end
+`endif
 
   // Capture lookup events before the counter arithmetic. The MMIO value
   // includes the captured event, including when it takes priority over clear.

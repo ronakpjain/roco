@@ -25,6 +25,7 @@ module rv32_ex_stage (
   output logic [31:0] div_wb_data,
   /* ID/EX pipeline register. */
   input logic idex_valid,
+  input logic [4:0] idex_wb_select,
   input logic [31:0] idex_pc,
   input logic [31:0] idex_instr,
   input logic [31:0] idex_rs1_val,
@@ -403,9 +404,13 @@ module rv32_ex_stage (
       dmem_lu_paddr : is_vec_mem ? dmem_lu_paddr : ex_alu_result;
   assign ex_st = is_vec_mem ? vmem_store_data : stall_active ? stall_store_data : ex_store_data;
   assign ex_be = is_vec_mem ? vmem_be : stall_active ? stall_be : ex_store_be;
-  assign ex_wbval = (idex_is_jal || idex_is_jalr) ? (idex_pc + 32'd4) :
-                    idex_is_csr ? csr_rdata : vec_scalar_wb ? vec_scalar_wdata :
-                    idex_is_mul ? mul_data : ex_addr;
+  // Decode the mutually exclusive writeback producers in ID. EX data
+  // meets one parallel merge instead of a priority chain after multiply.
+  assign ex_wbval = ({32{idex_wb_select[4]}} & (idex_pc + 32'd4)) |
+                    ({32{idex_wb_select[3]}} & csr_rdata) |
+                    ({32{idex_wb_select[2]}} & vec_scalar_wdata) |
+                    ({32{idex_wb_select[1]}} & mul_data) |
+                    ({32{idex_wb_select[0]}} & ex_addr);
 
   // -------------------------------------------------- CSR file (EX and WB)
   rv32_csr u_csr (

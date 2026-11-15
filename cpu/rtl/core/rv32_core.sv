@@ -98,6 +98,7 @@ module rv32_core (
   logic dec_is_div;
 
   logic idex_valid;
+  logic [4:0] idex_wb_select;
   logic [31:0] idex_pc;
   logic [31:0] idex_instr;
   logic [31:0] idex_rs1_val;
@@ -391,6 +392,7 @@ module rv32_core (
       .dec_regwrite(dec_regwrite),
       .dec_is_div(dec_is_div),
       .idex_valid(idex_valid),
+      .idex_wb_select(idex_wb_select),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
       .idex_pred_taken(idex_pred_taken),
@@ -456,6 +458,7 @@ module rv32_core (
       .div_wb_rd(div_wb_rd),
       .div_wb_data(div_wb_data),
       .idex_valid(idex_valid),
+      .idex_wb_select(idex_wb_select),
       .idex_pc(idex_pc),
       .idex_instr(idex_instr),
       .idex_pred_taken(idex_pred_taken),

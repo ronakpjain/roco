@@ -42,6 +42,7 @@ module rv32_id_stage (
   output logic dec_is_div,
   /* ID/EX pipeline register. */
   output logic idex_valid,
+  output logic [4:0] idex_wb_select,
   output logic [31:0] idex_pc,
   output logic [31:0] idex_instr,
   output logic idex_ifault,
@@ -209,9 +210,18 @@ module rv32_id_stage (
       .rdata2(rf_rdata2)
   );
 
+  logic wb_jump, wb_csr, wb_vec, wb_mul;
+  assign wb_jump = dec_is_jal || dec_is_jalr;
+  assign wb_csr = dec_is_csr && !wb_jump;
+  assign wb_vec = !wb_jump && !wb_csr &&
+                  (dec_is_vset || (dec_is_vec && !dec_is_vload && !dec_is_vstore &&
+                   (dec_vec_funct6 == `RV32_VOP_SCALAR) && (if_instr[14:12] == 3'b010)));
+  assign wb_mul = dec_is_muldiv && !dec_md_op[2] && !wb_jump && !wb_csr && !wb_vec;
+
   always_ff @(posedge clk) begin
     if (rst) begin
       idex_valid <= 1'b0;
+      idex_wb_select <= 5'b00001;
       idex_pc <= '0;
       idex_instr <= 32'h0000_0013;
       idex_ifault <= 1'b0;
@@ -269,6 +279,7 @@ module rv32_id_stage (
       // Only the valid bit needs the flush and bubble controls. Updating
       // the invalid payload keeps those controls off the register enables.
       idex_valid <= if_valid && !flush && !bubble;
+      idex_wb_select <= {wb_jump, wb_csr, wb_vec, wb_mul, !(wb_jump || wb_csr || wb_vec || wb_mul)};
       idex_pc <= if_pc;
       idex_instr <= if_instr;
       idex_ifault <= if_fault;

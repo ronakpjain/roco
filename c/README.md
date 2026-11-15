@@ -18,7 +18,7 @@ hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
 | RV32 instruction encoder | complete |
 | `roco-as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
 | ELF32 objects | reader and writer complete |
-| `roco-ld` linker | under construction |
+| `roco-ld` linker | fixed-layout ELF executable, binary, and hex output |
 | `roco-cc` C compiler | under construction |
 
 The assembler accepts the standard RV32 encodings and rejects instructions
@@ -44,11 +44,13 @@ On macOS: `brew install googletest doxygen`.
 
 ```bash
 ./build/roco-as -o hello.o hello.S
+./build/roco-ld -o hello.elf --hex hello.hex hello.o
 ```
 
 The assembler accepts labels, numeric local labels, data directives,
 pseudoinstructions, ELF sections, and the relocation forms needed by the
-compiler. See the [assembler reference](docs/assembler.md).
+compiler. See the [assembler reference](docs/assembler.md) and the
+[linker reference](docs/linker.md).
 
 ## Layout
 
@@ -57,7 +59,7 @@ compiler. See the [assembler reference](docs/assembler.md).
 | `include/roco/` | public object, ELF, ISA, and assembler interfaces |
 | `src/` | implementation and command-line drivers |
 | `tests/` | GoogleTest unit tests |
-| `docs/` | architecture, target, assembler, hardware, and testing notes |
+| `docs/` | architecture, target, assembler, linker, hardware, and testing notes |
 | `Doxyfile` | documentation build |
 
 ## Design
@@ -67,8 +69,8 @@ The pipeline keeps a narrow, inspectable object format between stages:
 1. The assembler parses one source file into sections, symbols, and
    relocations.
 2. The ELF writer emits a standard ELF32 little-endian RISC-V object.
-3. The linker will resolve symbols, apply relocations, and place sections
-   at the roco SDRAM load address.
+3. The linker resolves symbols, applies relocations, places sections at the
+   roco SDRAM load address, and emits ELF, flat, and hex images.
 
 The assembler does not silently accept unsupported instructions or
 relocations. Unimplemented vector forms and 64-bit atomics fail with a

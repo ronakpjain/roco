@@ -1,5 +1,5 @@
-/// \file roco-as.cpp
-/// \brief Command-line driver for the roco RISC-V assembler.
+/// @file roco-as.cpp
+/// @brief Command-line driver for the roco RISC-V assembler.
 
 #include "roco/assembler.hpp"
 #include "roco/diagnostic.hpp"

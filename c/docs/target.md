@@ -65,7 +65,7 @@ in the syntax but has no effect because masking is absent. See
 
 The bootloader loads a flat image at the image base and starts the core
 there. The existing freestanding startup code places the stack at
-`0x100f_0000`. The linker will use the SDRAM base and a section order of
+`0x100f_0000`. The linker uses the SDRAM base and a section order of
 `.text`, `.rodata`, `.data`, `.bss`, with `.text.init` first for startup
 code.
 

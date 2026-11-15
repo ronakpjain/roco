@@ -71,17 +71,18 @@ The assembler currently emits these relocation kinds:
 | `R_RISCV_PCREL_HI20` | `auipc` with a symbol |
 | `R_RISCV_PCREL_LO12_I/S` | `%pcrel_lo` markers |
 
-The linker will apply the standard two's-complement split for HI20/LO12
-pairs. Linker relaxation is intentionally disabled: fixed instruction
-sizes keep the implementation and the debug story simple, and roco has
-no instruction-fetch throughput problem that requires relaxation.
+The linker applies the standard two's-complement split for HI20/LO12
+pairs and range-checks branches and jumps. Linker relaxation is
+intentionally disabled: fixed instruction sizes keep the implementation
+and the debug story simple, and roco has no instruction-fetch throughput
+problem that requires relaxation. See the [linker reference](linker.md).
 
 ## Target coupling
 
 The tools target the roco RTL, not a generic RV32 profile. The
 instruction tables include M, A, Zicsr, Zifencei, and only the vector
 operations implemented by `rtl/core/rv32_vec*.sv`. The linker default
-load address will be the SDRAM base at `0x1000_0000`, matching the boot
+load address is the SDRAM base at `0x1000_0000`, matching the boot
 protocol and the existing `cpu/sw/link.ld` layout.
 
 The toolchain does not assume Linux, virtual memory, an F/D unit,

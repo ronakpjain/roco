@@ -81,7 +81,7 @@ module roco_cpu_ex_stage (
   input logic idex_pred_taken,
   input logic idex_pred_target_match,
   input logic [31:0] idex_pred_jalr_base,
-  input logic [31:0] idex_pred_jalr_next,
+  input logic [31:0] idex_pred_jalr_carry,
   input logic idex_pred_jalr_aligned,
   /* Final MEM result and registered WB forwarding. */
   input logic [31:0] mem_data,
@@ -102,7 +102,10 @@ module roco_cpu_ex_stage (
   output logic vec_mem_hold,
   /* Redirect to fetch. */
   output logic ex_redirect_en,
-  output logic [31:0] ex_redirect_pc,
+  output logic [31:0] ex_redirect_base,
+  output logic [31:0] ex_redirect_offset,
+  output logic ex_redirect_fallthrough,
+  output logic ex_redirect_mask_lsb,
   output logic btb_update,
   output logic btb_is_branch,
   output logic btb_is_jal,
@@ -221,6 +224,12 @@ module roco_cpu_ex_stage (
   logic csr_wr_en, csr_issue, csr_commit_q;
   logic [11:0] csr_commit_addr_q;
   logic [31:0] csr_commit_data_q;
+  logic trap_is_irq_q;
+  logic [31:0] csr_sync_pc_q, csr_irq_pc_q, csr_sync_cause_q;
+  logic [4:0] csr_irq_code_q;
+  logic [31:0] sync_cause_candidate, sync_tval_candidate;
+  logic sync_target_candidate, trap_target_q, trap_target_mask_q;
+  logic [31:0] trap_target_base_q, trap_target_offset_q, trap_target_sum, csr_entry_tval;
   logic [31:0] csr_trap_vector;
   logic [31:0] unused_csr_mtvec;
   logic [31:0] unused_csr_stvec;
@@ -457,7 +466,7 @@ module roco_cpu_ex_stage (
       .trap_en(trap_commit && !halt),
       .trap_pc(csr_trap_pc),
       .trap_cause(csr_trap_cause),
-      .trap_tval(csr_trap_tval),
+      .trap_tval(csr_entry_tval),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
       .irq_req(irq_req),
@@ -674,8 +683,9 @@ module roco_cpu_ex_stage (
         branch_mispredict = !(idex_pred_taken && idex_pred_target_match);
       end else if (idex_is_jalr) begin
         branch_mispredict = !idex_pred_taken || !idex_pred_jalr_aligned ||
-                            ((rs1_fwd != idex_pred_jalr_base) &&
-                             (rs1_fwd != idex_pred_jalr_next));
+                            ((rs1_fwd[0] && idex_imm[0]) ?
+                             (rs1_fwd[31:1] != idex_pred_jalr_carry[30:0]) :
+                             (rs1_fwd[31:1] != idex_pred_jalr_base[30:0]));
       end
 
       ex_redirect = ex_trap || is_satp_write || idex_mret || idex_sret || branch_mispredict;
@@ -697,27 +707,76 @@ module roco_cpu_ex_stage (
     else if (!(trap_pending && csr_commit_q)) trap_pending <= trap_capture;
   end
 
-  // Payload does not need the late trap-valid enable, and it carries no
-  // reset value. Only pending makes it visible, and younger EX side
-  // effects are canceled then.
-  always_ff @(posedge clk) begin
-    if (!trap_pending) begin
-      csr_trap_pc <= ex_trap ? idex_pc : irq_next_pc;
-      csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
-      csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
+  // Payload class is known independently of exception validity. Capture
+  // synchronous and interrupt candidates before the late branch/target
+  // decision; one registered event-kind bit selects them during entry.
+  always_comb begin
+    sync_cause_candidate = (idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore) ?
+                           `RV32_CAUSE_STORE_MISALIGNED : `RV32_CAUSE_LOAD_MISALIGNED;
+    sync_tval_candidate = mem_access_addr;
+    sync_target_candidate = 1'b0;
+    if (idex_ifault) begin
+      sync_cause_candidate = `RV32_CAUSE_INSTR_PAGE_FAULT;
+      sync_tval_candidate = idex_pc;
+    end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal) begin
+      sync_cause_candidate = `RV32_CAUSE_ILLEGAL;
+      sync_tval_candidate = idex_instr;
+    end else if (idex_ebreak || idex_ecall) begin
+      sync_cause_candidate = idex_ebreak ? `RV32_CAUSE_BREAKPOINT : ex_ecall_cause;
+      sync_tval_candidate = 32'd0;
+    end else if (idex_is_branch || idex_is_jal || idex_is_jalr) begin
+      sync_cause_candidate = `RV32_CAUSE_INSTR_MISALIGNED;
+      sync_tval_candidate = 32'd0;
+      sync_target_candidate = 1'b1;
+    end else if (dmem_lu_fault) begin
+      sync_cause_candidate = {28'd0, dmem_lu_fault_cause};
     end
   end
+  always_ff @(posedge clk) begin
+    if (!trap_pending) begin
+      trap_is_irq_q <= irq_take;
+      csr_sync_pc_q <= idex_pc;
+      csr_irq_pc_q <= irq_next_pc;
+      csr_sync_cause_q <= sync_cause_candidate;
+      csr_irq_code_q <= irq_code;
+      csr_trap_tval <= sync_tval_candidate;
+      trap_target_q <= sync_target_candidate;
+      trap_target_base_q <= idex_is_jalr ? rs1_fwd : idex_pc;
+      trap_target_offset_q <= idex_imm;
+      trap_target_mask_q <= idex_is_jalr;
+    end
+  end
+  // Trap entry already follows capture by one cycle. Finish a faulting
+  // branch/jump address here instead of adding before the payload flops.
+  roco_cpu_addsub u_trap_target_add (
+      .a(trap_target_base_q),
+      .b(trap_target_offset_q),
+      .subtract(1'b0),
+      .result(trap_target_sum)
+  );
+  assign csr_entry_tval = trap_is_irq_q ? 32'd0 : trap_target_q ?
+                          {trap_target_sum[31:1], trap_target_sum[0] && !trap_target_mask_q} :
+                          csr_trap_tval;
+  assign csr_trap_pc = trap_is_irq_q ? csr_irq_pc_q : csr_sync_pc_q;
+  assign csr_trap_cause = trap_is_irq_q ? {1'b1, 26'd0, csr_irq_code_q} : csr_sync_cause_q;
+
   // A trap captured with a CSR write must enter after that write applies,
   // so saved status and trap-vector selection see the architectural state.
   assign trap_commit = trap_pending && !csr_commit_q;
   assign ex_redirect_en = (ex_redirect_int || trap_commit) && !halt;
   // Select the payload by instruction class, independently of prediction
   // correctness and current trap validity. Pending traps have priority.
-  assign ex_redirect_pc = trap_pending ? csr_trap_vector :
-                          idex_mret ? csr_mepc : idex_sret ? csr_sepc :
-                          is_satp_write ? (idex_pc + 32'd4) :
-                          idex_is_branch ? (ex_branch_taken ? ex_branch_target : (idex_pc + 32'd4)) :
-                          idex_is_jal ? ex_branch_target : ex_jump_target;
+  // Register the operands, then add during the existing redirect cycle.
+  // Taken/fall-through selection is one bit of metadata, not a late wide
+  // mux behind branch comparison in front of the payload register.
+  assign ex_redirect_base = trap_pending ? csr_trap_vector :
+                            idex_mret ? csr_mepc : idex_sret ? csr_sepc :
+                            (is_satp_write || idex_is_branch || idex_is_jal) ? idex_pc : rs1_fwd;
+  assign ex_redirect_offset = (trap_pending || idex_mret || idex_sret || is_satp_write) ?
+                              32'd0 : idex_imm;
+  assign ex_redirect_fallthrough = !trap_pending &&
+                                  (is_satp_write || (idex_is_branch && !ex_branch_taken));
+  assign ex_redirect_mask_lsb = !trap_pending && idex_is_jalr;
   assign ex_trap_taken = trap_commit;
   assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || dmem_lu_fault ||
                      (is_vec_mem && ex_mem_misaligned);
@@ -1089,5 +1148,20 @@ module roco_cpu_ex_stage (
       exmem_is_fence_i <= idex_is_fence_i;
     end
   end
+
+`ifndef SYNTHESIS
+  logic [31:0] expected_trap_cause_q, expected_trap_tval_q;
+  always @(posedge clk) begin
+    if (!rst && trap_capture && ex_trap) begin
+      expected_trap_cause_q <= ex_trap_cause;
+      expected_trap_tval_q <= ex_trap_tval;
+    end
+  end
+  always @(negedge clk) begin
+    if (!rst && trap_pending && !trap_is_irq_q)
+      assert (csr_trap_cause === expected_trap_cause_q && csr_entry_tval === expected_trap_tval_q)
+      else $fatal(1, "retimed trap payload differs from synchronous exception");
+  end
+`endif
 
 endmodule

@@ -198,8 +198,8 @@ module roco_soc #(
   logic sdram_init_done;
 
   assign imem_in_sdram = (imem_addr[31:25] == 7'd8);
-  assign imem_miss = imem_in_sdram ? ic_cpu_miss : 1'b0;
-  assign imem_busy = imem_in_sdram ? ic_cpu_busy : 1'b0;
+  assign imem_miss = ic_cpu_miss;
+  assign imem_busy = ic_cpu_busy;
   // Target classification belongs to the same EX lookup as the cache
   // response. Preserve it while MEM waits; an unrelated ALU payload must
   // not route its address bits through memory readiness and frontend hold.
@@ -208,7 +208,7 @@ module roco_soc #(
     else if (dmem_lu_valid) dmem_in_sdram <= dmem_lu_in_sdram;
   end
   assign dmem_lu_in_sdram = (dmem_lu_addr[31:25] == 7'd8);
-  assign i_unc_req = imem_req && !imem_in_sdram;
+  assign i_unc_req = imem_req && !imem_in_sdram && !ic_cpu_busy;
   assign dmem_ready = dmem_in_sdram ? dc_cm_ready : 1'b1;
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;

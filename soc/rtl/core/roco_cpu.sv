@@ -81,7 +81,7 @@ module roco_cpu (
   logic idex_pred_taken;
   logic idex_pred_target_match;
   logic [31:0] idex_pred_jalr_base;
-  logic [31:0] idex_pred_jalr_next;
+  logic [31:0] idex_pred_jalr_carry;
   logic idex_pred_jalr_aligned;
   logic btb_update;
   logic btb_is_branch;
@@ -168,12 +168,13 @@ module roco_cpu (
   logic [31:0] if_imem_rsp_addr;
   logic [31:0] if_imem_rsp_data;
   logic if_imem_miss;
+  logic cache_request_live_q, cache_miss_live;
   logic if_imem_busy;
   logic if_imem_fault;
   logic [31:0] if_imem_fault_addr;
   logic mmu_ic_req;
   logic [31:0] mmu_ic_addr;
-  logic unused_mmu_i_hit;
+  logic mmu_i_hit;
   logic mmu_i_miss;
   logic mmu_i_busy;
   logic mmu_i_fault;
@@ -195,7 +196,10 @@ module roco_cpu (
   logic [1:0] priv_data;
 
   logic ex_redirect_en, ex_redirect_raw;
-  logic [31:0] ex_redirect_pc, ex_redirect_pc_raw;
+  logic [31:0] ex_redirect_pc, redirect_base_raw, redirect_offset_raw;
+  logic [31:0] redirect_base_q, redirect_offset_q, redirect_sum;
+  logic redirect_fallthrough_raw, redirect_mask_raw;
+  logic redirect_fallthrough_q, redirect_mask_q;
 
 
   logic exmem_valid;
@@ -282,7 +286,19 @@ module roco_cpu (
   // in ID so cache read and alignment routing end at the ID/EX register.
   // Register EX redirects before distributing them through the front end.
   // The pending redirect cancels the one younger EX instruction below.
-  always_ff @(posedge clk) ex_redirect_pc <= ex_redirect_pc_raw;
+  always_ff @(posedge clk) begin
+    redirect_base_q <= redirect_base_raw;
+    redirect_offset_q <= redirect_offset_raw;
+    redirect_fallthrough_q <= redirect_fallthrough_raw;
+    redirect_mask_q <= redirect_mask_raw;
+  end
+  roco_cpu_addsub u_redirect_add (
+      .a(redirect_base_q),
+      .b(redirect_fallthrough_q ? 32'd4 : redirect_offset_q),
+      .subtract(1'b0),
+      .result(redirect_sum)
+  );
+  assign ex_redirect_pc = {redirect_sum[31:1], redirect_sum[0] && !redirect_mask_q};
 
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -295,10 +311,34 @@ module roco_cpu (
   end
 
   assign if_consume = if_valid && !stall && !bubble && !ex_redirect_en && !mem_redirect;
-  assign ex_lu_hit = mmu_d_hit;
-  assign dmem_lu_valid = ex_lu_valid && mmu_d_hit;
-  assign dmem_lu_addr = mmu_d_paddr[31:2];
-  assign dmem_lu_offset = ex_lu_vaddr[1:0];
+  // One translation token separates TLB lookup from cache lookup. EX
+  // retains its request until consuming the token, including each vector
+  // element, so no wide address comparison belongs on frontend hold.
+  logic translated_valid_q, lookup_translate_q;
+  logic [31:0] translated_paddr_q, lookup_paddr;
+  // Address preparation already supplies a register boundary in bare/M
+  // mode. Capture the translation mode with that preparation and only
+  // require a token when Sv32 permissions/PPN selection are active.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) lookup_translate_q <= 1'b0;
+    else lookup_translate_q <= satp[31] && (priv_data != 2'b11);
+  end
+  always_ff @(posedge clk) begin
+    if (!translated_valid_q) translated_paddr_q <= mmu_d_paddr;
+  end
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) translated_valid_q <= 1'b0;
+    else if (!lookup_translate_q || mmu_flush || ex_redirect_en || mem_redirect)
+      translated_valid_q <= 1'b0;
+    else if (translated_valid_q) begin
+      if (ex_lu_valid && !d_fault_q) translated_valid_q <= 1'b0;
+    end else translated_valid_q <= ex_lu_valid && mmu_d_hit;
+  end
+  assign ex_lu_hit = !lookup_translate_q || translated_valid_q;
+  assign lookup_paddr = lookup_translate_q ? translated_paddr_q : ex_lu_vaddr;
+  assign dmem_lu_valid = ex_lu_valid && ex_lu_hit;
+  assign dmem_lu_addr = lookup_paddr[31:2];
+  assign dmem_lu_offset = lookup_paddr[1:0];
   assign dmem_lu_funct3 = idex_funct3;
   // Hold the faulting instruction while registering the MMU response.
   // Trap delegation and fetch redirection then start from a register.
@@ -374,6 +414,8 @@ module roco_cpu (
       .imem_rsp_addr(if_imem_rsp_addr),
       .imem_rsp_data(if_imem_rsp_data),
       .imem_miss(if_imem_miss),
+      .imem_retry_previous(cache_miss_live),
+      .imem_miss_addr(mmu_i_rsp_addr),
       .imem_busy(if_imem_busy),
       .imem_fault(if_imem_fault),
       .imem_fault_addr(if_imem_fault_addr),
@@ -423,7 +465,7 @@ module roco_cpu (
       .idex_pred_taken(idex_pred_taken),
       .idex_pred_target_match(idex_pred_target_match),
       .idex_pred_jalr_base(idex_pred_jalr_base),
-      .idex_pred_jalr_next(idex_pred_jalr_next),
+      .idex_pred_jalr_carry(idex_pred_jalr_carry),
       .idex_pred_jalr_aligned(idex_pred_jalr_aligned),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
@@ -489,7 +531,7 @@ module roco_cpu (
       .idex_pred_taken(idex_pred_taken),
       .idex_pred_target_match(idex_pred_target_match),
       .idex_pred_jalr_base(idex_pred_jalr_base),
-      .idex_pred_jalr_next(idex_pred_jalr_next),
+      .idex_pred_jalr_carry(idex_pred_jalr_carry),
       .idex_pred_jalr_aligned(idex_pred_jalr_aligned),
       .idex_rs1_val(idex_rs1_val),
       .idex_rs2_val(idex_rs2_val),
@@ -550,11 +592,14 @@ module roco_cpu (
       .wb_we(wb_we),
       .dmem_lu_fault(d_fault_q),
       .dmem_lu_fault_cause(d_fault_cause_q),
-      .dmem_lu_paddr(mmu_d_paddr),
+      .dmem_lu_paddr(lookup_paddr),
       .ex_trap_taken(ex_trap_taken),
       .vec_mem_hold(vec_mem_hold),
       .ex_redirect_en(ex_redirect_raw),
-      .ex_redirect_pc(ex_redirect_pc_raw),
+      .ex_redirect_base(redirect_base_raw),
+      .ex_redirect_offset(redirect_offset_raw),
+      .ex_redirect_fallthrough(redirect_fallthrough_raw),
+      .ex_redirect_mask_lsb(redirect_mask_raw),
       .btb_update(btb_update),
       .btb_is_branch(btb_is_branch),
       .btb_is_jal(btb_is_jal),
@@ -649,9 +694,9 @@ module roco_cpu (
       .priv_data(priv_data),
       .mstatus_sum(mstatus_sum),
       .mstatus_mxr(mstatus_mxr),
-      .i_req(if_imem_req),
+      .i_req(if_imem_req && !imem_busy),
       .i_vaddr(if_imem_addr),
-      .i_hit(unused_mmu_i_hit),
+      .i_hit(mmu_i_hit),
       .i_miss(mmu_i_miss),
       .i_busy(mmu_i_busy),
       .i_fault(mmu_i_fault),
@@ -682,12 +727,20 @@ module roco_cpu (
   // fetch responses and page-fault reporting.
   assign mmu_sfence = mem_redirect && exmem_is_sfence;
   assign mmu_flush = mmu_sfence || satp_write;
-  assign imem_req = mmu_ic_req;
+  // Request validity may remain high while the cache is busy. Its local
+  // acceptance gate blocks speculation; only accepted requests arm MMU
+  // response metadata and only unpaused requests may start a page walk.
+  assign imem_req = if_imem_req && mmu_i_hit;
   assign imem_addr = mmu_ic_addr;
   assign if_imem_rsp_valid = mmu_i_rsp_valid;
   assign if_imem_rsp_addr = mmu_i_rsp_addr;
   assign if_imem_rsp_data = mmu_i_rsp_data;
-  assign if_imem_miss = imem_miss || mmu_i_miss;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) cache_request_live_q <= 1'b0;
+    else cache_request_live_q <= mmu_ic_req && !ex_redirect_en && !mem_redirect && !mmu_flush;
+  end
+  assign cache_miss_live = imem_miss && cache_request_live_q;
+  assign if_imem_miss = cache_miss_live || mmu_i_miss;
   assign if_imem_busy = mmu_i_busy || imem_busy;
   assign if_imem_fault = mmu_i_fault;
   assign if_imem_fault_addr = mmu_i_fault_addr;
@@ -812,5 +865,19 @@ module roco_cpu (
   );
 
 
+
+`ifndef SYNTHESIS
+  // The token replaces an address comparator in hardware. Verify the
+  // producer contract while exercising stalls, redirects and vector steps.
+  logic [31:0] translated_vaddr_check;
+  always_ff @(posedge clk) begin
+    if (!translated_valid_q) translated_vaddr_check <= ex_lu_vaddr;
+  end
+  always @(negedge clk) begin
+    if (!rst && lookup_translate_q && translated_valid_q && ex_lu_valid)
+      assert (ex_lu_vaddr === translated_vaddr_check)
+      else $fatal(1, "EX changed its request before consuming translation");
+  end
+`endif
 
 endmodule

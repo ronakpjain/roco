@@ -7,8 +7,15 @@ module tb_if_prediction;
   logic [31:0] redirect = 32'h300;
   wire req, valid, fault, pred_taken;
   wire [31:0] addr, pc, instr, pred_target, fetch_pc;
-  logic rsp_valid = 0;
-  logic [31:0] rsp_addr = 0, rsp_data = 0;
+  wire rsp_valid;
+  wire [31:0] rsp_addr, rsp_data;
+  wire cache_miss, cache_busy, mem_req;
+  wire [22:0] mem_addr;
+  wire [3:0] mem_len;
+  logic cache_live = 0, mem_active = 0, mem_rvalid = 0, mem_rlast = 0;
+  logic [31:0] mem_rdata = 0;
+  logic [22:0] mem_base;
+  integer mem_delay = 0, mem_beat = 0;
   wire lookup_taken = (fetch_pc == 32'h100 || fetch_pc == 32'h200);
   wire [31:0] lookup_target = fetch_pc == 32'h100 ? 32'h200 : 32'h100;
   wire consume = valid && consume_enable;
@@ -27,8 +34,10 @@ module tb_if_prediction;
       .imem_rsp_valid(rsp_valid),
       .imem_rsp_addr(rsp_addr),
       .imem_rsp_data(rsp_data),
-      .imem_miss(1'b0),
-      .imem_busy(1'b0),
+      .imem_miss(cache_miss && cache_live),
+      .imem_retry_previous(cache_miss && cache_live),
+      .imem_miss_addr(rsp_addr),
+      .imem_busy(cache_busy),
       .imem_fault(1'b0),
       .imem_fault_addr(32'd0),
       .if_valid(valid),
@@ -40,10 +49,55 @@ module tb_if_prediction;
       .fetch_pc(fetch_pc),
       .if_consume(consume)
   );
+  // A small real cache makes alternating taken targets conflict. This
+  // exercises response-stage misses during prediction bubbles as well
+  // as stale misses arriving on a redirect.
+  icache #(
+      .NUM_LINES(4)
+  ) cache (
+      .clk(clk),
+      .rst(rst),
+      .flush(1'b0),
+      .cpu_req(req),
+      .cpu_addr(addr),
+      .cpu_rsp_valid(rsp_valid),
+      .cpu_rsp_addr(rsp_addr),
+      .cpu_rsp_data(rsp_data),
+      .cpu_miss(cache_miss),
+      .cpu_busy(cache_busy),
+      .mem_req(mem_req),
+      .mem_word_addr(mem_addr),
+      .mem_len(mem_len),
+      .mem_ready(!mem_active),
+      .mem_rvalid(mem_rvalid),
+      .mem_rdata(mem_rdata),
+      .mem_rlast(mem_rlast),
+      .hit_pulse(),
+      .miss_pulse()
+  );
   always_ff @(posedge clk) begin
-    rsp_valid <= req && !rst;
-    rsp_addr <= addr;
-    rsp_data <= addr ^ 32'h12345678;
+    if (rst || flush) cache_live <= 1'b0;
+    else cache_live <= req && !cache_busy;
+    mem_rvalid <= 1'b0;
+    mem_rlast <= 1'b0;
+    if (rst) mem_active <= 1'b0;
+    else if (mem_req && !mem_active) begin
+      assert (mem_len == 3)
+      else $fatal(1, "unexpected line length");
+      mem_base <= mem_addr;
+      mem_active <= 1'b1;
+      mem_delay <= 2;
+      mem_beat <= 0;
+    end else if (mem_active) begin
+      if (mem_delay != 0) mem_delay <= mem_delay - 1;
+      else begin
+        mem_rvalid <= 1'b1;
+        mem_rdata <= (32'(mem_base + 23'(mem_beat)) << 2) ^ 32'h12345678;
+        mem_rlast <= (mem_beat == 3);
+        if (mem_beat == 3) mem_active <= 1'b0;
+        else mem_beat <= mem_beat + 1;
+      end
+    end
   end
   logic [31:0] expected_pc = 32'h100;
   integer retired = 0;
@@ -84,11 +138,11 @@ module tb_if_prediction;
     @(negedge clk);
     flush = 0;
     wait (retired >= 80);
-    $display("tb_if_prediction: PASS (taken stream, redirect priority, queue hold)");
+    $display("tb_if_prediction: PASS (taken misses, redirect priority, queue hold)");
     $finish;
   end
   initial begin
-    #20000;
+    #100000;
     $fatal(1, "timeout");
   end
 endmodule

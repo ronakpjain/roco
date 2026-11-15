@@ -33,6 +33,8 @@ module tb_if_queue;
       .imem_rsp_addr(rsp_addr),
       .imem_rsp_data(rsp_data),
       .imem_miss(miss),
+      .imem_retry_previous(1'b0),
+      .imem_miss_addr(32'd0),
       .imem_busy(busy),
       .imem_fault(fault),
       .imem_fault_addr(fault_addr),

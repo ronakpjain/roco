@@ -53,10 +53,12 @@ module icache #(
 
   state_t state;
   logic [31:0] data_ram[0:DEPTH-1];
-  logic [TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
+  (* ram_style = "distributed" *) logic [TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
   logic valid_ram[0:NUM_LINES-1];
 
-  logic rsp_valid_q;
+  logic lookup_pending;
+  logic tag_valid_q;
+  logic [TAG_BITS-1:0] tag_data_q, requested_tag_q;
   logic [31:0] rsp_addr_q;
   logic [22:0] fill_word_addr;
   logic [IDX_BITS-1:0] fill_idx;
@@ -69,19 +71,31 @@ module icache #(
   integer i;
 
   assign ram_raddr = {cpu_addr[IDX_HI:IDX_LO], cpu_addr[OFF_BITS+1:2]};
-  assign lu_hit = valid_ram[cpu_addr[IDX_HI:IDX_LO]] &&
-                  (tag_ram[cpu_addr[IDX_HI:IDX_LO]] == cpu_addr[31:IDX_HI+1]);
+  // Read tags with the data, then compare after the register boundary.
+  // Hit responses retain their one-cycle latency. A miss is reported with
+  // that request's response address; the next speculative request is not
+  // accepted while the miss is being recognized.
+  assign lu_hit = tag_valid_q && (tag_data_q == requested_tag_q);
+  always_ff @(posedge clk) begin
+    tag_valid_q <= valid_ram[cpu_addr[IDX_HI:IDX_LO]];
+    tag_data_q <= tag_ram[cpu_addr[IDX_HI:IDX_LO]];
+    requested_tag_q <= cpu_addr[31:IDX_HI+1];
+  end
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) lookup_pending <= 1'b0;
+    else lookup_pending <= cpu_req && (state == S_IDLE) && !cpu_miss && !flush;
+  end
 
   always_ff @(posedge clk) begin
     ram_data <= data_ram[ram_raddr];
   end
 
-  assign cpu_rsp_valid = rsp_valid_q;
+  assign cpu_rsp_valid = lookup_pending && lu_hit;
   assign cpu_rsp_addr = rsp_addr_q;
   assign cpu_rsp_data = ram_data;
-  assign cpu_miss = cpu_req && (state == S_IDLE) && !lu_hit;
-  assign cpu_busy = (state != S_IDLE);
-  assign hit_pulse = cpu_req && (state == S_IDLE) && lu_hit;
+  assign cpu_miss = lookup_pending && !lu_hit;
+  assign cpu_busy = (state != S_IDLE) || cpu_miss;
+  assign hit_pulse = cpu_rsp_valid;
   assign miss_pulse = cpu_miss;
 
   assign mem_req = (state == S_REQ);
@@ -94,23 +108,21 @@ module icache #(
   always_ff @(posedge clk) begin
     rsp_addr_q <= cpu_addr;
     if (state == S_IDLE) begin
-      fill_word_addr <= cpu_addr[24:2] & LINE_MASK;
-      fill_idx <= cpu_addr[IDX_HI:IDX_LO];
-      fill_tag <= cpu_addr[31:IDX_HI+1];
+      fill_word_addr <= rsp_addr_q[24:2] & LINE_MASK;
+      fill_idx <= rsp_addr_q[IDX_HI:IDX_LO];
+      fill_tag <= rsp_addr_q[31:IDX_HI+1];
     end
   end
 
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= S_IDLE;
-      rsp_valid_q <= 1'b0;
       beat <= '0;
       flush_pending <= 1'b0;
       for (i = 0; i < NUM_LINES; i = i + 1) begin
         valid_ram[i] <= 1'b0;
       end
     end else begin
-      rsp_valid_q <= 1'b0;
       if (flush) begin
         for (i = 0; i < NUM_LINES; i = i + 1) begin
           valid_ram[i] <= 1'b0;
@@ -122,13 +134,7 @@ module icache #(
 
       case (state)
         S_IDLE: begin
-          if (cpu_req) begin
-            if (lu_hit) begin
-              rsp_valid_q <= 1'b1;
-            end else begin
-              state <= S_REQ;
-            end
-          end
+          if (cpu_miss) state <= S_REQ;
         end
         S_REQ: begin
           if (mem_ready) begin

@@ -69,6 +69,17 @@ module roco_cpu_mmu #(
   input logic p_rlast
 );
 
+  // Break the SDRAM/arbiter route before interpreting a PTE. Flush
+  // handling drains this registered response just like an outstanding
+  // bus response, so cancellation still wins over installation/faults.
+  logic [31:0] pte_data_q;
+  logic pte_valid_q;
+  always_ff @(posedge clk) pte_data_q <= p_rdata;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) pte_valid_q <= 1'b0;
+    else pte_valid_q <= p_rvalid;
+  end
+
   localparam logic [1:0] PRIV_U = `RV32_PRIV_U;
   localparam logic [1:0] PRIV_S = `RV32_PRIV_S;
   localparam logic [1:0] PRIV_M = `RV32_PRIV_M;
@@ -311,6 +322,9 @@ module roco_cpu_mmu #(
   assign i_rsp_valid = ic_rsp_valid && i_rsp_armed;
   assign i_rsp_addr = i_req_vaddr;
   assign i_rsp_data = ic_rsp_data;
+  // Cache hits return on the following cycle. Their virtual tag can
+  // refresh independently of late acceptance and redirect qualification.
+  always_ff @(posedge clk) i_req_vaddr <= i_vaddr;
   assign d_paddr = d_translate ? {d_ppn, d_vaddr[11:0]} : d_vaddr;
   assign d_fault = !d_cached_hit &&
                    (d_perm_fault || (d_fault_pending && d_req && (d_vpn == d_fault_vpn)));
@@ -319,23 +333,23 @@ module roco_cpu_mmu #(
   assign p_req = (wstate == W_PTE1_REQ) || (wstate == W_PTE0_REQ);
   assign p_word_addr = w_pte_addr[24:2];
 
-  assign pte_ppn = p_rdata[29:10];
+  assign pte_ppn = pte_data_q[29:10];
   assign level0_pte_addr = {pte_ppn, w_vaddr[21:12], 2'b00};
-  assign leaf_ppn_4k = p_rdata[29:10];
-  assign leaf_ppn_4m = {p_rdata[29:20], w_vaddr[21:12]};
+  assign leaf_ppn_4k = pte_data_q[29:10];
+  assign leaf_ppn_4m = {pte_data_q[29:20], w_vaddr[21:12]};
   assign pte_range_ok = in_sdram(level0_pte_addr);
 
   always_comb begin
     walk_result = R_NONE;
-    walk_result_leaf = p_rdata[1] || p_rdata[3];
+    walk_result_leaf = pte_data_q[1] || pte_data_q[3];
     walk_result_perm_ok =
-        pte_perm_ok(p_rdata, w_is_if, w_is_store, w_priv, mstatus_sum, mstatus_mxr);
-    walk_result_valid = p_rdata[0] && !(p_rdata[2] && !p_rdata[1]);
-    if (p_rvalid && (wstate == W_PTE1_WAIT)) begin
+        pte_perm_ok(pte_data_q, w_is_if, w_is_store, w_priv, mstatus_sum, mstatus_mxr);
+    walk_result_valid = pte_data_q[0] && !(pte_data_q[2] && !pte_data_q[1]);
+    if (pte_valid_q && (wstate == W_PTE1_WAIT)) begin
       if (!walk_result_valid) begin
         walk_result = R_FAULT;
       end else if (walk_result_leaf) begin
-        if (!walk_result_perm_ok || (p_rdata[19:10] != 10'd0)) begin
+        if (!walk_result_perm_ok || (pte_data_q[19:10] != 10'd0)) begin
           walk_result = R_FAULT;
         end else begin
           walk_result = R_INSTALL;
@@ -345,7 +359,7 @@ module roco_cpu_mmu #(
       end else begin
         walk_result = R_FAULT;
       end
-    end else if (p_rvalid && (wstate == W_PTE0_WAIT)) begin
+    end else if (pte_valid_q && (wstate == W_PTE0_WAIT)) begin
       if (!walk_result_valid || !walk_result_leaf || !walk_result_perm_ok) begin
         walk_result = R_FAULT;
       end else begin
@@ -361,7 +375,7 @@ module roco_cpu_mmu #(
     if (wstate == W_IDLE) begin
       w_pte_addr <= d_miss_pending ? {satp[19:0], d_vaddr[31:22], 2'b00} :
                                     {satp[19:0], i_vaddr[31:22], 2'b00};
-    end else if ((wstate == W_PTE1_WAIT) && p_rvalid && (walk_result == R_NEXT)) begin
+    end else if ((wstate == W_PTE1_WAIT) && pte_valid_q && (walk_result == R_NEXT)) begin
       w_pte_addr <= level0_pte_addr;
     end
   end
@@ -382,14 +396,14 @@ module roco_cpu_mmu #(
         w_is_if <= !d_miss_pending;
         w_is_store <= d_miss_pending && d_we;
       end
-      if (p_rvalid && ((wstate == W_PTE1_WAIT) || (wstate == W_PTE0_WAIT))) begin
+      if (pte_valid_q && ((wstate == W_PTE1_WAIT) || (wstate == W_PTE0_WAIT))) begin
         w_install_word <= {
-          p_rdata[1],
-          p_rdata[2],
-          p_rdata[3],
-          p_rdata[4],
-          p_rdata[7],
-          p_rdata[6],
+          pte_data_q[1],
+          pte_data_q[2],
+          pte_data_q[3],
+          pte_data_q[4],
+          pte_data_q[7],
+          pte_data_q[6],
           (wstate == W_PTE1_WAIT) ? leaf_ppn_4m : leaf_ppn_4k,
           w_vaddr[31:12+IDX_BITS]
         };
@@ -408,7 +422,6 @@ module roco_cpu_mmu #(
       i_fault_vaddr <= '0;
       d_fault_vpn <= '0;
       d_fault_cause_q <= 4'd13;
-      i_req_vaddr <= '0;
       i_rsp_armed <= 1'b0;
     end else begin
       // Fault indicators are one-cycle pulses; a new fault sets them again.
@@ -418,7 +431,6 @@ module roco_cpu_mmu #(
       end
 
       if (ic_req) begin
-        i_req_vaddr <= i_vaddr;
         i_rsp_armed <= 1'b1;
       end
       if (flush || iflush) begin
@@ -446,7 +458,7 @@ module roco_cpu_mmu #(
             else wstate <= W_IDLE;
           end
           W_PTE1_WAIT, W_PTE0_WAIT: begin
-            if (p_rvalid) begin
+            if (pte_valid_q) begin
               wstate <= W_IDLE;
             end
           end
@@ -519,7 +531,7 @@ module roco_cpu_mmu #(
             end
           end
           W_PTE1_WAIT: begin
-            if (p_rvalid) begin
+            if (pte_valid_q) begin
               wstate <= W_IDLE;
               if (w_discard || (iflush && w_is_if)) begin
                 if (w_is_if) begin
@@ -551,7 +563,7 @@ module roco_cpu_mmu #(
             end
           end
           W_PTE0_WAIT: begin
-            if (p_rvalid) begin
+            if (pte_valid_q) begin
               wstate <= W_IDLE;
               if (w_discard || (iflush && w_is_if)) begin
                 if (w_is_if) begin

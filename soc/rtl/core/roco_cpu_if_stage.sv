@@ -32,6 +32,8 @@ module roco_cpu_if_stage (
   input logic [31:0] imem_rsp_addr,
   input logic [31:0] imem_rsp_data,
   input logic imem_miss,
+  input logic imem_retry_previous,
+  input logic [31:0] imem_miss_addr,
   input logic imem_busy,
   input logic imem_fault,
   input logic [31:0] imem_fault_addr,
@@ -72,7 +74,8 @@ module roco_cpu_if_stage (
   logic fault_push;
   logic queue_push;
   logic retry_pending;
-  logic [31:0] retry_pc;
+  logic [31:0] retry_pc, retry_miss_pc;
+  logic retry_previous_q;
   logic [31:0] request_pc;
   logic [31:0] pc_next;
   // Asynchronous reset can only clear to a constant, so the image base
@@ -96,7 +99,7 @@ module roco_cpu_if_stage (
   // Busy/miss feedback controls one retry-valid flop, not the wide PC
   // register enable. Requests may repeat while busy; the cache/MMU ignores
   // unaccepted requests and the response address still validates each push.
-  assign request_pc = retry_pending ? retry_pc : pc_if;
+  assign request_pc = retry_pending ? (retry_previous_q ? retry_miss_pc : retry_pc) : pc_if;
   assign apply_prediction = prediction_pending && pending_pred_taken;
   assign issue = !boot_load && !halt && !stall && !apply_prediction && (q_count < 3'(DEPTH - 1));
   assign pc_next = request_pc + 32'd4;
@@ -110,12 +113,18 @@ module roco_cpu_if_stage (
   assign fetch_pc = request_pc;
 
   // Retry payload is captured independently of late acceptance control.
-  always_ff @(posedge clk) retry_pc <= request_pc;
+  always_ff @(posedge clk) begin
+    retry_pc <= request_pc;
+    retry_miss_pc <= imem_miss_addr;
+    retry_previous_q <= imem_retry_previous;
+  end
   always_ff @(posedge clk or posedge rst) begin
     if (rst) retry_pending <= 1'b0;
     else if (boot_load) retry_pending <= 1'b0;
     else if (!halt) begin
       if (flush || fault_push) retry_pending <= 1'b0;
+      // A response-stage miss also wins during a taken-prediction bubble.
+      else if (imem_retry_previous) retry_pending <= 1'b1;
       else if (issue) retry_pending <= imem_busy || imem_miss;
     end
   end

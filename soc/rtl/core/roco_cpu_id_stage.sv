@@ -50,7 +50,7 @@ module roco_cpu_id_stage (
   output logic idex_pred_taken,
   output logic idex_pred_target_match,
   output logic [31:0] idex_pred_jalr_base,
-  output logic [31:0] idex_pred_jalr_next,
+  output logic [31:0] idex_pred_jalr_carry,
   output logic idex_pred_jalr_aligned,
   output logic [31:0] idex_rs1_val,
   output logic [31:0] idex_rs2_val,
@@ -98,12 +98,12 @@ module roco_cpu_id_stage (
 );
 
   logic [31:0] dec_imm;
-  logic [31:0] pred_jalr_base, pred_jalr_next;
+  logic [31:0] pred_jalr_base, pred_jalr_carry;
   roco_cpu_sub_pair u_predicted_base (
-      .a(if_pred_target),
-      .b(dec_imm),
+      .a({1'b0, if_pred_target[31:1]}),
+      .b({1'b0, dec_imm[31:1]}),
       .difference(pred_jalr_base),
-      .successor(pred_jalr_next)
+      .predecessor(pred_jalr_carry)
   );
   logic [2:0] dec_funct3;
   logic dec_alu_b_imm;
@@ -235,7 +235,7 @@ module roco_cpu_id_stage (
       idex_pred_taken <= 1'b0;
       idex_pred_target_match <= 1'b0;
       idex_pred_jalr_base <= '0;
-      idex_pred_jalr_next <= '0;
+      idex_pred_jalr_carry <= '0;
       idex_pred_jalr_aligned <= 1'b0;
       idex_rs1_val <= '0;
       idex_rs2_val <= '0;
@@ -294,12 +294,14 @@ module roco_cpu_id_stage (
       // B/JAL targets depend only on decode operands. Validate the BTB
       // target here so EX redirect control does not wait for an adder
       // followed by a full-width equality comparison.
-      // pc + imm == target iff pc == target - imm, modulo XLEN.
-      // Share the predicted-base subtraction with JALR validation.
-      idex_pred_target_match <= (if_pc == pred_jalr_base);
-      // JALR's masked sum can match either of two source values.
-      idex_pred_jalr_base <= pred_jalr_base;
-      idex_pred_jalr_next <= pred_jalr_next;
+      // Split addition at bit zero. The high halfword receives a carry
+      // only when both source low bits are one. The same two differences
+      // validate a full B/J target and JALR's bit-zero-masked target.
+      idex_pred_target_match <= ((if_pc[0] ^ dec_imm[0]) == if_pred_target[0]) &&
+          (if_pc[31:1] == ((if_pc[0] && dec_imm[0]) ?
+                           pred_jalr_carry[30:0] : pred_jalr_base[30:0]));
+      idex_pred_jalr_base <= {1'b0, pred_jalr_base[30:0]};
+      idex_pred_jalr_carry <= {1'b0, pred_jalr_carry[30:0]};
       idex_pred_jalr_aligned <= !if_pred_target[0];
       // The current MEM producer will be WB when this instruction reaches
       // EX. Resolve that source before ID/EX instead of adding a WB mux

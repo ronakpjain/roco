@@ -1,6 +1,9 @@
 // Byte carry-select keeps the 32-bit add/subtract off one long carry chain.
 `default_nettype none
-module roco_cpu_addsub (
+module roco_cpu_addsub #(
+    // -1 chooses the usual add/sub carry; 0/1 override it for fixed sums.
+    parameter int INITIAL_CARRY = -1
+) (
   input logic [31:0] a,
   input logic [31:0] b,
   input logic subtract,
@@ -11,7 +14,7 @@ module roco_cpu_addsub (
   logic [2:0] byte_generate, byte_propagate;
   logic [3:0] carry;
   assign operand_b = b ^ {32{subtract}};
-  assign carry[0] = subtract;
+  assign carry[0] = (INITIAL_CARRY < 0) ? subtract : 1'(INITIAL_CARRY);
   for (genvar k = 0; k < 4; k++) begin : g_byte
     if (k < 3) begin : g_carry
       logic [8:0] expanded;

@@ -120,9 +120,11 @@ test_trap_pipeline: $(BUILD_DIR)/trap_pipeline.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP
 	$(SOC_SIM) +hex=$(BUILD_DIR)/trap_pipeline.hex
 
 .PHONY: test_satp_fetch
-test_satp_fetch: $(BUILD_DIR)/satp_fetch.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+test_satp_fetch: $(BUILD_DIR)/satp_fetch.hex $(BUILD_DIR)/fetch_page_boundary.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(CORE_SIM) +hex=$(BUILD_DIR)/satp_fetch.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/satp_fetch.hex
+	$(CORE_SIM) +hex=$(BUILD_DIR)/fetch_page_boundary.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/fetch_page_boundary.hex
 
 $(BUILD_DIR)/vector_c.s: sw/vector/main.c $(ROCO_CC) | build
 	$(ROCO_CC) -S -o $@ $<
@@ -409,7 +411,7 @@ $(BUILD_DIR)/tb_if_queue.vvp: rtl/core/roco_cpu_if_stage.sv sim/tb_if_queue.sv |
 	$(IVERILOG) -g2012 -s tb_if_queue -o $@ $^
 
 .PHONY: test_if_queue
-$(BUILD_DIR)/tb_if_prediction.vvp: rtl/core/roco_cpu_if_stage.sv sim/tb_if_prediction.sv | build
+$(BUILD_DIR)/tb_if_prediction.vvp: rtl/core/roco_cpu_if_stage.sv rtl/mem/icache.sv sim/tb_if_prediction.sv | build
 	$(IVERILOG) -g2012 -s tb_if_prediction -o $@ $^
 
 test_if_queue: $(BUILD_DIR)/tb_if_queue.vvp $(BUILD_DIR)/tb_if_prediction.vvp

@@ -38,12 +38,12 @@ module tb_icache;
     @(negedge clk);
     req = 1;
     addr = base;
-    #1;
-    assert (miss && miss_pulse && !hit_pulse)
-    else $fatal(1, "expected miss");
     @(negedge clk);
+    assert (miss && miss_pulse && !hit_pulse && busy)
+    else $fatal(1, "expected response-stage miss");
     req = 0;
     addr = 32'habcdef00;
+    @(negedge clk);
     #1;
     assert (mem_req && mem_addr == (base[24:2] & ~23'd3) && mem_len == 3)
     else $fatal(1, "saved miss command changed");
@@ -79,21 +79,15 @@ module tb_icache;
     for (int i = 0; i < 12; i++) begin
       req = 1;
       addr = 32'h10000100 + 32'((i % 4) * 4);
-      #1;
-      assert (!miss && hit_pulse)
-      else $fatal(1, "filled line missed");
       @(negedge clk);
-      assert (rsp && rsp_addr == addr && rsp_data == 32'h10000100 + 32'(i % 4))
+      assert (!miss && hit_pulse && rsp && rsp_addr == addr &&
+              rsp_data == 32'h10000100 + 32'(i % 4))
       else $fatal(1, "streaming response mismatch");
     end
     req = 0;
     fill(32'h10000200, 1);
-    req = 1;
-    addr = 32'h10000200;
-    #1;
-    assert (miss && !hit_pulse)
-    else $fatal(1, "flush allowed canceled fill to hit");
-    req = 0;
+    // The retry must miss again: fill verifies that canceled data is not
+    // published as a hit before installing the replacement.
     fill(32'h10000200, 0);
     req = 1;
     addr = 32'h1000020c;
@@ -108,11 +102,8 @@ module tb_icache;
     for (int bank = 7; bank >= 0; bank--) begin
       req = 1;
       addr = 32'h10001000 + 32'(bank * 256 + ((bank * 3) % 16) * 16 + 12);
-      #1;
-      assert (!miss && hit_pulse)
-      else $fatal(1, "tag bank lost its line");
       @(negedge clk);
-      assert (rsp && rsp_addr == addr && rsp_data == addr - 9)
+      assert (!miss && hit_pulse && rsp && rsp_addr == addr && rsp_data == addr - 9)
       else $fatal(1, "tag bank data/address mismatch");
     end
     rst = 1;
@@ -120,7 +111,7 @@ module tb_icache;
     @(negedge clk);
     rst = 0;
     req = 1;
-    #1;
+    @(negedge clk);
     assert (miss && !rsp)
     else $fatal(1, "reset retained a valid line");
     $display("tb_icache: PASS (streaming, held miss, canceled fill, reset)");

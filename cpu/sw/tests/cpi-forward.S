@@ -1,7 +1,7 @@
 # Dependent scalar operations must sustain one retirement per cycle with
 # warm caches. Each loop checks a different MEM-to-EX forwarding path.
 .section .text.init
-.globl _start, cpi_load, cpi_load_control, cpi_mul, cpi_lrsc, cpi_amo
+.globl _start, cpi_load, cpi_load_control, cpi_mul, cpi_lrsc, cpi_amo, cpi_atomic_order
 _start:
   li s11, 0x80001000
   la t0, fail
@@ -143,6 +143,33 @@ cpi_amo:
   bne t4, s6, fail
   li a1, 448
   bne s8, a1, fail
+  sw s6, 0(s1)
+  li t6, 64
+cpi_atomic_order:
+  sw s6, 4(s1)
+  amoadd.w.rl t0, s7, (s1)
+  lw t1, 4(s1)
+  amoxor.w.aq t2, s5, (s1)
+  amoxor.w.aqrl t3, s5, (s1)
+  lr.w.aq t4, (s1)
+  sc.w.rl t5, s6, (s1)
+  lr.w.aqrl a1, (s1)
+  sc.w.aqrl a2, s6, (s1)
+  lw a3, 4(s1)
+  addi t6, t6, -1
+  bnez t6, cpi_atomic_order
+  li a4, 7
+  bne t0, a4, fail
+  bne t1, a4, fail
+  li a4, 8
+  bne t2, a4, fail
+  bne t4, a4, fail
+  li a4, -9
+  bne t3, a4, fail
+  bnez t5, fail
+  bnez a2, fail
+  bne a1, s6, fail
+  bne a3, s6, fail
   li a0, 1
   sw a0, 0(s11)
 1: j 1b

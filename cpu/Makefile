@@ -182,6 +182,20 @@ $(BUILD_DIR)/vector-fence.bin: $(BUILD_DIR)/vector-fence.elf
 $(BUILD_DIR)/vector-fence.hex: $(BUILD_DIR)/vector-fence.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/atomic-order.elf: sw/tests/atomic-order.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles -T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/atomic-order.bin: $(BUILD_DIR)/atomic-order.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/atomic-order.hex: $(BUILD_DIR)/atomic-order.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
+.PHONY: test-atomic-order
+test-atomic-order: $(BUILD_DIR)/atomic-order.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000 +check_atomic_order
+
 $(BUILD_DIR)/atomic.elf: sw/tests/atomic.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32ia_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
 		-T sw/link.ld -o $@ $<

@@ -23,9 +23,10 @@ scalar/vector register reset and write collisions, randomized register
 updates, cache refill/eviction/forwarding, MMU permissions and canceled
 walks, and multiply/divide arithmetic. Directed core and cached-SoC programs
 cover vector memory/reduction, interrupts, FENCE redirects, canceled
-younger redirect side effects, atomics including
-MMIO, and CSR write intent. The official ISA suites run 41 RV32UI, 8 RV32UM,
-and 10 RV32UA tests on each of the core and SoC testbenches (118 total).
+younger redirect side effects, atomics including MMIO and acquire/release
+ordering under cache conflicts, and CSR write intent. The official ISA
+suites run 41 RV32UI, 8 RV32UM, and 10 RV32UA tests on each of the core
+and SoC testbenches (118 total).
 The SDRAM and UART boot paths have separate simulations.
 
 CSRRS/CSRRC write intent follows the encoded source register, including a

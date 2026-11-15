@@ -205,6 +205,7 @@ for a bitstream.
 make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test-core   # directed pipeline smoke test
 make test-cpi    # run core and SoC CPI regressions
+make test-atomic-order # atomic ordering under cache conflicts
 make test-vector-reduce # randomized reduction arithmetic checks
 make test-mm     # MMU unit test: translation, permissions, faults
 make test-vm     # Sv32 software test on the core and through the SoC

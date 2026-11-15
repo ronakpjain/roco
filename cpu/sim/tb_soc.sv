@@ -41,6 +41,21 @@ module tb_soc;
 
   logic halted;
   logic [31:0] exit_code;
+  logic check_atomic_order;
+  integer atomic_wait_cycles = 0;
+  initial check_atomic_order = $test$plusargs("check_atomic_order");
+
+  // A stalled atomic must prevent every younger lookup from starting.
+  // Check the instruction encoding and public memory interfaces, including
+  // real SDRAM backpressure rather than only warmed hit behavior.
+  always @(posedge clk) begin
+    if (!rst && check_atomic_order && u_soc.u_cpu.exmem_valid &&
+        (u_soc.u_cpu.exmem_instr[6:0] == 7'b0101111) && !u_soc.dmem_ready) begin
+      atomic_wait_cycles <= atomic_wait_cycles + 1;
+      if (u_soc.dmem_lu_valid || u_soc.dmem_req)
+        $fatal(1, "memory access escaped a pending atomic");
+    end
+  end
 
   logic [31:0] image[0:IMAGE_WORDS-1];
   string hexfile;
@@ -272,6 +287,11 @@ module tb_soc;
       $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
                u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);
       if (exit_code == 32'd1) begin
+        if (check_atomic_order) begin
+          if (atomic_wait_cycles == 0)
+            $fatal(1, "atomic ordering test did not exercise a memory wait");
+          $display("atomic ordering: PASS (%0d wait cycles)", atomic_wait_cycles);
+        end
         $display("tb_soc: PASS (%0d sdram errors)", sdram_errors);
       end else begin
         $display("tb_soc: FAIL code=%0d (%0d sdram errors)", exit_code, sdram_errors);

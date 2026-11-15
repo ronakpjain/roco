@@ -226,6 +226,8 @@ module rv32_decoder (
         end
       end
       7'b0101111: begin  // AMO
+        // aq/rl need no extra decode state: the blocking MEM pipeline
+        // orders all data operations, including every atomic encoding.
         imm = 32'd0;
         use_rs1 = 1'b1;
         alu_b_imm = 1'b1;

@@ -143,6 +143,10 @@ module rv32_mem_stage (
   assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
   assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
+  // Requests become observable only at in-order commit. A pending memory
+  // operation holds EX (including cache lookups) until it completes, and
+  // there is no posted store buffer. This uniformly enforces both acquire
+  // and release ordering; aq/rl do not need additional stalls or flushes.
   assign dmem_req = commit_valid && is_memory_op;
   assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_ready;
   assign commit_valid = !rst && !halt && exmem_valid && !fence_req && !mem_wait;

@@ -129,6 +129,8 @@ module dcache #(
 
   logic [31:0] prev_store_data;
   logic [3:0] prev_store_be;
+  logic [24:2] prev_store_addr;
+  logic prev_store_match;
 
   logic [MEM_WORD_BITS-1:0] miss_line_word;
   logic [IDX_BITS-1:0] miss_idx;
@@ -248,7 +250,7 @@ module dcache #(
     forward_raw = '0;
     for (int bank = 0; bank < BANK_COUNT; bank++) forward_raw |= forward_bank_data[bank];
   end
-  assign forward_store = (state == S_IDLE) && cm_valid && cm_we && lu_valid && (cm_addr == lu_addr);
+  assign forward_store = (state == S_IDLE) && cm_valid && cm_we && lu_valid;
   for (genvar b = 0; b < 4; b = b + 1) begin : g_forward_mask
     assign forward_mask[8*b+:8] = {8{cm_be[b]}};
   end
@@ -304,12 +306,13 @@ module dcache #(
     end
   end
 
-  assign merged[7:0] = prev_store_be[0] ? prev_store_data[7:0] : ram_data[7:0];
-  assign merged[15:8] = prev_store_be[1] ? prev_store_data[15:8] : ram_data[15:8];
-  assign merged[23:16] = prev_store_be[2] ? prev_store_data[23:16] : ram_data[23:16];
-  assign merged[31:24] = prev_store_be[3] ? prev_store_data[31:24] : ram_data[31:24];
+  assign prev_store_match = (prev_store_addr == lu_addr_q);
+  assign merged[7:0] = (prev_store_match && prev_store_be[0]) ? prev_store_data[7:0] : ram_data[7:0];
+  assign merged[15:8] = (prev_store_match && prev_store_be[1]) ? prev_store_data[15:8] : ram_data[15:8];
+  assign merged[23:16] = (prev_store_match && prev_store_be[2]) ? prev_store_data[23:16] : ram_data[23:16];
+  assign merged[31:24] = (prev_store_match && prev_store_be[3]) ? prev_store_data[31:24] : ram_data[31:24];
   assign cm_rdata = merged;
-  assign cm_forward_data = forward_store_q ?
+  assign cm_forward_data = (forward_store_q && prev_store_match) ?
                            ((forward_raw & ~forward_mask_q) |
                             (forward_store_data_q & forward_mask_q)) : forward_raw;
 
@@ -328,6 +331,7 @@ module dcache #(
       lu_addr_q <= '0;
       prev_store_data <= '0;
       prev_store_be <= '0;
+      prev_store_addr <= '0;
       miss_line_word <= '0;
       miss_idx <= '0;
       miss_tag <= '0;
@@ -349,11 +353,12 @@ module dcache #(
         lu_addr_q <= lu_addr;
       end
 
-      // Resolve forwarding alongside the lookup, before MEM arithmetic.
-      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid &&
-                        (cm_addr == lu_addr)) ? cm_be : 4'b0000;
+      // Save both addresses; compare them in MEM alongside the read data.
+      // EX address generation and translation do not feed the comparator.
+      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid) ? cm_be : 4'b0000;
       if ((state == S_IDLE) && cm_valid && cm_we) begin
         prev_store_data <= cm_wdata;
+        prev_store_addr <= cm_addr;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;
       end
 

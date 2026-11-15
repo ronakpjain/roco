@@ -597,12 +597,17 @@ module roco_cpu (
 
   // Arithmetic and load elements share the MEM write boundary. A full
   // result forwards to all three EX vector reads before register commit.
-  assign vec_full_write = exmem_valid && exmem_vec_we && !halt && !rst;
-  assign vec_vs1_data = (vec_full_write && (exmem_rd == idex_instr[19:15])) ?
+  logic vec_forward_valid;
+  // Reset/hold qualify the physical write. The bypass payload is only
+  // observed by a valid EX instruction, so use registered producer bits
+  // here to keep global reset and halt off all 384 forwarding mux inputs.
+  assign vec_forward_valid = exmem_valid && exmem_vec_we;
+  assign vec_full_write = vec_forward_valid && !halt && !rst;
+  assign vec_vs1_data = (vec_forward_valid && (exmem_rd == idex_instr[19:15])) ?
                         exmem_vec_data : vec_rf_vs1_data;
-  assign vec_vs2_data = (vec_full_write && (exmem_rd == idex_instr[24:20])) ?
+  assign vec_vs2_data = (vec_forward_valid && (exmem_rd == idex_instr[24:20])) ?
                         exmem_vec_data : vec_rf_vs2_data;
-  assign vec_vd_data = (vec_full_write && (exmem_rd == idex_instr[11:7])) ?
+  assign vec_vd_data = (vec_forward_valid && (exmem_rd == idex_instr[11:7])) ?
                       exmem_vec_data : vec_rf_vd_data;
 
   roco_cpu_vec u_vec (

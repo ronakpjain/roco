@@ -268,6 +268,7 @@ module roco_cpu_ex_stage (
   logic [127:0] vec_raw;
   logic [127:0] vec_reduce_sum;
   logic vec_ex_we_int;
+  logic vec_exec_eligible;
   logic [127:0] vec_ex_wdata_int;
   logic vec_scalar_wb;
   logic [31:0] vec_scalar_wdata;
@@ -795,19 +796,22 @@ module roco_cpu_ex_stage (
                             (vec_sew_cur == 3'd1) ?
                             {{16{vec_vs2_data[15]}}, vec_vs2_data[15:0]} : vec_vs2_data[31:0];
 
+  // The payload register advances every cycle. Cancellation/reset/hold
+  // qualify only its write-valid bit, not the wide result selection mux.
+  assign vec_exec_eligible = idex_valid && idex_is_vec && !idex_ifault &&
+                             !idex_illegal && !dmem_lu_fault && !fence_hold &&
+                             !halt && !rst && !cancel_ex;
+  assign vec_vset_en = vec_exec_eligible && idex_is_vset;
+
   always_comb begin
     vec_ex_we_int = 1'b0;
     vec_ex_wdata_int = vec_raw;
-    vec_vset_en = 1'b0;
     vec_vset_vl = vset_new_vl[4:0];
     vec_vset_vtype = vset_new_vtype;
     // Arithmetic/configuration instructions never issue a data lookup.
     // Their write enable must not depend on the memory hit/stall path.
-    if (idex_valid && idex_is_vec && !idex_ifault && !idex_illegal && !dmem_lu_fault &&
-        !fence_hold && !halt && !rst && !cancel_ex) begin
-      if (idex_is_vset) begin
-        vec_vset_en = 1'b1;
-      end else if (!is_vec_mem && !vec_start_illegal && (vec_vstart[4:0] < vec_vl)) begin
+    if (idex_is_vec) begin
+      if (!idex_is_vset && !is_vec_mem && !vec_start_illegal && (vec_vstart[4:0] < vec_vl)) begin
         if (idex_vec_funct6 == `RV32_VOP_MOVE) begin
           vec_ex_we_int = 1'b1;
           vec_ex_wdata_int = (idex_instr[14:12] == 3'b000) ? vec_vs1_data : vec_bcast;
@@ -852,7 +856,7 @@ module roco_cpu_ex_stage (
     end
   end
 
-  assign vec_ex_we = vec_ex_we_int;
+  assign vec_ex_we = vec_ex_we_int && vec_exec_eligible;
   assign vec_ex_wdata = vec_ex_wdata_int;
 
   // ----------------------------------------- Vector memory sequencing

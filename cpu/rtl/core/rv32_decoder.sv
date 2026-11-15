@@ -361,6 +361,9 @@ module rv32_decoder (
             12'h102: begin
               sret = 1'b1;
             end
+            12'h105: begin
+              // WFI is a hint; retire it as a no-op.
+            end
             12'h302: begin
               mret = 1'b1;
             end

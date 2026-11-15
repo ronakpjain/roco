@@ -225,6 +225,16 @@ $(BUILD_DIR)/interrupt.bin: $(BUILD_DIR)/interrupt.elf
 $(BUILD_DIR)/interrupt.hex: $(BUILD_DIR)/interrupt.bin
 	$(PYTHON) scripts/elf2hex.py $< $@
 
+$(BUILD_DIR)/vectored-irq.elf: sw/tests/vectored-irq.S sw/link.ld | build
+	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+		-T sw/link.ld -o $@ $<
+
+$(BUILD_DIR)/vectored-irq.bin: $(BUILD_DIR)/vectored-irq.elf
+	$(RISCV)-objcopy -O binary $< $@
+
+$(BUILD_DIR)/vectored-irq.hex: $(BUILD_DIR)/vectored-irq.bin
+	$(PYTHON) scripts/elf2hex.py $< $@
+
 $(BUILD_DIR)/muldiv.elf: sw/tests/muldiv.S sw/link.ld | build
 	$(RISCV)-gcc -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
 		-T sw/link.ld -o $@ $<
@@ -337,6 +347,11 @@ test-csr-intent: $(BUILD_DIR)/csr-intent.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DI
 
 test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300
+
+.PHONY: test-vectored-irq
+test-vectored-irq: $(BUILD_DIR)/vectored-irq.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vectored-irq.hex
+	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vectored-irq.hex
 
 test-mm: $(BUILD_DIR)/tb_mmu.vvp
 	$(VVP) $(BUILD_DIR)/tb_mmu.vvp

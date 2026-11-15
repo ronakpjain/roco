@@ -115,6 +115,8 @@ module rv32_csr (
   logic [1:0] mstatus_mpp_q;
 
   logic [31:0] mip_value;
+  logic [31:0] trap_base;
+  logic [31:0] trap_offset;
   logic [31:0] irq_cand;
   logic [31:0] irq_eligible;
   logic irq_m_allowed;
@@ -203,7 +205,10 @@ module rv32_csr (
     end
   end
   // Compute both candidates before EX decides whether to take an interrupt.
-  assign trap_vector = trap_to_s ? stvec_q : mtvec_q;
+  assign trap_base = trap_to_s ? stvec_q : mtvec_q;
+  assign trap_offset = (trap_cause[31] && (trap_base[1:0] == 2'b01)) ?
+                       {25'd0, trap_cause[4:0], 2'b00} : 32'd0;
+  assign trap_vector = {trap_base[31:2], 2'b00} + trap_offset;
 
   always_comb begin
     exists = 1'b1;
@@ -415,7 +420,7 @@ module rv32_csr (
             mie_q <= (mie_q & ~mideleg_q) | (wr_data & mideleg_q & MIE_MASK);
           end
           12'h105: begin
-            stvec_q <= {wr_data[31:2], 2'b00};
+            stvec_q <= {wr_data[31:2], (wr_data[1:0] == 2'b01) ? 2'b01 : 2'b00};
           end
           12'h106: begin
             scounteren_q <= {29'd0, wr_data[2:0]};
@@ -477,7 +482,7 @@ module rv32_csr (
             mie_q <= wr_data & MIE_MASK;
           end
           12'h305: begin
-            mtvec_q <= {wr_data[31:2], 2'b00};
+            mtvec_q <= {wr_data[31:2], (wr_data[1:0] == 2'b01) ? 2'b01 : 2'b00};
           end
           12'h306: begin
             mcounteren_q <= {29'd0, wr_data[2:0]};

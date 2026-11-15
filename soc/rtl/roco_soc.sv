@@ -562,11 +562,15 @@ module roco_soc #(
     end
   end
 
+  // The response-valid flop publishes this payload one cycle after the
+  // request. Capturing unconditionally keeps late fetch/MMU qualification
+  // off the address register enables; invalid responses are ignored.
+  always_ff @(posedge clk) i_unc_rsp_addr <= imem_addr;
+  assign i_unc_rsp_data = 32'd0;
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       i_unc_rsp <= 1'b0;
-      i_unc_rsp_addr <= '0;
-      i_unc_rsp_data <= '0;
       led_reg <= 4'd0;
       mtime <= '0;
       mtimecmp <= '0;
@@ -578,10 +582,6 @@ module roco_soc #(
       dbg1 <= '0;
     end else begin
       i_unc_rsp <= i_unc_req;
-      if (i_unc_req) begin
-        i_unc_rsp_addr <= imem_addr;
-        i_unc_rsp_data <= 32'h0000_0000;
-      end
       if (dmem_valid && !dmem_in_sdram) begin
         if (dmem_we) begin
           case (dmem_addr[15:0])

@@ -74,6 +74,7 @@ module tb_core;
   logic irq_timer;
   int unsigned irq_after;
   int unsigned irq_window;
+  int first_retire_cycle = -1;
   int unsigned cycles;
   int unsigned max_cycles;
   int unsigned i;
@@ -307,6 +308,7 @@ module tb_core;
   always @(posedge clk) begin
     if (!rst && !halt) begin
       cycles <= cycles + 1;
+      if (trace_valid && first_retire_cycle < 0) first_retire_cycle <= cycles;
       if (cycles > max_cycles) begin
         $display("tb_core: TIMEOUT after %0d cycles", max_cycles);
         $finish;
@@ -333,6 +335,8 @@ module tb_core;
 
   always @(posedge clk) begin
     if (!rst && halt) begin
+      if ($test$plusargs("measure_execution"))
+        $display("EXECUTION cycles=%0d active_cycles=%0d", cycles, cycles - first_retire_cycle);
       if (exit_code == 32'd1) begin
         $display("tb_core: PASS");
       end else begin

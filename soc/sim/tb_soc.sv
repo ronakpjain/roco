@@ -62,6 +62,7 @@ module tb_soc;
   integer hex_fd;
   integer hex_matched;
   int unsigned i;
+  int first_retire_cycle = -1;
   int unsigned cycles;
   int unsigned max_cycles;
   logic [7:0] rx_byte;
@@ -275,6 +276,7 @@ module tb_soc;
   always @(posedge clk) begin
     if (!rst && !halted) begin
       cycles <= cycles + 1;
+      if (u_soc.trace_valid && first_retire_cycle < 0) first_retire_cycle <= cycles;
       if (cycles > max_cycles) begin
         $display("tb_soc: TIMEOUT after %0d cycles", max_cycles);
         $finish;
@@ -284,6 +286,8 @@ module tb_soc;
 
   always @(posedge clk) begin
     if (!rst && halted) begin
+      if ($test$plusargs("measure_execution"))
+        $display("EXECUTION cycles=%0d active_cycles=%0d", cycles, cycles - first_retire_cycle);
       $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
                u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);
       if (exit_code == 32'd1) begin

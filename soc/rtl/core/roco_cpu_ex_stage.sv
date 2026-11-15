@@ -296,6 +296,15 @@ module roco_cpu_ex_stage (
   assign rs1_fwd = ({32{idex_rs1_from_mem}} & mem_data) | idex_rs1_val;
   assign rs2_fwd = ({32{idex_rs2_from_mem}} & mem_data) | idex_rs2_val;
 
+  logic branch_equal, branch_signed_lt, branch_unsigned_lt;
+  roco_cpu_compare u_branch_compare (
+      .a(rs1_fwd),
+      .b(rs2_fwd),
+      .equal(branch_equal),
+      .signed_lt(branch_signed_lt),
+      .unsigned_lt(branch_unsigned_lt)
+  );
+
   // ------------------------------------------------------------------- ALU
   assign ex_alu_a = idex_alu_a_pc ? idex_pc : rs1_fwd;
   assign ex_alu_b = idex_alu_b_imm ? idex_imm : rs2_fwd;
@@ -549,22 +558,22 @@ module roco_cpu_ex_stage (
       if (idex_is_branch) begin
         case (idex_funct3)
           3'b000: begin
-            ex_branch_taken = (rs1_fwd == rs2_fwd);
+            ex_branch_taken = branch_equal;
           end
           3'b001: begin
-            ex_branch_taken = (rs1_fwd != rs2_fwd);
+            ex_branch_taken = !branch_equal;
           end
           3'b100: begin
-            ex_branch_taken = ($signed(rs1_fwd) < $signed(rs2_fwd));
+            ex_branch_taken = branch_signed_lt;
           end
           3'b101: begin
-            ex_branch_taken = ($signed(rs1_fwd) >= $signed(rs2_fwd));
+            ex_branch_taken = !branch_signed_lt;
           end
           3'b110: begin
-            ex_branch_taken = (rs1_fwd < rs2_fwd);
+            ex_branch_taken = branch_unsigned_lt;
           end
           3'b111: begin
-            ex_branch_taken = (rs1_fwd >= rs2_fwd);
+            ex_branch_taken = !branch_unsigned_lt;
           end
           default: begin
             ex_branch_taken = 1'b0;

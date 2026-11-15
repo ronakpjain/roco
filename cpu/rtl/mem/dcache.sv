@@ -129,7 +129,17 @@ module dcache #(
 
   logic [31:0] prev_store_data;
   logic [3:0] prev_store_be;
-  logic [24:2] prev_store_addr;
+  localparam int COMPARE_GROUPS = (MEM_WORD_BITS + 1) / 2;
+  logic [COMPARE_GROUPS-1:0] store_compare_q;
+  // Compare small address groups before the edge, then reduce the saved
+  // comparisons in MEM. Neither stage carries the full equality tree.
+  for (genvar group_idx = 0; group_idx < COMPARE_GROUPS; group_idx++) begin : g_store_compare
+    localparam int LO = 2 + 2 * group_idx;
+    localparam int WIDTH = (LO + 1 > 24) ? 1 : 2;
+    always_ff @(posedge clk) begin
+      store_compare_q[group_idx] <= (cm_addr[LO+:WIDTH] == lu_addr[LO+:WIDTH]);
+    end
+  end
   logic prev_store_match;
 
   logic [MEM_WORD_BITS-1:0] miss_line_word;
@@ -306,7 +316,7 @@ module dcache #(
     end
   end
 
-  assign prev_store_match = (prev_store_addr == lu_addr_q);
+  assign prev_store_match = &store_compare_q;
   assign merged[7:0] = (prev_store_match && prev_store_be[0]) ? prev_store_data[7:0] : ram_data[7:0];
   assign merged[15:8] = (prev_store_match && prev_store_be[1]) ? prev_store_data[15:8] : ram_data[15:8];
   assign merged[23:16] = (prev_store_match && prev_store_be[2]) ? prev_store_data[23:16] : ram_data[23:16];
@@ -331,7 +341,6 @@ module dcache #(
       lu_addr_q <= '0;
       prev_store_data <= '0;
       prev_store_be <= '0;
-      prev_store_addr <= '0;
       miss_line_word <= '0;
       miss_idx <= '0;
       miss_tag <= '0;
@@ -353,12 +362,10 @@ module dcache #(
         lu_addr_q <= lu_addr;
       end
 
-      // Save both addresses; compare them in MEM alongside the read data.
-      // EX address generation and translation do not feed the comparator.
+      // Save the store payload alongside the partial address comparisons.
       prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid) ? cm_be : 4'b0000;
       if ((state == S_IDLE) && cm_valid && cm_we) begin
         prev_store_data <= cm_wdata;
-        prev_store_addr <= cm_addr;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;
       end
 

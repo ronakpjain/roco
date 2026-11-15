@@ -10,8 +10,8 @@ board top level, so it can be simulated with Icarus/Verilator and
 synthesized with Yosys. `rtl/roco_top.sv` is the only file that
 instantiates the ECP5 PLL.
 
-See [FPGA timing notes](docs/timing.md) for build reproduction, pipeline
-tradeoffs, and validation coverage.
+See [FPGA timing notes](docs/timing.md) for build reproduction and
+validation coverage.
 
 ## Block diagram
 
@@ -30,22 +30,20 @@ instantiates `roco_soc`. Inside the SoC:
 - The uncached path decodes the UART, timer, LED, button, cache-counter,
   boot-status and `tohost` registers at physical addresses.
 
-Pipeline: IF, ID, EX, MEM, WB. The I-cache streams one instruction per
-cycle into a four-entry fetch queue; a 32-entry bimodal 2-bit predictor
-with a BTB predicts taken branches so correctly predicted control
-transfers do not flush the pipeline. Branches, jumps, MRET and SRET
-resolve in EX. Traps record their PC, cause and value before entry. Pending
-traps and registered redirects cancel younger EX side effects and flush
-fetch/decode. Instruction fetches
-are translated before the I-cache; data addresses are translated in EX
-before the D-cache lookup and are carried to MEM as physical addresses.
+Pipeline: IF, ID, EX, MEM, WB. The I-cache feeds a four-entry fetch
+queue, and a 32-entry bimodal 2-bit predictor with a BTB predicts taken
+branches. Branches, jumps, MRET and SRET resolve in EX. Traps record
+their PC, cause and value before entry. Pending traps and registered
+redirects cancel younger EX side effects and flush fetch/decode.
+Instruction fetches are translated before the I-cache; data addresses
+are translated in EX before the D-cache lookup and are carried to MEM
+as physical addresses.
 
-Once address translation is ready, the D-cache accepts lookups in EX
-and consumes hits in MEM without a fixed extra cycle. Load data is forwarded
-from the MEM stage to a dependent instruction in EX, and a store in MEM
-is merged into a younger lookup of the same word (store-to-load
-forwarding). Each stage lives in its own module and owns its pipeline
-register:
+The D-cache accepts lookups in EX and consumes hits in MEM. Load data is
+forwarded from the MEM stage to a dependent instruction in EX, and a
+store in MEM is merged into a younger lookup of the same word
+(store-to-load forwarding). Each stage lives in its own module and owns
+its pipeline register:
 
 | Module | Responsibility |
 |---|---|
@@ -124,12 +122,13 @@ every `SFENCE.VMA` performs a complete flush.
 | I-cache | 2 KiB | 128 lines x 16 B, direct mapped | read-only, whole-line fill |
 | D-cache | 4 KiB | 128 lines x 32 B, direct mapped | write-back, write-allocate, byte enables |
 
-The I-cache streams one response per cycle on hits. The D-cache is
-looked up in EX: tag reads are registered and compared in MEM. A LUT-RAM
-mirror registers aligned scalar values for immediate forwarding, alongside
-the block-RAM data used for committed reads and writeback. Stores and
-refills update both copies. Hits are consumed in MEM without a fixed stall. Both caches
-are blocking on a miss: one memory transaction is outstanding per cache.
+The D-cache is looked up in EX: tag reads are registered and compared in
+MEM. A LUT-RAM mirror registers aligned scalar values for immediate
+forwarding, alongside the block-RAM data used for committed reads and
+writeback. Stores and refills update both copies. Hits are consumed in
+MEM. Both caches are blocking on a miss: one memory transaction is
+outstanding per cache.
+
 The D-cache data array is split into four byte-lane memories so ECP5
 block RAMs implement byte enables. A dirty victim is written back before
 the new line is fetched; a store miss fetches the line and then merges
@@ -205,7 +204,7 @@ for a bitstream.
 ```sh
 make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test-core   # directed pipeline smoke test
-make test-cpi    # assert continuous retirement in warmed core/SoC loops
+make test-cpi    # run core and SoC CPI regressions
 make test-vector-reduce # randomized reduction arithmetic checks
 make test-mm     # MMU unit test: translation, permissions, faults
 make test-vm     # Sv32 software test on the core and through the SoC
@@ -242,9 +241,8 @@ Simulation (2026-11, Icarus Verilog 13):
 ## Known limitations and next steps
 
 - The branch predictor is small (32 entries, bimodal). JALR predicts its
-  last resolved target, so stable indirect jumps run without recovery
-  after warmup. Changing targets and BTB conflicts still cause recovery;
-  a return-address stack would improve calls with multiple return sites.
+  last resolved target. Changing targets and BTB conflicts still cause
+  recovery.
 - The D-cache is blocking on misses and has no write buffer.
 - There is no cache coherence: `FENCE.I` flushes the D-cache and
   invalidates the I-cache, and `SFENCE.VMA` uses the same flush before

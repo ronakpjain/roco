@@ -1,4 +1,4 @@
-// Minimal riscv-tests environment for the roco RV32I core.
+// Minimal riscv-tests environment for the roco-cpu RV32I core.
 //
 // Derived from riscv-software-src/riscv-tests env/p/riscv_test.h
 // (BSD-3-Clause). The upstream reset vector programs PMP, satp and

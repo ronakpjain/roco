@@ -1,6 +1,6 @@
 # Target profile
 
-The tools target the roco five-stage RV32 CPU. This is the supported
+The tools target the roco-cpu five-stage RV32 CPU. This is the supported
 assembly boundary; unsupported instructions are rejected by the
 assembler or trap in the RTL.
 

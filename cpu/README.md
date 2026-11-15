@@ -1,4 +1,4 @@
-# roco CPU
+# roco-cpu
 
 A five-stage pipelined RV32I processor with instruction and data caches,
 an Sv32 memory-management unit, an SDRAM controller, a UART bootloader
@@ -15,7 +15,7 @@ validation coverage.
 
 ## Block diagram
 
-![roco CPU block diagram](docs/roco-cpu.png)
+![roco-cpu block diagram](docs/roco-cpu.png)
 
 Editable source: [docs/roco-cpu.drawio](docs/roco-cpu.drawio).
 
@@ -200,14 +200,14 @@ The SDRAM controller needs about 200 us after reset; the script waits
 ## Building and testing
 
 Requirements: Icarus Verilog, Verilator, Yosys, Verible, Python 3, CMake,
-and a C++20 compiler for the sibling `../c` toolchain. Directed tests use `../c/build/roco-as`, `roco-ld`, and `roco-cc`; `make roco-tools`
+and a C++20 compiler for the sibling `../cc` toolchain. Directed tests use `../cc/build/roco-as`, `roco-ld`, and `roco-cc`; `make roco-tools`
 builds them. Only the official ISA suites need a RISC-V ELF toolchain
 (`riscv64-elf-gcc` on `PATH`, or pass `RISCV=/path/to/prefix`).
 `nextpnr-ecp5` and `ecppack` are only needed
 for a bitstream.
 
 ```sh
-make roco-tools  # build ../c/roco-as, roco-ld and roco-cc
+make roco-tools  # build ../cc/roco-as, roco-ld and roco-cc
 make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test-core   # directed pipeline smoke test
 make test-cpi    # run core and SoC CPI regressions

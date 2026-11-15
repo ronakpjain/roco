@@ -1,4 +1,4 @@
-# roco CPU
+# roco-cpu
 #
 # Requires: verible, iverilog, verilator, yosys and a RISC-V ELF toolchain
 # for software builds (riscv64-elf-gcc).
@@ -36,7 +36,7 @@ RISCV ?= $(shell command -v riscv64-elf-gcc >/dev/null 2>&1 && echo riscv64-elf 
 	|| (test -x /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf-gcc \
 	    && echo /opt/homebrew/opt/riscv64-elf-gcc/bin/riscv64-elf) || echo riscv64-elf)
 
-ROCO_DIR ?= ../c
+ROCO_DIR ?= ../cc
 ROCO_AS ?= $(ROCO_DIR)/build/roco-as
 ROCO_LD ?= $(ROCO_DIR)/build/roco-ld
 ROCO_CC ?= $(ROCO_DIR)/build/roco-cc
@@ -88,7 +88,7 @@ hooks:
 build:
 	mkdir -p $(BUILD_DIR)
 
-# Directed assembly tests use the sibling roco toolchain.
+# Directed assembly tests use the sibling roco-cc toolchain.
 $(ROCO_AS) $(ROCO_LD):
 	cmake -S $(ROCO_DIR) -B $(ROCO_DIR)/build
 	cmake --build $(ROCO_DIR)/build

@@ -5,30 +5,24 @@
 ## Layout
 
 ```text
-pcb/
-├── roco.kicad_pro   KiCad 10 project
-├── roco.kicad_sch   Top-level schematic
-├── roco.kicad_pcb   PCB layout
+pcb/                 roco-pcb: KiCad 10 hardware project
+├── roco-pcb.kicad_pro
+├── roco-pcb.kicad_sch
+├── roco-pcb.kicad_pcb
 ├── *.kicad_sch      Hierarchical schematic sheets
 ├── libraries/       Symbols, footprints, and 3D models
 └── docs/            Design notes, budgets, pin plan, and datasheets
-cpu/                 Pipelined RV32I SoC in SystemVerilog (see cpu/README.md)
+cpu/                 roco-cpu: pipelined RV32I SoC (see cpu/README.md)
+cc/                  roco-cc: C compiler, assembler, and linker
 ```
 
-Open [`pcb/roco.kicad_pro`](pcb/roco.kicad_pro) in KiCad 10.
+Open [`pcb/roco-pcb.kicad_pro`](pcb/roco-pcb.kicad_pro) in KiCad 10.
 
 ## Documentation
 
-- [Rev A design](pcb/docs/rev-a-design.md)
 - [Parts selection](pcb/docs/parts-selection.md)
-- [USB-C PD](pcb/docs/usb-c-pd.md)
-- [Power budget](pcb/docs/power-budget.md) and [current allocations](pcb/docs/current-budget.csv)
+- [Power budget](pcb/docs/power-budget.md)
 - [Pin plan](pcb/docs/pin-plan.csv)
-- [CPU and SoC](cpu/README.md)
+- [roco-cpu](cpu/README.md)
+- [roco-cc toolchain](cc/README.md)
 - [Datasheets](pcb/docs/datasheets/) and [sources](pcb/docs/datasheet-sources.csv)
-
-Power-budget calculator (Python 3.9+):
-
-```sh
-python3 pcb/docs/calculate_power_budget.py
-```

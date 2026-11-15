@@ -1,6 +1,6 @@
-# roco c
+# roco-cc
 
-A C toolchain for the roco RV32 CPU in `../cpu`, written from scratch
+A C toolchain for the roco-cpu RV32 CPU in `../cpu`, written from scratch
 in C++20. The host programs build with a normal desktop compiler;
 everything they emit targets the FPGA CPU. No binutils, GCC runtime, or
 external assembler is required.

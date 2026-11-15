@@ -1,5 +1,5 @@
 #!/bin/sh
-# Compile C, assemble, link, and run the roco C smoke test on the core testbench.
+# Compile C, assemble, link, and run the roco-cc smoke test on the core testbench.
 set -eu
 
 build_dir=$1

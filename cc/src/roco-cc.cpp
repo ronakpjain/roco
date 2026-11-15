@@ -1,5 +1,5 @@
 /// @file roco-cc.cpp
-/// @brief Command-line driver for the roco C compiler.
+/// @brief Command-line driver for the roco-cc compiler.
 
 #include "roco/assembler.hpp"
 #include "roco/compiler.hpp"

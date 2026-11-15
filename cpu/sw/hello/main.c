@@ -22,15 +22,15 @@ int main(void) {
 
   puts("hello, roco\r\n");
 
-  // Fill 4 KiB with a pattern, then sum it repeatedly. The first pass
+  // Fill 1 KiB with a pattern, then sum it repeatedly. The first pass
   // misses in the D-cache; later passes hit.
-  for (i = 0; i < 1024; i++) {
+  for (i = 0; i < 256; i++) {
     array[i] = i + (i << 8) + 0x5a5a5a5au;
   }
   before = read_mcycle();
   unsigned int inst_before = read_minstret();
-  for (i = 0; i < 64; i++) {
-    for (unsigned int j = 0; j < 1024; j++) {
+  for (i = 0; i < 8; i++) {
+    for (unsigned int j = 0; j < 256; j++) {
       sum += array[j];
     }
   }

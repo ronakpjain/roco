@@ -1,9 +1,8 @@
-// Auto-vectorized workload for the Zve32x implementation.
+// C workload for the vector-oriented testbench.
 //
 // The two kernels below are ordinary C loops with no vector intrinsics.
-// Compiled with -march=rv32im_zve32x_zvl128b -O3 -mrvv-vector-bits=zvl
-// the compiler emits vsetvli, vle32.v, vadd.vv, vse32.v and vredsum.vs,
-// which is the subset the vector unit implements.
+// roco-cc currently emits scalar RV32IMA, so this checks the C ABI,
+// memory, and arithmetic paths rather than vector code generation.
 //
 // The drivers fill the arrays through volatile pointers so that the
 // compiler cannot fold the loops into vector constants.

@@ -197,11 +197,10 @@ The SDRAM controller needs about 200 us after reset; the script waits
 ## Building and testing
 
 Requirements: Icarus Verilog, Verilator, Yosys, Verible, Python 3, CMake,
-and a C++20 compiler for the sibling `../c` toolchain. Directed assembly
-tests use `../c/build/roco-as` and `roco-ld`; `make roco-tools` builds
-them. The official ISA suites, `test-vector-c`, and the hello image still
-need a RISC-V ELF toolchain (`riscv64-elf-gcc` on `PATH`, or pass
-`RISCV=/path/to/prefix`). `nextpnr-ecp5` and `ecppack` are only needed
+and a C++20 compiler for the sibling `../c` toolchain. Directed tests use `../c/build/roco-as`, `roco-ld`, and `roco-cc`; `make roco-tools`
+builds them. Only the official ISA suites need a RISC-V ELF toolchain
+(`riscv64-elf-gcc` on `PATH`, or pass `RISCV=/path/to/prefix`).
+`nextpnr-ecp5` and `ecppack` are only needed
 for a bitstream.
 
 ```sh
@@ -211,6 +210,7 @@ make test-core   # directed pipeline smoke test
 make test-cpi    # run core and SoC CPI regressions
 make test-atomic-order # atomic ordering under cache conflicts
 make test-vector-reduce # randomized reduction arithmetic checks
+make test-vector-c # C workload through roco-cc
 make test-mm     # MMU unit test: translation, permissions, faults
 make test-vm     # Sv32 software test on the core and through the SoC
 make test-sdram  # SDRAM controller: bursts, refresh, retention

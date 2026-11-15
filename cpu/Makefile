@@ -107,16 +107,18 @@ test-satp-fetch: $(BUILD_DIR)/satp-fetch.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DI
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
 
-$(BUILD_DIR)/vector-c.elf: sw/vector/crt0.S sw/vector/main.c sw/link.ld | build
-	$(RISCV)-gcc -march=rv32im_zve32x_zvl128b -mabi=ilp32 -O3 -mrvv-vector-bits=zvl \
-		-ffreestanding -nostdlib -nostartfiles -T sw/link.ld -o $@ \
-		sw/vector/crt0.S sw/vector/main.c
+$(BUILD_DIR)/vector-c.s: sw/vector/main.c $(ROCO_CC) | build
+	$(ROCO_CC) -S -o $@ $<
 
-$(BUILD_DIR)/vector-c.bin: $(BUILD_DIR)/vector-c.elf
-	$(RISCV)-objcopy -O binary $< $@
+$(BUILD_DIR)/vector-c-main.o: $(BUILD_DIR)/vector-c.s $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
 
-$(BUILD_DIR)/vector-c.hex: $(BUILD_DIR)/vector-c.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
+$(BUILD_DIR)/vector-c-crt0.o: sw/vector/crt0.S $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
+
+$(BUILD_DIR)/vector-c.elf: $(BUILD_DIR)/vector-c-crt0.o $(BUILD_DIR)/vector-c-main.o $(ROCO_LD) | build
+	$(ROCO_LD) -o $@ --binary $(BUILD_DIR)/vector-c.bin --hex $(BUILD_DIR)/vector-c.hex \
+		--map $(BUILD_DIR)/vector-c.map $(BUILD_DIR)/vector-c-crt0.o $(BUILD_DIR)/vector-c-main.o
 
 .PHONY: test-vector-start
 test-vector-start: $(BUILD_DIR)/vector-start.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
@@ -128,18 +130,29 @@ test-atomic-order: $(BUILD_DIR)/atomic-order.hex $(BUILD_DIR)/tb_core.vvp $(BUIL
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000 +check_atomic_order
 
-$(BUILD_DIR)/hello.elf: sw/crt0.S sw/hello/main.c sw/hello/roco_io.h sw/link.ld | build
-	$(RISCV)-gcc -march=rv32i_zicsr -mabi=ilp32 -ffreestanding -O2 -nostdlib -nostartfiles \
-		-T sw/link.ld -o $@ sw/crt0.S sw/hello/main.c
+$(BUILD_DIR)/hello.s: sw/hello/main.c sw/hello/roco_io.h $(ROCO_CC) | build
+	$(ROCO_CC) -S -o $@ $<
+
+$(BUILD_DIR)/hello-main.o: $(BUILD_DIR)/hello.s $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
+
+$(BUILD_DIR)/hello-crt0.o: sw/crt0.S $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
+
+$(BUILD_DIR)/hello-io.o: sw/hello/roco_io.S $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
+
+$(BUILD_DIR)/hello.elf: $(BUILD_DIR)/hello-crt0.o $(BUILD_DIR)/hello-main.o $(BUILD_DIR)/hello-io.o $(ROCO_LD) | build
+	$(ROCO_LD) -o $@ --binary $(BUILD_DIR)/hello.bin --hex $(BUILD_DIR)/hello.hex \
+		--map $(BUILD_DIR)/hello.map $(BUILD_DIR)/hello-crt0.o $(BUILD_DIR)/hello-main.o $(BUILD_DIR)/hello-io.o
 
 $(BUILD_DIR)/hello.bin: $(BUILD_DIR)/hello.elf
-	$(RISCV)-objcopy -O binary $< $@
+	@test -f $@ || $(ROCO_LD) -o $(BUILD_DIR)/hello.elf --binary $@ \
+		--hex $(BUILD_DIR)/hello.hex --map $(BUILD_DIR)/hello.map \
+		$(BUILD_DIR)/hello-crt0.o $(BUILD_DIR)/hello-main.o $(BUILD_DIR)/hello-io.o
 
-$(BUILD_DIR)/hello.hex: $(BUILD_DIR)/hello.bin
-	$(PYTHON) scripts/elf2hex.py $< $@
-
-$(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.elf
-	$(PYTHON) scripts/boot.py --elf $< --emit-hex $@ --riscv-prefix $(RISCV)-
+$(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.bin | build
+	$(PYTHON) scripts/boot.py --bin $< --emit-hex $@
 
 $(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv sim/cpi_monitor.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv sim/cpi_monitor.sv $(SIM_RTL)

@@ -47,28 +47,25 @@ static inline int getc_nonblocking(void) {
   return (int)(UART_DATA & 0xffu);
 }
 
+unsigned int roco_read_mcycle(void);
+unsigned int roco_read_mcycleh(void);
+unsigned int roco_read_minstret(void);
+unsigned int roco_read_minstreth(void);
+
 static inline unsigned int read_mcycle(void) {
-  unsigned int value;
-  __asm__ volatile("csrr %0, mcycle" : "=r"(value));
-  return value;
+  return roco_read_mcycle();
 }
 
 static inline unsigned int read_mcycleh(void) {
-  unsigned int value;
-  __asm__ volatile("csrr %0, mcycleh" : "=r"(value));
-  return value;
+  return roco_read_mcycleh();
 }
 
 static inline unsigned int read_minstret(void) {
-  unsigned int value;
-  __asm__ volatile("csrr %0, minstret" : "=r"(value));
-  return value;
+  return roco_read_minstret();
 }
 
 static inline unsigned int read_minstreth(void) {
-  unsigned int value;
-  __asm__ volatile("csrr %0, minstreth" : "=r"(value));
-  return value;
+  return roco_read_minstreth();
 }
 
 static inline void write_tohost(unsigned int code) {

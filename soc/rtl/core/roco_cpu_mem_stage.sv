@@ -199,12 +199,10 @@ module roco_cpu_mem_stage (
     endcase
   endfunction
   assign load_data = align_load(dmem_rsp_data, exmem_alu[1:0], exmem_funct3);
-  // Result selection is decoded before the EX/MEM register so the
-  // forwarding path does not start with a memory-op decode tree.
-  assign forward_data =
-      ({32{exmem_is_sc}} & sc_result) |
-      ({32{exmem_forward_cache}} & dmem_forward_data) |
-      ({32{exmem_forward_wbval}} & exmem_wbval);
+  // Memory results bypass into ID after one dependency bubble. EX only
+  // consumes results produced by EX/MEM registers, keeping cache read,
+  // alignment and forwarding routing off the next address calculation.
+  assign forward_data = ({32{exmem_is_sc}} & sc_result) | ({32{exmem_forward_wbval}} & exmem_wbval);
 
   // Load-reserved / store-conditional reservation. The set is one word
   // wide: any store to it, any store-conditional and any trap clears it.

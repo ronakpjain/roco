@@ -141,11 +141,13 @@ module roco_cpu_id_stage (
   // Compare register numbers one stage early. The instructions now in EX
   // and MEM will be in MEM and WB when the decoded instruction executes.
   // A trap in EX flushes that instruction.
-  // Loads, multiplies and atomics forward their final MEM result. MEM
-  // holds younger EX instructions until unfinished results become ready.
+  // Loads, multiplies and atomics interlock for one cycle, then ID
+  // captures the final MEM result. Only registered EX results bypass
+  // directly into the next EX instruction.
   assign dec_is_div = dec_is_muldiv && dec_md_op[2];
   assign ex_can_forward = idex_valid && idex_regwrite &&
-                          !(idex_is_muldiv && idex_md_op[2]) && (idex_rd != 5'd0);
+                          !idex_is_load && !idex_is_lr && !idex_is_amo &&
+                          !idex_is_muldiv && (idex_rd != 5'd0);
   assign mem_can_forward = exmem_valid && exmem_regwrite && (exmem_rd != 5'd0);
   assign rs1_from_mem = ex_can_forward && (dec_rs1 == idex_rd);
   assign rs2_from_mem = ex_can_forward && (dec_rs2 == idex_rd);

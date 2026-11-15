@@ -255,7 +255,7 @@ module roco_cpu (
   logic div_busy;
   logic div_conflict;
   logic bubble;
-  logic uncached_dependency;
+  logic load_dependency;
   logic [4:0] div_rd;
   logic [4:0] div_pending_rd;
   logic div_wb_en;
@@ -277,8 +277,8 @@ module roco_cpu (
   logic [31:0] mem_forward_data;
 
   assign retire = commit_valid && !vec_element_commit;
-  // Cached MEM results forward directly into EX. The divider scoreboard
-  // and uncached-read dependencies below are the remaining ID interlocks.
+  // Registered EX results forward into EX. Memory results interlock
+  // in ID so cache read and alignment routing end at the ID/EX register.
   // Register EX redirects before distributing them through the front end.
   // The pending redirect cancels the one younger EX instruction below.
   always_ff @(posedge clk) ex_redirect_pc <= ex_redirect_pc_raw;
@@ -324,12 +324,12 @@ module roco_cpu (
                           ((dec_use_rs1 && (dec_rs1 == div_pending_rd)) ||
                            (dec_use_rs2 && (dec_rs2 == div_pending_rd)) ||
                            (dec_regwrite && (dec_rd == div_pending_rd)))));
-  // Uncached reads retain their peripheral side-effect timing in MEM.
-  // They forward from registered WB rather than the cache's early read
-  // copy. Cached results still reach an immediate dependent EX instruction.
-  assign uncached_dependency = idex_valid &&
+  // Wait one cycle for memory producers before decoding a dependent
+  // instruction. ID captures the final MEM value; EX forwarding then
+  // starts at EX/MEM flops instead of the cache read and alignment muxes.
+  assign load_dependency = idex_valid &&
                                (idex_is_load || idex_is_lr || idex_is_amo) &&
-                               (mmu_d_paddr[31:25] != 7'd8) && (idex_rd != 5'd0) && if_valid &&
+                               (idex_rd != 5'd0) && if_valid &&
                                ((dec_use_rs1 && dec_rs1 == idex_rd) ||
                                 (dec_use_rs2 && dec_rs2 == idex_rd));
   // A multiply keeps only the carry-save terms in EX; the 64-bit carry
@@ -339,7 +339,7 @@ module roco_cpu (
   assign mul_conflict = if_valid && idex_valid && idex_is_mul && (idex_rd != 5'd0) &&
                         ((dec_use_rs1 && (dec_rs1 == idex_rd)) ||
                          (dec_use_rs2 && (dec_rs2 == idex_rd)));
-  assign bubble = div_conflict || uncached_dependency || mul_conflict;
+  assign bubble = div_conflict || load_dependency || mul_conflict;
   assign stall = dmem_lu_stall || fence_req || mem_wait || vec_mem_hold;
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];

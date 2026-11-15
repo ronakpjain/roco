@@ -171,6 +171,27 @@ _start:
   lbu t4, 0(s5)
   bne t4, t5, fail_10
 
+  # 11: vmv.v.v uses vs1, not the fixed-zero vs2 field. The source
+  # is produced immediately before the move to exercise MEM forwarding.
+  vsetivli zero, 4, e32, m1, tu, mu
+  vmv.v.i v0, 7
+  vle32.v v13, (s1)
+  vadd.vi v13, v13, 5
+  vmv.v.v v14, v13
+  vse32.v v14, (s3)
+  lw t4, 0(s3)
+  li t5, 15
+  bne t4, t5, fail_11
+  lw t4, 4(s3)
+  li t5, 25
+  bne t4, t5, fail_11
+  lw t4, 8(s3)
+  li t5, 35
+  bne t4, t5, fail_11
+  lw t4, 12(s3)
+  li t5, 45
+  bne t4, t5, fail_11
+
   li a0, 1
   sw a0, 0(x31)
 1:
@@ -205,6 +226,9 @@ fail_9:
   j fail
 fail_10:
   li a0, 50
+  j fail
+fail_11:
+  li a0, 51
 fail:
   sw a0, 0(x31)
 1:

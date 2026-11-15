@@ -784,7 +784,7 @@ module rv32_ex_stage (
       end else if (!is_vec_mem) begin
         if (idex_vec_funct6 == `RV32_VOP_MOVE) begin
           vec_ex_we_int = 1'b1;
-          vec_ex_wdata_int = (idex_instr[14:12] == 3'b000) ? vec_vs2_data : vec_bcast;
+          vec_ex_wdata_int = (idex_instr[14:12] == 3'b000) ? vec_vs1_data : vec_bcast;
         end else if (idex_vec_funct6 == `RV32_VOP_SCALAR) begin
           if (idex_instr[14:12] == 3'b010) begin
             // Scalar result selection is independent of write eligibility.

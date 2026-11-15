@@ -202,7 +202,6 @@ module roco_cpu_ex_stage (
   logic [31:0] stall_alu;
   logic [31:0] stall_store_data;
   logic [3:0] stall_be;
-  logic [31:0] ex_addr;
   logic [31:0] memory_addr;
   logic [31:0] memory_addr_held;
   logic [31:0] mem_access_addr;
@@ -432,9 +431,6 @@ module roco_cpu_ex_stage (
     ex_lu_we <= idex_is_store || idex_is_amo || idex_is_sc || idex_is_vstore;
   end
   assign mem_access_addr = lookup_is_vec_q ? vmem_addr : memory_addr_held;
-  assign ex_addr =
-      (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc) ?
-      dmem_lu_paddr : is_vec_mem ? dmem_lu_paddr : ex_alu_result;
   assign ex_st = is_vec_mem ? vmem_store_data : stall_store_data;
   assign ex_be = is_vec_mem ? vmem_be : stall_be;
   // Decode the mutually exclusive writeback producers in ID. EX data
@@ -1059,7 +1055,9 @@ module roco_cpu_ex_stage (
       exmem_vec_we <= vec_ex_we;
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
-      exmem_alu <= ex_addr;
+      // This packet field is only consumed by memory instructions.
+      // Scalar ALU results already have their dedicated writeback word.
+      exmem_alu <= dmem_lu_paddr;
       exmem_store_data <= ex_st;
       exmem_be <= ex_be;
       exmem_rd <= idex_rd;

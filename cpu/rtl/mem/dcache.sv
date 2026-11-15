@@ -103,7 +103,7 @@ module dcache #(
   // A LUT-RAM mirror registers its read at the fabric edge. It supplies
   // forwarding without the block RAM's long clock-to-output delay.
   // Both copies receive every byte write and refill beat.
-  localparam int BANK_ADDR_BITS = (IDX_BITS + OFF_BITS > 6) ? 6 : IDX_BITS + OFF_BITS;
+  localparam int BANK_ADDR_BITS = (IDX_BITS + OFF_BITS > 8) ? 8 : IDX_BITS + OFF_BITS;
   localparam int BANK_DEPTH = 1 << BANK_ADDR_BITS;
   localparam int BANK_COUNT = DEPTH / BANK_DEPTH;
   logic [31:0] forward_bank_data[0:BANK_COUNT-1];
@@ -129,16 +129,11 @@ module dcache #(
 
   logic [31:0] prev_store_data;
   logic [3:0] prev_store_be;
-  localparam int COMPARE_GROUPS = (MEM_WORD_BITS + 1) / 2;
-  logic [COMPARE_GROUPS-1:0] store_compare_q;
-  // Compare small address groups before the edge, then reduce the saved
-  // comparisons in MEM. Neither stage carries the full equality tree.
-  for (genvar group_idx = 0; group_idx < COMPARE_GROUPS; group_idx++) begin : g_store_compare
-    localparam int LO = 2 + 2 * group_idx;
-    localparam int WIDTH = (LO + 1 > 24) ? 1 : 2;
-    always_ff @(posedge clk) begin
-      store_compare_q[group_idx] <= (cm_addr[LO+:WIDTH] == lu_addr[LO+:WIDTH]);
-    end
+  logic store_compare_q;
+  // Capture the complete comparison alongside the read. Forwarding in
+  // MEM starts from one match bit instead of a wide comparison tree.
+  always_ff @(posedge clk) begin
+    store_compare_q <= (cm_addr == lu_addr);
   end
   logic prev_store_match;
 
@@ -316,7 +311,7 @@ module dcache #(
     end
   end
 
-  assign prev_store_match = &store_compare_q;
+  assign prev_store_match = store_compare_q;
   assign merged[7:0] = (prev_store_match && prev_store_be[0]) ? prev_store_data[7:0] : ram_data[7:0];
   assign merged[15:8] = (prev_store_match && prev_store_be[1]) ? prev_store_data[15:8] : ram_data[15:8];
   assign merged[23:16] = (prev_store_match && prev_store_be[2]) ? prev_store_data[23:16] : ram_data[23:16];
@@ -362,7 +357,7 @@ module dcache #(
         lu_addr_q <= lu_addr;
       end
 
-      // Save the store payload alongside the partial address comparisons.
+      // Save the store payload alongside the address comparison.
       prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid) ? cm_be : 4'b0000;
       if ((state == S_IDLE) && cm_valid && cm_we) begin
         prev_store_data <= cm_wdata;

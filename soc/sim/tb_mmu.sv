@@ -315,6 +315,45 @@ module tb_mmu;
     i_req = 1'b0;
     @(posedge clk);
 
+    // A warm fetch translation must follow offsets without another walk,
+    // but must never authorize a different privilege context.
+    @(negedge clk);
+    i_req = 1'b1;
+    i_vaddr = 32'h0000_0200;
+    #1;
+    check(i_hit && ic_req && !i_busy, "same-page fetch should stay ready");
+    check(ic_addr == 32'h1000_0200, "same-page fetch offset");
+    priv_fetch = 2'b01;
+    #1;
+    check(!i_hit && !ic_req, "U fetch translation must not authorize S fetch");
+    for (n = 0; (n < 4) && !i_fault; n++) @(negedge clk);
+    check(i_fault && i_fault_addr == i_vaddr, "S fetch on a user page must fault");
+    i_req = 1'b0;
+    iflush = 1'b1;
+    @(negedge clk);
+    iflush = 1'b0;
+    priv_fetch = 2'b00;
+    i_req = 1'b1;
+    wait_i_hit(20);
+    check(ic_req && ic_addr == 32'h1000_0200, "U fetch should recover after redirect");
+    @(negedge clk);
+    i_req = 1'b0;
+    flush = 1'b1;
+    pte_mem[23'h800] = (20'h1_0005 << 10) | 32'hdf;
+    @(negedge clk);
+    flush = 1'b0;
+    i_req = 1'b1;
+    #1;
+    check(!i_hit && !ic_req, "sfence must invalidate warm fetch translation");
+    wait_i_hit(20);
+    check(ic_addr == 32'h1000_5200, "fetch after sfence used stale physical page");
+    @(negedge clk);
+    i_req = 1'b0;
+    flush = 1'b1;
+    pte_mem[23'h800] = (DATA_PPN << 10) | 32'hdf;
+    @(negedge clk);
+    flush = 1'b0;
+
     // Warm a read translation, then change access class on the same
     // page: the registered read permission must not authorize a store.
     @(negedge clk);

@@ -134,12 +134,14 @@ module roco_cpu_mmu #(
   logic [TAG_BITS-1:0] d_tag;
   logic [TLB_W-1:0] i_ent;
   logic i_tag_hit;
+  logic i_hot_valid, i_hot_match;
+  logic [19:0] i_hot_vpn, i_hot_ppn;
+  logic [1:0] i_hot_priv;
   logic d_tag_hit;
   logic i_perm_ok;
   logic d_perm_ok;
   logic i_perm_fault;
   logic d_perm_fault;
-  logic [31:0] i_phys;
   logic [19:0] d_ppn;
   logic [TLB_ENTRIES-1:0] d_way_tags, d_way_allowed;
   logic [19:0] d_way_ppn[0:TLB_ENTRIES-1];
@@ -276,18 +278,34 @@ module roco_cpu_mmu #(
   assign i_perm_fault = i_translate && i_req && i_tag_hit && !i_perm_ok;
   assign d_perm_fault = d_translate && d_req && !d_cached_hit && d_tag_hit && !d_perm_ok;
 
-  assign i_phys = {i_ent[TAG_BITS+19:TAG_BITS], i_vaddr[11:0]};
   always_comb begin
     d_ppn = '0;
     for (int way = 0; way < TLB_ENTRIES; way = way + 1) d_ppn |= d_way_ppn[way];
   end
 
-  assign i_hit = !i_translate || (i_tag_hit && i_perm_ok);
+  // Keep a validated page translation in registers on the cache path.
+  // A page/context change refills it from the main TLB in one cycle;
+  // instruction streams within a page bypass the TLB RAM and permissions.
+  assign i_hot_match = i_hot_valid && (i_hot_vpn == i_vaddr[31:12]) && (i_hot_priv == priv_fetch);
+  always_ff @(posedge clk) begin
+    if (!i_hot_match) begin
+      i_hot_vpn <= i_vaddr[31:12];
+      i_hot_ppn <= i_ent[TAG_BITS+19:TAG_BITS];
+      i_hot_priv <= priv_fetch;
+    end
+  end
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) i_hot_valid <= 1'b0;
+    else if (flush) i_hot_valid <= 1'b0;
+    else if (!i_hot_match) i_hot_valid <= i_req && i_translate && i_tag_hit && i_perm_ok;
+  end
+  assign i_hit = !i_translate || i_hot_match;
   assign i_miss = i_translate && i_req && !i_tag_hit;
   assign d_hit = !d_translate || d_cached_hit;
   assign ic_req = i_req && i_hit;
-  assign ic_addr = i_translate ? i_phys : i_vaddr;
-  assign i_busy = i_fault_pending || i_miss_pending || ((wstate != W_IDLE) && w_is_if);
+  assign ic_addr = i_translate ? {i_hot_ppn, i_vaddr[11:0]} : i_vaddr;
+  assign i_busy = i_fault_pending || i_miss_pending || ((wstate != W_IDLE) && w_is_if) ||
+                  (i_translate && i_req && !i_hot_match);
   assign i_fault = i_fault_pending;
   assign i_fault_addr = i_fault_vaddr;
   assign i_rsp_valid = ic_rsp_valid && i_rsp_armed;

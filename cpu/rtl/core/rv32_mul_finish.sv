@@ -7,7 +7,7 @@ module rv32_mul_finish (
   input logic [31:0] p0,
   input logic [33:0] p1,
   input logic [33:0] p2,
-  input logic [33:0] p3,
+  input logic [31:0] p3,
   input logic [2:0] variant,
   output logic [31:0] result
 );
@@ -16,7 +16,7 @@ module rv32_mul_finish (
   assign term0 = {32'd0, p0};
   assign term1 = {{14{p1[33]}}, p1, 16'd0};
   assign term2 = {{14{p2[33]}}, p2, 16'd0};
-  assign term3 = {p3[31:0], 32'd0};
+  assign term3 = {p3, 32'd0};
   assign sum0 = term0 ^ term1 ^ term2;
   assign carry0 = ((term0 & term1) | (term0 & term2) | (term1 & term2)) << 1;
   assign sum1 = sum0 ^ carry0 ^ term3;

@@ -33,9 +33,7 @@ module rv32_ex_stage (
   input logic idex_rs1_from_mem,
   input logic idex_rs2_from_mem,
   input logic idex_rs1_from_wb,
-  input logic idex_rs2_from_wb,
   input logic idex_rs1_from_rf,
-  input logic idex_rs2_from_rf,
   input logic [31:0] idex_imm,
   input logic [4:0] idex_rs1,
   input logic [4:0] idex_rd,
@@ -163,12 +161,11 @@ module rv32_ex_stage (
   logic [31:0] mul_p0;
   logic [33:0] mul_p1;
   logic [33:0] mul_p2;
-  logic [33:0] mul_p3;
+  logic [31:0] mul_p3;
   logic [31:0] mul_data;
   logic [31:0] md_div_result;
   logic [31:0] ex_alu_result;
   logic idex_is_div;
-  logic idex_is_mul;
   logic div_start;
   logic [4:0] div_rd_q;
   logic [31:0] ex_store_data;
@@ -303,7 +300,6 @@ module rv32_ex_stage (
   );
 
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
-  assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !rst &&
                      !cancel_ex;
 

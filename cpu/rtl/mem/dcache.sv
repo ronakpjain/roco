@@ -214,8 +214,8 @@ module dcache #(
 
   function automatic [31:0] format_load(input logic [31:0] word_data, input logic [1:0] offset,
                                         input logic [2:0] funct3);
-    logic [31:0] shifted;
-    shifted = word_data >> {offset, 3'b000};
+    logic [15:0] shifted;
+    shifted = 16'(word_data >> {offset, 3'b000});
     case (funct3)
       3'b000: format_load = {{24{shifted[7]}}, shifted[7:0]};
       3'b001: format_load = {{16{shifted[15]}}, shifted[15:0]};
@@ -231,23 +231,27 @@ module dcache #(
   // Read and align small banks in parallel. Select one bank before the
   // register; MEM merges the resulting one-hot data with an OR tree.
   for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_forward_bank
-    (* ram_style = "distributed" *) logic [7:0] lane0[0:BANK_DEPTH-1];
-    (* ram_style = "distributed" *) logic [7:0] lane1[0:BANK_DEPTH-1];
-    (* ram_style = "distributed" *) logic [7:0] lane2[0:BANK_DEPTH-1];
-    (* ram_style = "distributed" *) logic [7:0] lane3[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] bank_lane0[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] bank_lane1[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] bank_lane2[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] bank_lane3[0:BANK_DEPTH-1];
     logic [31:0] word_data;
-    wire [BANK_ADDR_BITS-1:0] read_addr = forward_raddr[BANK_ADDR_BITS-1:0];
-    wire [BANK_ADDR_BITS-1:0] write_addr = ram_waddr[BANK_ADDR_BITS-1:0];
-    assign word_data = {lane3[read_addr], lane2[read_addr], lane1[read_addr], lane0[read_addr]};
+    logic [BANK_ADDR_BITS-1:0] read_addr;
+    logic [BANK_ADDR_BITS-1:0] write_addr;
+    assign read_addr = forward_raddr[BANK_ADDR_BITS-1:0];
+    assign write_addr = ram_waddr[BANK_ADDR_BITS-1:0];
+    assign word_data = {
+      bank_lane3[read_addr], bank_lane2[read_addr], bank_lane1[read_addr], bank_lane0[read_addr]
+    };
     always_ff @(posedge clk) begin
       forward_bank_data[bank] <= (forward_raddr >> BANK_ADDR_BITS) == bank ? format_load(
           word_data, forward_offset, forward_funct3
       ) : 32'd0;
       if (ram_we && ((ram_waddr >> BANK_ADDR_BITS) == bank)) begin
-        if (ram_wbe[0]) lane0[write_addr] <= ram_wdata[7:0];
-        if (ram_wbe[1]) lane1[write_addr] <= ram_wdata[15:8];
-        if (ram_wbe[2]) lane2[write_addr] <= ram_wdata[23:16];
-        if (ram_wbe[3]) lane3[write_addr] <= ram_wdata[31:24];
+        if (ram_wbe[0]) bank_lane0[write_addr] <= ram_wdata[7:0];
+        if (ram_wbe[1]) bank_lane1[write_addr] <= ram_wdata[15:8];
+        if (ram_wbe[2]) bank_lane2[write_addr] <= ram_wdata[23:16];
+        if (ram_wbe[3]) bank_lane3[write_addr] <= ram_wdata[31:24];
       end
     end
   end

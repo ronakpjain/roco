@@ -106,9 +106,7 @@ module rv32_core (
   logic idex_rs1_from_mem;
   logic idex_rs2_from_mem;
   logic idex_rs1_from_wb;
-  logic idex_rs2_from_wb;
   logic idex_rs1_from_rf;
-  logic idex_rs2_from_rf;
   logic [31:0] idex_imm;
   logic [4:0] idex_rs1;
   logic [4:0] idex_rd;
@@ -406,9 +404,7 @@ module rv32_core (
       .idex_rs1_from_mem(idex_rs1_from_mem),
       .idex_rs2_from_mem(idex_rs2_from_mem),
       .idex_rs1_from_wb(idex_rs1_from_wb),
-      .idex_rs2_from_wb(idex_rs2_from_wb),
       .idex_rs1_from_rf(idex_rs1_from_rf),
-      .idex_rs2_from_rf(idex_rs2_from_rf),
       .idex_imm(idex_imm),
       .idex_rs1(idex_rs1),
       .idex_rd(idex_rd),
@@ -472,9 +468,7 @@ module rv32_core (
       .idex_rs1_from_mem(idex_rs1_from_mem),
       .idex_rs2_from_mem(idex_rs2_from_mem),
       .idex_rs1_from_wb(idex_rs1_from_wb),
-      .idex_rs2_from_wb(idex_rs2_from_wb),
       .idex_rs1_from_rf(idex_rs1_from_rf),
-      .idex_rs2_from_rf(idex_rs2_from_rf),
       .idex_imm(idex_imm),
       .idex_rs1(idex_rs1),
       .idex_rd(idex_rd),

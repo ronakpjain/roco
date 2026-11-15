@@ -10,7 +10,7 @@ module rv32_mul_prod (
   output logic [31:0] p0,
   output logic [33:0] p1,
   output logic [33:0] p2,
-  output logic [33:0] p3
+  output logic [31:0] p3
 );
   logic signed [16:0] a_lo, b_lo, a_hi, b_hi;
   logic signed_a, signed_b;
@@ -23,5 +23,5 @@ module rv32_mul_prod (
   assign p0 = a_lo * b_lo;
   assign p1 = a_lo * b_hi;
   assign p2 = a_hi * b_lo;
-  assign p3 = a_hi * b_hi;
+  assign p3 = 32'(a_hi * b_hi);
 endmodule

@@ -20,7 +20,7 @@ module rv32_vec_reduce (
   for (genvar size = 0; size < 3; size = size + 1) begin : g_size
     localparam integer WIDTH = 8 << size;
     localparam integer LANES = 128 / WIDTH;
-    wire [WIDTH-1:0] terms[0:6][0:LANES];
+    logic [WIDTH-1:0] terms[0:6][0:LANES];
     for (genvar lane = 0; lane < LANES; lane = lane + 1) begin : g_lane
       assign terms[0][lane] = (5'(lane) < vl) ? source[WIDTH*lane+:WIDTH] : '0;
     end
@@ -30,9 +30,12 @@ module rv32_vec_reduce (
       localparam integer GROUPS  = INPUTS / 3;
       localparam integer OUTPUTS = 2 * GROUPS + INPUTS % 3;
       for (genvar g = 0; g < GROUPS; g = g + 1) begin : g_compress
-        wire [WIDTH-1:0] a = terms[level][3*g];
-        wire [WIDTH-1:0] b = terms[level][3*g+1];
-        wire [WIDTH-1:0] c = terms[level][3*g+2];
+        logic [WIDTH-1:0] a;
+        logic [WIDTH-1:0] b;
+        logic [WIDTH-1:0] c;
+        assign a = terms[level][3*g];
+        assign b = terms[level][3*g+1];
+        assign c = terms[level][3*g+2];
         assign terms[level+1][2*g] = a ^ b ^ c;
         assign terms[level+1][2*g+1] = ((a & b) | (a & c) | (b & c)) << 1;
       end
@@ -43,7 +46,8 @@ module rv32_vec_reduce (
         assign terms[level+1][k] = '0;
       end
     end
-    wire [WIDTH-1:0] sum = terms[6][0] + terms[6][1];
+    logic [WIDTH-1:0] sum;
+    assign sum = terms[6][0] + terms[6][1];
     assign sums[size] = 32'(sum);
   end
   assign result = (sew == 3'd0) ? sums[0] : (sew == 3'd1) ? sums[1] : sums[2];

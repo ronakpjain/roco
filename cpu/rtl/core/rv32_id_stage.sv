@@ -57,9 +57,7 @@ module rv32_id_stage (
   output logic idex_rs1_from_mem,
   output logic idex_rs2_from_mem,
   output logic idex_rs1_from_wb,
-  output logic idex_rs2_from_wb,
   output logic idex_rs1_from_rf,
-  output logic idex_rs2_from_rf,
   output logic [31:0] idex_imm,
   output logic [4:0] idex_rs1,
   output logic [4:0] idex_rd,
@@ -236,9 +234,7 @@ module rv32_id_stage (
       idex_rs1_from_mem <= 1'b0;
       idex_rs2_from_mem <= 1'b0;
       idex_rs1_from_wb <= 1'b0;
-      idex_rs2_from_wb <= 1'b0;
       idex_rs1_from_rf <= 1'b1;
-      idex_rs2_from_rf <= 1'b1;
       idex_imm <= '0;
       idex_rs1 <= '0;
       idex_rd <= '0;
@@ -301,9 +297,7 @@ module rv32_id_stage (
       idex_rs1_from_mem <= rs1_from_mem;
       idex_rs2_from_mem <= rs2_from_mem;
       idex_rs1_from_wb <= 1'b0;
-      idex_rs2_from_wb <= 1'b0;
       idex_rs1_from_rf <= !rs1_from_mem;
-      idex_rs2_from_rf <= !rs2_from_mem;
       idex_imm <= dec_imm;
       idex_rs1 <= dec_rs1;
       idex_rd <= dec_rd;

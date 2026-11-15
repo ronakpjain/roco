@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Assert continuous retirement in warmed program regions."""
 import argparse
+import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -29,10 +31,16 @@ for image, windows in cases.items():
         fields = line.split()
         if len(fields) == 2 and fields[0].startswith('0x'):
             symbols[fields[1]] = int(fields[0], 16)
+    commands = {
+        'core': shlex.split(os.environ.get('CORE_SIM_CMD',
+                                          'vvp build/tb_core.vvp')),
+        'soc': shlex.split(os.environ.get('SOC_SIM_CMD',
+                                         'vvp build/tb_soc.vvp')),
+    }
     for sim in ('core', 'soc'):
         for symbol in windows:
             result = subprocess.run(
-                ['vvp', f'build/tb_{sim}.vvp', f'+hex=build/{image}.hex',
+                [*commands[sim], f'+hex=build/{image}.hex',
                  f'+cpi_pc={symbols[symbol]:08x}', '+cpi_skip=8', '+cpi_count=128',
                  '+max_cycles=100000'],
                 text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60,

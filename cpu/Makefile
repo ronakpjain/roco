@@ -11,6 +11,21 @@ BUILD_DIR := build
 VERIBLE_FORMAT := verible-verilog-format
 VERIBLE_SYNTAX := verible-verilog-syntax
 VERILATOR := verilator
+SIM ?= verilator
+ifeq ($(SIM),verilator)
+CORE_SIM := $(BUILD_DIR)/vl_tb_core/tb_core_vl
+SOC_SIM := $(BUILD_DIR)/vl_tb_soc/tb_soc_vl
+CORE_SIM_DEP := $(CORE_SIM)
+SOC_SIM_DEP := $(SOC_SIM)
+else
+CORE_SIM := $(VVP) $(BUILD_DIR)/tb_core.vvp
+SOC_SIM := $(VVP) $(BUILD_DIR)/tb_soc.vvp
+CORE_SIM_DEP := $(BUILD_DIR)/tb_core.vvp
+SOC_SIM_DEP := $(BUILD_DIR)/tb_soc.vvp
+endif
+export CORE_SIM_CMD = $(CORE_SIM)
+export SOC_SIM_CMD = $(SOC_SIM)
+
 IVERILOG := iverilog
 VVP := vvp
 PYTHON := python3
@@ -56,6 +71,8 @@ syntax:
 LINT_FLAGS := --lint-only --Wall -Wno-fatal -Werror-PINMISSING -Werror-PINNOCONNECT \
 	-Werror-UNDRIVEN -Werror-MULTIDRIVEN -Werror-LATCH -Werror-UNOPTFLAT
 
+VL_FLAGS := --binary --timing -j 4 -Wno-fatal -I$(RTL_DIR)/common
+
 lint:
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module rv32_core $(SIM_RTL)
@@ -93,19 +110,19 @@ $(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf
 		--hex $@ --map $(BUILD_DIR)/$*.map $(BUILD_DIR)/$*.o
 
 .PHONY: test-redirect
-test-redirect: $(BUILD_DIR)/redirect.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/redirect.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/redirect.hex
+test-redirect: $(BUILD_DIR)/redirect.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/redirect.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/redirect.hex
 
 .PHONY: test-trap-pipeline
-test-trap-pipeline: $(BUILD_DIR)/trap-pipeline.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/trap-pipeline.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/trap-pipeline.hex
+test-trap-pipeline: $(BUILD_DIR)/trap-pipeline.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/trap-pipeline.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/trap-pipeline.hex
 
 .PHONY: test-satp-fetch
-test-satp-fetch: $(BUILD_DIR)/satp-fetch.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/satp-fetch.hex
+test-satp-fetch: $(BUILD_DIR)/satp-fetch.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/satp-fetch.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/satp-fetch.hex
 
 $(BUILD_DIR)/vector-c.s: sw/vector/main.c $(ROCO_CC) | build
 	$(ROCO_CC) -S -o $@ $<
@@ -121,14 +138,14 @@ $(BUILD_DIR)/vector-c.elf: $(BUILD_DIR)/vector-c-crt0.o $(BUILD_DIR)/vector-c-ma
 		--map $(BUILD_DIR)/vector-c.map $(BUILD_DIR)/vector-c-crt0.o $(BUILD_DIR)/vector-c-main.o
 
 .PHONY: test-vector-start
-test-vector-start: $(BUILD_DIR)/vector-start.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
+test-vector-start: $(BUILD_DIR)/vector-start.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector-start.hex +max_cycles=100000
 
 .PHONY: test-atomic-order
-test-atomic-order: $(BUILD_DIR)/atomic-order.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000 +check_atomic_order
+test-atomic-order: $(BUILD_DIR)/atomic-order.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000
+	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000 +check_atomic_order
 
 $(BUILD_DIR)/hello-boot.s: sw/hello/boot.c sw/hello/roco_io.h $(ROCO_CC) | build
 	$(ROCO_CC) -S -o $@ $<
@@ -172,6 +189,14 @@ $(BUILD_DIR)/hello.bin: $(BUILD_DIR)/hello.elf
 $(BUILD_DIR)/hello.packet.hex: $(BUILD_DIR)/hello.bin | build
 	$(PYTHON) scripts/boot.py --bin $< --emit-hex $@
 
+$(BUILD_DIR)/vl_tb_core/tb_core_vl: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv sim/cpi_monitor.sv | build
+	$(VERILATOR) $(VL_FLAGS) --top-module tb_core -Mdir $(BUILD_DIR)/vl_tb_core \
+		-o tb_core_vl sim/tb_core.sv sim/cpi_monitor.sv $(SIM_RTL)
+
+$(BUILD_DIR)/vl_tb_soc/tb_soc_vl: $(SIM_RTL) $(RTL_SVH) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv | build
+	$(VERILATOR) $(VL_FLAGS) --top-module tb_soc -Mdir $(BUILD_DIR)/vl_tb_soc \
+		-o tb_soc_vl sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv $(SIM_RTL)
+
 $(BUILD_DIR)/tb_core.vvp: $(SIM_RTL) $(RTL_SVH) sim/tb_core.sv sim/cpi_monitor.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_core -o $@ sim/tb_core.sv sim/cpi_monitor.sv $(SIM_RTL)
 
@@ -194,8 +219,8 @@ test-sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp
 $(BUILD_DIR)/tb_mmu.vvp: $(RTL_SV) sim/tb_mmu.sv | build
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -s tb_mmu -o $@ sim/tb_mmu.sv $(SIM_RTL)
 
-test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(BUILD_DIR)/tb_core.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/muldiv.hex
+test-muldiv-core: $(BUILD_DIR)/muldiv.hex $(CORE_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/muldiv.hex
 
 $(BUILD_DIR)/tb_dcache.vvp: rtl/mem/dcache.sv sim/tb_dcache.sv | build
 	$(IVERILOG) -g2012 -s tb_dcache -o $@ $^
@@ -218,44 +243,44 @@ $(BUILD_DIR)/tb_vec_regs.vvp: rtl/core/rv32_vec.sv sim/tb_vec_regs.sv | build
 test-vector-regs: $(BUILD_DIR)/tb_vec_regs.vvp
 	$(VVP) $<
 
-test-vector: $(BUILD_DIR)/vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector.hex
+test-vector: $(BUILD_DIR)/vector.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector.hex
 
-test-vector-c: $(BUILD_DIR)/vector-c.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-c.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-c.hex
+test-vector-c: $(BUILD_DIR)/vector-c.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector-c.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector-c.hex
 
 .PHONY: test-vector-irq
-test-vector-irq: $(BUILD_DIR)/vector-irq.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-irq.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-irq.hex
+test-vector-irq: $(BUILD_DIR)/vector-irq.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector-irq.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector-irq.hex
 
 .PHONY: test-vector-fence
-test-vector-fence: $(BUILD_DIR)/vector-fence.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-fence.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-fence.hex
+test-vector-fence: $(BUILD_DIR)/vector-fence.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector-fence.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector-fence.hex
 
-test-atomic: $(BUILD_DIR)/atomic.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic.hex
+test-atomic: $(BUILD_DIR)/atomic.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/atomic.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic.hex
 
 .PHONY: test-atomic-mmio
-test-atomic-mmio: $(BUILD_DIR)/atomic-mmio.hex $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-mmio.hex
+test-atomic-mmio: $(BUILD_DIR)/atomic-mmio.hex $(SOC_SIM_DEP)
+	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic-mmio.hex
 
 .PHONY: test-csr-intent
-test-csr-intent: $(BUILD_DIR)/csr-intent.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/csr-intent.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/csr-intent.hex
+test-csr-intent: $(BUILD_DIR)/csr-intent.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/csr-intent.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/csr-intent.hex
 
-test-irq: $(BUILD_DIR)/interrupt.hex $(BUILD_DIR)/tb_core.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300
+test-irq: $(BUILD_DIR)/interrupt.hex $(CORE_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/interrupt.hex +irq_after=300
 
 .PHONY: test-vectored-irq
-test-vectored-irq: $(BUILD_DIR)/vectored-irq.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vectored-irq.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vectored-irq.hex
+test-vectored-irq: $(BUILD_DIR)/vectored-irq.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vectored-irq.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vectored-irq.hex
 
 test-mm: $(BUILD_DIR)/tb_mmu.vvp
 	$(VVP) $(BUILD_DIR)/tb_mmu.vvp
@@ -264,8 +289,8 @@ $(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_mo
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
 		sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv $(SIM_RTL)
 
-test-soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/basic.hex
+test-soc: $(BUILD_DIR)/basic.hex $(SOC_SIM_DEP)
+	$(SOC_SIM) +hex=$(BUILD_DIR)/basic.hex
 
 test-isa-soc: $(BUILD_DIR)/tb_soc.vvp
 	./scripts/get-riscv-tests.sh
@@ -284,8 +309,8 @@ test-boot: $(BUILD_DIR)/hello-boot.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 test-hello: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello.packet.hex
 
-test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/basic.hex
+test-core: $(BUILD_DIR)/basic.hex $(CORE_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/basic.hex
 
 $(BUILD_DIR)/tb_vec_reduce.vvp: rtl/core/rv32_vec_reduce.sv sim/tb_vec_reduce.sv | build
 	$(IVERILOG) -g2012 -s tb_vec_reduce -o $@ $^
@@ -295,17 +320,17 @@ test-vector-reduce: $(BUILD_DIR)/tb_vec_reduce.vvp
 	$(VVP) $<
 
 .PHONY: test-vector-retire
-test-vector-retire: $(BUILD_DIR)/vector-retire.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vector-retire.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vector-retire.hex
+test-vector-retire: $(BUILD_DIR)/vector-retire.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector-retire.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector-retire.hex
 
 .PHONY: test-cpi
-test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-vm.hex $(BUILD_DIR)/cpi-forward.hex $(BUILD_DIR)/cpi-vector.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
+test-cpi: $(BUILD_DIR)/cpi-jalr.hex $(BUILD_DIR)/cpi-vm.hex $(BUILD_DIR)/cpi-forward.hex $(BUILD_DIR)/cpi-vector.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(PYTHON) scripts/run_cpi_tests.py
 
-test-vm: $(BUILD_DIR)/vm.hex $(BUILD_DIR)/tb_core.vvp $(BUILD_DIR)/tb_soc.vvp
-	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/vm.hex
-	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/vm.hex
+test-vm: $(BUILD_DIR)/vm.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vm.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vm.hex
 
 test-isa: $(BUILD_DIR)/tb_core.vvp
 	./scripts/get-riscv-tests.sh

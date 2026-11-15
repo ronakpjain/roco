@@ -43,8 +43,10 @@ while still validating the complete toolchain against the RTL.
 assembly, `roco-as` creates an object, `roco-ld` links it with the C
 startup, and the core testbench must print `PASS`. The CPU's `test-vector-c`,
 `test-boot`, and `test-hello` targets use the same compiler, assembler, and
-linker path. `test-boot` uses a minimal UART image for a fast bootloader
-check; `test-hello` runs the full demo.
+linker path. Directed core/SoC tests default to Verilator; UART boot, unit
+tests, and the official ISA suites stay on Icarus. `test-boot` uses a
+minimal UART image for a fast bootloader check; `test-hello` runs the full
+demo.
 
 ## Documentation
 

@@ -223,13 +223,20 @@ make synth       # Yosys synth_ecp5 -> build/roco.json
 make bitstream   # nextpnr-ecp5 + ecppack (if installed)
 ```
 
+Directed core and SoC tests default to Verilator (`SIM=verilator`).
+The first run builds `build/vl_tb_core/tb_core_vl` and
+`build/vl_tb_soc/tb_soc_vl`; subsequent runs are compiled simulation and
+are much faster than Icarus. Unit tests, the boot/UART tests, and the
+official ISA suites stay on Icarus. Use `make test-core SIM=icarus` (or
+`SIM=icarus` on any directed target) to run the same test through Icarus.
+
 `make format` applies the repository Verible profile. The pre-commit
 hook (`git config core.hooksPath .githooks`) checks formatting and
 syntax of staged SystemVerilog.
 
 ## Verification status
 
-Simulation (2026-11, Icarus Verilog 13):
+Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
 
 - Directed smoke test: 20/20 checks.
 - MMU unit test: bypass, two-level walk, TLB hit, 4 MiB superpage,

@@ -17,7 +17,7 @@ module tb_muldiv;
   logic [31:0] p0;
   logic [33:0] p1;
   logic [33:0] p2;
-  logic [33:0] p3;
+  logic [31:0] p3;
   logic [2:0] variant;
   logic [31:0] mul_result;
   logic busy;
@@ -119,6 +119,8 @@ module tb_muldiv;
   task automatic check(input logic [2:0] fop, input logic [31:0] fa, input logic [31:0] fb);
     logic [31:0] expected;
     logic [31:0] actual;
+    logic [31:0] paused_result;
+    logic paused_busy;
     ref_op = fop;
     ref_a = fa;
     ref_b = fb;
@@ -134,7 +136,14 @@ module tb_muldiv;
       start = 1'b0;
       cycles = 0;
       while (!done) begin
+        @(negedge clk);
+        halt = ((cycles + checks) % 7) < 2;
+        paused_result = div_result;
+        paused_busy = busy;
         @(posedge clk);
+        #1;
+        if (halt && (div_result !== paused_result || busy !== paused_busy || done))
+          $fatal(1, "divider output advanced while halted");
         cycles = cycles + 1;
         if (cycles > 64) begin
           $display("tb_muldiv: FAIL timeout op=%0d a=%08x b=%08x", fop, fa, fb);
@@ -142,7 +151,8 @@ module tb_muldiv;
           return;
         end
       end
-      #1;
+      @(negedge clk);
+      halt = 1'b0;
       actual = div_result;
       @(posedge clk);
     end else begin
@@ -203,6 +213,26 @@ module tb_muldiv;
     check(REMU, 32'hffff_ffff, 32'd1);
     check(DIV, 32'd0, 32'd3);
     check(REM, 32'd0, 32'd3);
+
+    // Abort at several points in an operation and verify reset releases
+    // the scoreboard immediately, then start another complete divide.
+    for (int phase = 0; phase < 4; phase++) begin
+      @(negedge clk);
+      op = DIVU;
+      a = 32'hfedcba98;
+      b = 32'd17;
+      start = 1'b1;
+      @(negedge clk);
+      start = 1'b0;
+      repeat (1 + phase * 5) @(negedge clk);
+      rst = 1'b1;
+      #1;
+      if (busy || done || div_result !== 0)
+        $fatal(1, "divider reset did not cancel in-flight work");
+      @(negedge clk);
+      rst = 1'b0;
+      check(DIVU, 32'hfedcba98, 32'd17);
+    end
 
     // Random sweep.
     for (int n = 0; n < 400; n = n + 1) begin

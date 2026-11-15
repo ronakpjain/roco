@@ -348,15 +348,41 @@ module roco_cpu_mmu #(
     end
   end
 
+  // Walker state/validity determines whether these payloads are live.
+  // Flush may discard a candidate, but need not gate its wide registers.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      w_vaddr <= '0;
+      w_priv <= PRIV_M;
+      w_is_if <= 1'b0;
+      w_is_store <= 1'b0;
+      w_install_word <= '0;
+    end else begin
+      if (wstate == W_IDLE) begin
+        w_vaddr <= d_miss_pending ? d_vaddr : i_vaddr;
+        w_priv <= d_miss_pending ? priv_data : priv_fetch;
+        w_is_if <= !d_miss_pending;
+        w_is_store <= d_miss_pending && d_we;
+      end
+      if (p_rvalid && ((wstate == W_PTE1_WAIT) || (wstate == W_PTE0_WAIT))) begin
+        w_install_word <= {
+          p_rdata[1],
+          p_rdata[2],
+          p_rdata[3],
+          p_rdata[4],
+          p_rdata[7],
+          p_rdata[6],
+          (wstate == W_PTE1_WAIT) ? leaf_ppn_4m : leaf_ppn_4k,
+          w_vaddr[31:12+IDX_BITS]
+        };
+      end
+    end
+  end
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       wstate <= W_IDLE;
-      w_is_if <= 1'b0;
-      w_is_store <= 1'b0;
       w_discard <= 1'b0;
-      w_vaddr <= '0;
-      w_priv <= PRIV_M;
-      w_install_word <= '0;
       i_miss_pending <= 1'b0;
       d_miss_pending <= 1'b0;
       i_fault_pending <= 1'b0;
@@ -451,10 +477,6 @@ module roco_cpu_mmu #(
           W_IDLE: begin
             w_discard <= 1'b0;
             if (d_miss_pending) begin
-              w_is_if <= 1'b0;
-              w_is_store <= d_we;
-              w_vaddr <= d_vaddr;
-              w_priv <= priv_data;
               if (in_sdram({satp[19:0], d_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
@@ -464,10 +486,6 @@ module roco_cpu_mmu #(
                 d_fault_cause_q <= d_we ? 4'd15 : 4'd13;
               end
             end else if (i_miss_pending && !iflush) begin
-              w_is_if <= 1'b1;
-              w_is_store <= 1'b0;
-              w_vaddr <= i_vaddr;
-              w_priv <= priv_fetch;
               if (in_sdram({satp[19:0], i_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
@@ -492,16 +510,6 @@ module roco_cpu_mmu #(
                   d_miss_pending <= 1'b0;
                 end
               end else if (walk_result == R_INSTALL) begin
-                w_install_word <= {
-                  p_rdata[1],
-                  p_rdata[2],
-                  p_rdata[3],
-                  p_rdata[4],
-                  p_rdata[7],
-                  p_rdata[6],
-                  leaf_ppn_4m,
-                  w_vaddr[31:12+IDX_BITS]
-                };
                 wstate <= W_INSTALL;
               end else if (walk_result == R_NEXT) begin
                 wstate <= W_PTE0_REQ;
@@ -534,16 +542,6 @@ module roco_cpu_mmu #(
                   d_miss_pending <= 1'b0;
                 end
               end else if (walk_result == R_INSTALL) begin
-                w_install_word <= {
-                  p_rdata[1],
-                  p_rdata[2],
-                  p_rdata[3],
-                  p_rdata[4],
-                  p_rdata[7],
-                  p_rdata[6],
-                  leaf_ppn_4k,
-                  w_vaddr[31:12+IDX_BITS]
-                };
                 wstate <= W_INSTALL;
               end else begin
                 if (w_is_if) begin

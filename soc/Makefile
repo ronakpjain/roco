@@ -291,8 +291,9 @@ $(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_mo
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
 		sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_model.sv $(SIM_RTL)
 
-test_soc: $(BUILD_DIR)/basic.hex $(SOC_SIM_DEP)
+test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/basic.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/counter_clear.hex +check_counter_clear
 
 test_isa_soc: $(BUILD_DIR)/tb_soc.vvp
 	./scripts/get_riscv_tests.sh

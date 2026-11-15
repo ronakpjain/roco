@@ -562,6 +562,26 @@ module roco_soc #(
     end
   end
 
+  logic [31:0] ic_hits_base, ic_misses_base;
+  logic ic_hit_q, ic_miss_q, ic_clear_q;
+  assign ic_hits = ic_hit_q ? ic_hits_base + 32'd1 : ic_clear_q ? 32'd0 : ic_hits_base;
+  assign ic_misses = ic_miss_q ? ic_misses_base + 32'd1 : ic_clear_q ? 32'd0 : ic_misses_base;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      ic_hits_base <= '0;
+      ic_misses_base <= '0;
+      ic_hit_q <= 1'b0;
+      ic_miss_q <= 1'b0;
+      ic_clear_q <= 1'b0;
+    end else begin
+      ic_hits_base <= ic_hits;
+      ic_misses_base <= ic_misses;
+      ic_hit_q <= ic_hit;
+      ic_miss_q <= ic_miss;
+      ic_clear_q <= dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0030);
+    end
+  end
+
   // The response-valid flop publishes this payload one cycle after the
   // request. Capturing unconditionally keeps late fetch/MMU qualification
   // off the address register enables; invalid responses are ignored.
@@ -574,8 +594,6 @@ module roco_soc #(
       led_reg <= 4'd0;
       mtime <= '0;
       mtimecmp <= '0;
-      ic_hits <= '0;
-      ic_misses <= '0;
       halted <= 1'b0;
       exit_code <= '0;
       dbg0 <= '0;
@@ -601,8 +619,7 @@ module roco_soc #(
               dbg1 <= dmem_wdata;
             end
             16'h0030: begin
-              ic_hits <= '0;
-              ic_misses <= '0;
+              // Both counter banks capture clear with their lookup events.
             end
             16'h0108: begin
               halted <= 1'b0;
@@ -618,12 +635,6 @@ module roco_soc #(
         end
       end
       mtime <= mtime + 64'd1;
-      if (ic_hit) begin
-        ic_hits <= ic_hits + 32'd1;
-      end
-      if (ic_miss) begin
-        ic_misses <= ic_misses + 32'd1;
-      end
     end
   end
 

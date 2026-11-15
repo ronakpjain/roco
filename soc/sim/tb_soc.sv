@@ -287,6 +287,33 @@ module tb_soc #(
     end
   end
 
+  // Reference the original counter transition rule, independently of
+  // the registered-event implementation. Lookup events win over clear.
+  logic [31:0] expected_ic_hits, expected_ic_misses;
+  int counter_clear_count, counter_collision_count;
+  always @(posedge clk or posedge rst) begin
+    if (rst) begin
+      expected_ic_hits <= '0;
+      expected_ic_misses <= '0;
+      counter_clear_count <= 0;
+      counter_collision_count <= 0;
+    end else begin
+      if (u_soc.dmem_valid && u_soc.dmem_we && !u_soc.dmem_in_sdram &&
+          u_soc.dmem_addr[15:0] == 16'h0030) begin
+        expected_ic_hits <= '0;
+        expected_ic_misses <= '0;
+        counter_clear_count <= counter_clear_count + 1;
+        if (u_soc.ic_hit || u_soc.ic_miss) counter_collision_count <= counter_collision_count + 1;
+      end
+      if (u_soc.ic_hit) expected_ic_hits <= expected_ic_hits + 1;
+      if (u_soc.ic_miss) expected_ic_misses <= expected_ic_misses + 1;
+    end
+  end
+  always @(negedge clk) begin
+    if (!rst && (u_soc.ic_hits !== expected_ic_hits || u_soc.ic_misses !== expected_ic_misses))
+      $fatal(1, "I-cache statistics changed timing or clear priority");
+  end
+
   // MMIO is always ready: validity and the old commit strobe must agree
   // before changing any peripheral, including during cache misses/traps.
   always @(posedge clk) begin
@@ -301,6 +328,12 @@ module tb_soc #(
       $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
                u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);
       if (exit_code == 32'd1) begin
+        if ($test$plusargs("check_counter_clear")) begin
+          if (counter_clear_count < 2 || counter_collision_count < 1)
+            $fatal(1, "counter clear/event collision was not exercised");
+          $display("counter clear: PASS (%0d clears, %0d collisions)", counter_clear_count,
+                   counter_collision_count);
+        end
         if (check_atomic_order) begin
           if (atomic_wait_cycles == 0)
             $fatal(1, "atomic ordering test did not exercise a memory wait");

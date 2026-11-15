@@ -19,7 +19,7 @@ hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
 | `roco-as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
 | ELF32 objects | reader and writer complete |
 | `roco-ld` linker | fixed-layout ELF executable, binary, and hex output |
-| `roco-cc` C compiler | under construction |
+| `roco-cc` C compiler | freestanding subset: types, pointers, arrays, functions, control flow |
 
 The assembler accepts the standard RV32 encodings and rejects instructions
 the roco RTL does not implement. See the [target profile](docs/target.md)
@@ -43,13 +43,15 @@ On macOS: `brew install googletest doxygen`.
 ## Usage
 
 ```bash
-./build/roco-as -o hello.o hello.S
+./build/roco-cc -S -o hello.s hello.c
+./build/roco-as -o hello.o hello.s
 ./build/roco-ld -o hello.elf --hex hello.hex hello.o
 ```
 
 The assembler accepts labels, numeric local labels, data directives,
 pseudoinstructions, ELF sections, and the relocation forms needed by the
-compiler. See the [assembler reference](docs/assembler.md) and the
+compiler. See the [compiler reference](docs/compiler.md), the
+[assembler reference](docs/assembler.md), and the
 [linker reference](docs/linker.md).
 
 ## Layout
@@ -57,7 +59,11 @@ compiler. See the [assembler reference](docs/assembler.md) and the
 | Path | Contents |
 | --- | --- |
 | `include/roco/` | public object, ELF, ISA, and assembler interfaces |
-| `src/` | implementation and command-line drivers |
+| `src/compiler/` | C lexer, parser, types, AST, and code generator |
+| `src/assembler/` | assembly lexer, instruction table, sections, and parser |
+| `src/elf/` | ELF32 reader and writer |
+| `src/linker/` | linker layout, symbols, and relocations |
+| `src/` | public entry points and command-line drivers |
 | `tests/` | GoogleTest unit tests |
 | `docs/` | architecture, target, assembler, linker, hardware, and testing notes |
 | `Doxyfile` | documentation build |

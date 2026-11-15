@@ -6,6 +6,11 @@ drivers around `roco::assemble_file`, `roco::elf::encode_object`, and the
 linker once it exists.
 
 ```text
+source.c
+  |-- Lexer ------------- tokens, comments, strings
+  |-- Parser ------------ declarations, expressions, control flow
+  `-- Codegen ----------- RV32IM assembly
+
 source.S
   |-- Lexer ------------- tokens, comments, strings, numeric local labels
   |-- Parser ------------ sections, symbols, directives, instructions
@@ -18,6 +23,19 @@ source.S
 .o files
   `-- ELF reader -> linker -> .elf / .bin / .hex
 ```
+
+## Compiler
+
+The C frontend builds a small typed AST. The parser resolves local and
+global names while parsing, records array and pointer types, and rejects
+constructs outside the supported subset. The backend is a stack machine:
+expressions leave a result in `a0`, `s0` addresses the frame, and `s1`
+points at a compiler-managed temporary stack for nested expressions and
+call arguments.
+
+The generated assembly is ordinary text consumed by the same assembler
+and linker as hand-written programs. There is no compiler-specific object
+format or runtime. See the [compiler reference](compiler.md).
 
 ## Object model
 

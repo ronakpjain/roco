@@ -82,7 +82,9 @@ code.
 
 ## Compiler guidance
 
-The compiler should stay inside the supported subset by construction:
+The current C compiler emits scalar RV32IMA only. It does not auto-vectorize,
+so the vector caveats below apply to hand-written assembly and future
+backend work:
 
 - Use `vsetvli` with SEW 8/16/32 and LMUL=m1.
 - Prefer scalar code for operations not in the vector table.

@@ -10,6 +10,7 @@ OUTPUT_LANGUAGE        = English
 
 INPUT                  = README.md \
                          docs/architecture.md \
+                         docs/compiler.md \
                          docs/target.md \
                          docs/assembler.md \
                          docs/hardware-notes.md \

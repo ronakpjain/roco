@@ -1,8 +1,8 @@
 # Testing
 
 Tests use GoogleTest and require no simulator. They cover the encoder,
-the ELF object layer, assembler behavior, and linker placement and
-relocation handling. The compiler will add its own suite.
+the ELF object layer, assembler behavior, linker placement and relocation
+handling, and the C frontend and backend.
 
 ```bash
 cmake -S . -B build
@@ -18,6 +18,7 @@ ctest --test-dir build --output-on-failure
 | `elf_test` | object round trips, executable program headers, malformed input |
 | `assembler_test` | instructions, pseudoinstructions, labels, data, atomics, vectors, errors |
 | `linker_test` | cross-object symbols, absolute and PC-relative relocations, bss bounds, call pairs, errors |
+| `compiler_test` | expression/control-flow codegen, globals, arrays, strings, diagnostics, generated assembly assembling cleanly |
 
 Assembler tests check exact machine words against LLVM `llvm-mc` encodings
 for the supported forms, including the roco vector subset. Rejection tests
@@ -37,6 +38,10 @@ testbench. The sequence is:
 The check is enabled in CTest when `vvp` and the core testbench are
 available; otherwise it is skipped. This keeps GoogleTest simulator-free
 while still validating the complete toolchain against the RTL.
+
+`cpu_smoke_c` does the same from a C source file: `roco-cc` emits
+assembly, `roco-as` creates an object, `roco-ld` links it with the C
+startup, and the core testbench must print `PASS`.
 
 ## Documentation
 

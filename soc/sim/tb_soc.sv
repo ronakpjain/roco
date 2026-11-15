@@ -314,6 +314,11 @@ module tb_soc #(
       $fatal(1, "I-cache statistics changed timing or clear priority");
   end
 
+  always @(negedge clk) begin
+    if (!rst && u_soc.dmem_valid && (u_soc.dmem_in_sdram !== (u_soc.dmem_addr[31:25] == 7'd8)))
+      $fatal(1, "staged memory target differs from active MEM address");
+  end
+
   // MMIO is always ready: validity and the old commit strobe must agree
   // before changing any peripheral, including during cache misses/traps.
   always @(posedge clk) begin

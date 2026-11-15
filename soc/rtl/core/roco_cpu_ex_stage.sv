@@ -572,7 +572,7 @@ module roco_cpu_ex_stage (
       end
 
       if (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc ||
-          (is_vec_mem && !vmem_done)) begin
+          (is_vec_mem && vmem_active && !vmem_done)) begin
         case (idex_funct3 == 3'b110 ? 3'b010 : idex_funct3)
           3'b001, 3'b101: begin
             ex_mem_misaligned = mem_access_addr[0];
@@ -678,7 +678,7 @@ module roco_cpu_ex_stage (
   // alignment can trap a load/store; keep unrelated trap paths off lookup.
   assign ex_lu_present = idex_valid &&
                        (idex_is_load || idex_is_store || idex_is_amo || idex_is_lr ||
-                        idex_is_sc || (is_vec_mem && !vmem_done)) &&
+                        idex_is_sc || (is_vec_mem && vmem_active && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
                        !rst && !halt && !cancel_ex;
   assign ex_lu_valid = ex_lu_present && !fence_hold;
@@ -865,7 +865,7 @@ module roco_cpu_ex_stage (
   assign vmem_total = vec_vl;
   assign vmem_noop = !vmem_active && (vec_vstart[4:0] >= vmem_total);
   assign vmem_done = vmem_noop || (vmem_active && (vmem_k >= vmem_total));
-  assign vmem_issue = is_vec_mem && idex_valid && !vmem_done && !vec_fault && !rst && !halt &&
+  assign vmem_issue = is_vec_mem && idex_valid && vmem_active && !vmem_done && !vec_fault && !rst && !halt &&
                       !fence_hold;
   assign vmem_hold = is_vec_mem && idex_valid && !vmem_done;
 
@@ -881,7 +881,9 @@ module roco_cpu_ex_stage (
   assign vmem_start_addr =
       ({32{idex_rs1_from_mem}} & (mem_data + ({27'd0, vec_vstart[4:0]} << vmem_shift))) |
       ({32{idex_rs1_from_rf}} & (idex_rs1_val + ({27'd0, vec_vstart[4:0]} << vmem_shift)));
-  assign vmem_addr = vmem_active ? vmem_base : vmem_start_addr;
+  // Prepare the initial address in a separate cycle. Only registered
+  // addresses drive the MMU/cache's widely distributed lookup network.
+  assign vmem_addr = vmem_base;
 
   always_comb begin
     case (idex_instr[14:12])
@@ -930,9 +932,9 @@ module roco_cpu_ex_stage (
         vmem_base <= memory_addr;
       end else if (!vmem_active) begin
         vmem_active <= 1'b1;
-        // Latch forwarding once, retrying the same restart element on a miss.
-        vmem_k <= lu_stall ? vmem_idx : (vmem_idx + 5'd1);
-        vmem_base <= lu_stall ? vmem_start_addr : (vmem_start_addr + vmem_stride);
+        // Capture the forwarded base and restart offset before any lookup.
+        vmem_k <= vec_vstart[4:0];
+        vmem_base <= vmem_start_addr;
       end else if (!lu_stall) begin
         vmem_k <= vmem_idx + 5'd1;
         vmem_base <= vmem_base + vmem_stride;

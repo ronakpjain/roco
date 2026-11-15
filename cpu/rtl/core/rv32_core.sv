@@ -378,6 +378,7 @@ module rv32_core (
       .exmem_valid(exmem_valid),
       .exmem_regwrite(exmem_regwrite),
       .exmem_rd(exmem_rd),
+      .mem_wb_data(commit_wdata),
       .wb_we(wb_we),
       .wb_rd(wb_rd),
       .wb_data(wb_data),

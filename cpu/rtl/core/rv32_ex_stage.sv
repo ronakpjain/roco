@@ -282,12 +282,9 @@ module rv32_ex_stage (
   logic [2:0] vec_elem_sew;
 
   // ------------------------------------------------------------- Forwarding
-  assign rs1_fwd = ({32{idex_rs1_from_mem}} & mem_data) |
-                   ({32{idex_rs1_from_wb}} & wb_data) |
-                   ({32{idex_rs1_from_rf}} & idex_rs1_val);
-  assign rs2_fwd = ({32{idex_rs2_from_mem}} & mem_data) |
-                   ({32{idex_rs2_from_wb}} & wb_data) |
-                   ({32{idex_rs2_from_rf}} & idex_rs2_val);
+  // ID captured RF/WB sources and zeroed MEM-dependent operands.
+  assign rs1_fwd = ({32{idex_rs1_from_mem}} & mem_data) | idex_rs1_val;
+  assign rs2_fwd = ({32{idex_rs2_from_mem}} & mem_data) | idex_rs2_val;
 
   // ------------------------------------------------------------------- ALU
   assign ex_alu_a = idex_alu_a_pc ? idex_pc : rs1_fwd;

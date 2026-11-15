@@ -24,6 +24,7 @@ module rv32_id_stage (
   input logic exmem_valid,
   input logic exmem_regwrite,
   input logic [4:0] exmem_rd,
+  input logic [31:0] mem_wb_data,
   /* Writeback port into the register file. */
   input logic wb_we,
   input logic [4:0] wb_rd,
@@ -292,14 +293,17 @@ module rv32_id_stage (
       idex_pred_jalr_base <= pred_jalr_base;
       idex_pred_jalr_next <= pred_jalr_base + 32'd1;
       idex_pred_jalr_aligned <= !if_pred_target[0];
-      idex_rs1_val <= rf_rdata1;
-      idex_rs2_val <= rf_rdata2;
+      // The current MEM producer will be WB when this instruction reaches
+      // EX. Resolve that source before ID/EX instead of adding a WB mux
+      // ahead of the EX multiplier and memory-address sums.
+      idex_rs1_val <= rs1_from_mem ? 32'd0 : rs1_matches_wb ? mem_wb_data : rf_rdata1;
+      idex_rs2_val <= rs2_from_mem ? 32'd0 : rs2_matches_wb ? mem_wb_data : rf_rdata2;
       idex_rs1_from_mem <= rs1_from_mem;
       idex_rs2_from_mem <= rs2_from_mem;
-      idex_rs1_from_wb <= !rs1_from_mem && rs1_matches_wb;
-      idex_rs2_from_wb <= !rs2_from_mem && rs2_matches_wb;
-      idex_rs1_from_rf <= !rs1_from_mem && !rs1_matches_wb;
-      idex_rs2_from_rf <= !rs2_from_mem && !rs2_matches_wb;
+      idex_rs1_from_wb <= 1'b0;
+      idex_rs2_from_wb <= 1'b0;
+      idex_rs1_from_rf <= !rs1_from_mem;
+      idex_rs2_from_rf <= !rs2_from_mem;
       idex_imm <= dec_imm;
       idex_rs1 <= dec_rs1;
       idex_rd <= dec_rd;

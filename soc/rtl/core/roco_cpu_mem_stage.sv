@@ -85,20 +85,53 @@ module roco_cpu_mem_stage (
   logic [31:0] result_data;
   logic is_memory_op;
   logic [31:0] amo_data;
+  logic [31:0] amo_fast_data, amo_result_q, amo_old_q;
+  logic amo_staged, amo_ready, amo_prepare;
+  logic [1:0] amo_phase;
+  assign amo_ready = (amo_phase == 2'd2);
+  assign amo_staged = exmem_is_amo && ((exmem_amo_op == 5'b00000) || exmem_amo_op[4]);
+  assign amo_prepare = exmem_valid && amo_staged && !amo_ready;
+  // EBR clock-to-output consumes much of the cycle. Capture the old
+  // value first, calculate from that local register, then commit exactly
+  // once from the result register. No request is published in phases 0/1.
+  always_ff @(posedge clk) begin
+    if (amo_phase == 2'd0) amo_old_q <= dmem_rsp_data;
+    if (amo_phase == 2'd1) amo_result_q <= amo_data;
+  end
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) amo_phase <= 2'd0;
+    else if (!halt && !fence_req) begin
+      if (!exmem_valid || !amo_staged) amo_phase <= 2'd0;
+      else if (amo_phase == 2'd0 && dmem_ready) amo_phase <= 2'd1;
+      else if (amo_phase == 2'd1) amo_phase <= 2'd2;
+      else if (amo_phase == 2'd2 && dmem_ready) amo_phase <= 2'd0;
+    end
+  end
+  // Fast atomics must have a separate datapath: selecting the general
+  // ALU output would leave an inactive add/compare path to the RAM port.
+  always_comb begin
+    case (exmem_amo_op)
+      5'b00001: amo_fast_data = exmem_store_data;
+      5'b00100: amo_fast_data = dmem_rsp_data ^ exmem_store_data;
+      5'b01000: amo_fast_data = dmem_rsp_data | exmem_store_data;
+      5'b01100: amo_fast_data = dmem_rsp_data & exmem_store_data;
+      default: amo_fast_data = 32'd0;
+    endcase
+  end
   logic [3:0] amo_lt;
   logic [3:1] amo_eq;
   logic amo_unsigned_lt, amo_less;
   for (genvar b = 0; b < 4; b = b + 1) begin : g_amo_lt
-    assign amo_lt[b] = dmem_rsp_data[8*b+:8] < exmem_store_data[8*b+:8];
+    assign amo_lt[b] = amo_old_q[8*b+:8] < exmem_store_data[8*b+:8];
   end
   for (genvar b = 1; b < 4; b = b + 1) begin : g_amo_eq
-    assign amo_eq[b] = dmem_rsp_data[8*b+:8] == exmem_store_data[8*b+:8];
+    assign amo_eq[b] = amo_old_q[8*b+:8] == exmem_store_data[8*b+:8];
   end
   assign amo_unsigned_lt = amo_lt[3] || (amo_eq[3] && amo_lt[2]) ||
                            (amo_eq[3] && amo_eq[2] && amo_lt[1]) ||
                            (amo_eq[3] && amo_eq[2] && amo_eq[1] && amo_lt[0]);
-  assign amo_less = (!exmem_amo_op[3] && (dmem_rsp_data[31] != exmem_store_data[31])) ?
-                    dmem_rsp_data[31] : amo_unsigned_lt;
+  assign amo_less = (!exmem_amo_op[3] && (amo_old_q[31] != exmem_store_data[31])) ?
+                    amo_old_q[31] : amo_unsigned_lt;
   logic sc_ok;
   logic [31:0] sc_result;
   logic res_valid;
@@ -112,22 +145,22 @@ module roco_cpu_mem_stage (
   always_comb begin
     case (exmem_amo_op)
       5'b00000: begin  // AMOADD
-        amo_data = dmem_rsp_data + exmem_store_data;
+        amo_data = amo_old_q + exmem_store_data;
       end
       5'b00001: begin  // AMOSWAP
         amo_data = exmem_store_data;
       end
       5'b00100: begin  // AMOXOR
-        amo_data = dmem_rsp_data ^ exmem_store_data;
+        amo_data = amo_old_q ^ exmem_store_data;
       end
       5'b01000: begin  // AMOOR
-        amo_data = dmem_rsp_data | exmem_store_data;
+        amo_data = amo_old_q | exmem_store_data;
       end
       5'b01100: begin  // AMOAND
-        amo_data = dmem_rsp_data & exmem_store_data;
+        amo_data = amo_old_q & exmem_store_data;
       end
       default: begin  // Signed/unsigned MIN/MAX share the same comparison.
-        amo_data = (amo_less ^ exmem_amo_op[2]) ? dmem_rsp_data : exmem_store_data;
+        amo_data = (amo_less ^ exmem_amo_op[2]) ? amo_old_q : exmem_store_data;
       end
     endcase
   end
@@ -147,7 +180,7 @@ module roco_cpu_mem_stage (
   // unrelated producers before reaching the next instruction.
   assign result_data =
       ({32{exmem_is_sc}} & sc_result) |
-      ({32{exmem_is_amo}} & dmem_rsp_data) |
+      ({32{exmem_is_amo}} & (amo_staged ? amo_old_q : dmem_rsp_data)) |
       ({32{exmem_is_load || exmem_is_lr}} & load_data) |
       ({32{exmem_is_mul}} & mul_result) |
       ({32{!(exmem_is_sc || exmem_is_amo || exmem_is_load || exmem_is_lr ||
@@ -159,7 +192,7 @@ module roco_cpu_mem_stage (
   assign sc_ok = res_valid && (res_addr == exmem_alu[31:2]);
   assign sc_result = {31'd0, !sc_ok};
   assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
-  assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
+  assign dmem_wdata = exmem_is_amo ? (amo_staged ? amo_result_q : amo_fast_data) : exmem_store_data;
   assign dmem_be = exmem_is_amo ? 4'hf : exmem_be;
   // Requests become observable only at in-order commit. A pending memory
   // operation holds EX (including cache lookups) until it completes, and
@@ -168,10 +201,10 @@ module roco_cpu_mem_stage (
   // Separate transaction validity from the ready-qualified commit strobe.
   // Always-ready MMIO can use validity directly without routing the
   // unrelated cache hit comparator through peripheral write enables.
-  assign dmem_valid = !rst && !halt && exmem_valid && !fence_req && is_memory_op;
+  assign dmem_valid = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare;
   assign dmem_req = commit_valid && is_memory_op;
-  assign mem_wait = !rst && !halt && exmem_valid && is_memory_op && !dmem_ready;
-  assign commit_valid = !rst && !halt && exmem_valid && !fence_req && !mem_wait;
+  assign mem_wait = !halt && exmem_valid && is_memory_op && (!dmem_ready || amo_prepare);
+  assign commit_valid = !halt && exmem_valid && !fence_req && !mem_wait;
   assign commit_now = commit_valid;
   // Element writes are internal micro-operations. Only the final element
   // retires the architectural vector instruction and increments minstret.

@@ -501,8 +501,16 @@ module roco_cpu_ex_stage (
   assign mstatus_tvm = csr_tvm;
   assign mstatus_tsr = csr_tsr;
   assign mstatus_mpp = csr_mpp;
-  assign csr_mret_en = ex_redirect_int && idex_mret && !ex_trap;
-  assign csr_sret_en = ex_redirect_int && idex_sret && !ex_trap;
+  // Return instructions cannot also branch or access data memory.
+  // Authorize their own legal event directly, keeping branch/JALR
+  // operand comparison out of privilege-state register enables.
+  assign csr_mret_en = idex_valid && idex_mret && (csr_priv == `RV32_PRIV_M) &&
+                       !idex_illegal && !idex_ifault && !dmem_lu_fault &&
+                       !fence_hold && !halt && !cancel_ex;
+  assign csr_sret_en = idex_valid && idex_sret && (csr_priv != `RV32_PRIV_U) &&
+                       !((csr_priv == `RV32_PRIV_S) && csr_tsr) &&
+                       !idex_illegal && !idex_ifault && !dmem_lu_fault &&
+                       !fence_hold && !halt && !cancel_ex;
 
   assign csr_src = idex_csr_uimm ? {27'd0, idex_rs1} : rs1_fwd;
   // Zicsr suppresses CSRRS/CSRRC writes for encoded x0 (or uimm=0),

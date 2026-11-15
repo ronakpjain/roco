@@ -63,21 +63,24 @@ its pipeline register:
 - Zicsr: `CSRRW/CSRRS/CSRRC` and immediate forms.
 - M/S/U privilege modes, trap delegation through `medeleg`, and
   `MRET`/`SRET`.
-- Sv32 virtual memory: 4 KiB pages, 4 MiB superpages, ASID and global
-  mappings, `MPRV`/`SUM`/`MXR`, `SFENCE.VMA`, and instruction, load and
-  store page faults.
+- Sv32 virtual memory: 4 KiB pages, 4 MiB superpages, global mappings,
+  `MPRV`/`SUM`/`MXR`, `SFENCE.VMA`, and instruction, load and store page
+  faults. The 9-bit ASID field is accepted, but invalidation is full-flush.
 - Traps: illegal instruction, `ECALL`, `EBREAK`, misaligned load/store,
   misaligned instruction address, instruction/load/store page faults.
 - `FENCE` is a NOP; `FENCE.I` writes back the D-cache, invalidates the
   I-cache and flushes younger instructions. `SFENCE.VMA` additionally
   invalidates both TLBs.
+- Trap vectors: direct and vectored `mtvec`/`stvec` modes.
 - CSRs: `mstatus`, `misa`, `medeleg`, `mideleg`, `mie`/`mip`, `mtvec`,
   `mepc`, `mcause`, `mtval`, `mscratch`, `mcounteren`, `mcycle[h]`,
   `minstret[h]`; `sstatus`, `sie`/`sip`, `stvec`, `sepc`, `scause`,
   `stval`, `sscratch`, `scounteren`, `satp`, `mhartid`.
 
-Not implemented: F/D/C extensions, interrupts, PMP, debug module,
-`WFI`, hardware A/D-bit updates and ASID-selective `SFENCE.VMA`.
+Not implemented: F/D/C extensions, PMP, debug module, hardware A/D-bit
+updates and ASID-selective `SFENCE.VMA`. `WFI` is accepted as a no-op hint.
+Machine timer/software interrupts and an external interrupt input are
+implemented by the core; the SoC currently wires only the timer interrupt.
 Misaligned loads and stores trap precisely; the official `rv32ui/ma_data`
 test (which requires hardware misaligned access) is therefore excluded,
 and the directed test checks the trap path instead.
@@ -266,8 +269,9 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
   everything rather than a single address or ASID.
 - Boot is over UART only. Booting from the W25Q128 flash needs an SPI
   controller and a flash-resident loader.
-- `mtvec` supports direct mode only and interrupts are not wired to the
-  core.
+- The SoC wires the machine timer interrupt but leaves the external
+  interrupt input tied low and has no CLINT. Software interrupts are raised
+  through writable `mip` bits.
 
 ## Layout
 

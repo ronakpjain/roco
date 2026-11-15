@@ -130,6 +130,24 @@ test-atomic-order: $(BUILD_DIR)/atomic-order.hex $(BUILD_DIR)/tb_core.vvp $(BUIL
 	$(VVP) $(BUILD_DIR)/tb_core.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000
 	$(VVP) $(BUILD_DIR)/tb_soc.vvp +hex=$(BUILD_DIR)/atomic-order.hex +max_cycles=100000 +check_atomic_order
 
+$(BUILD_DIR)/hello-boot.s: sw/hello/boot.c sw/hello/roco_io.h $(ROCO_CC) | build
+	$(ROCO_CC) -S -o $@ $<
+
+$(BUILD_DIR)/hello-boot-main.o: $(BUILD_DIR)/hello-boot.s $(ROCO_AS) | build
+	$(ROCO_AS) -o $@ $<
+
+$(BUILD_DIR)/hello-boot.elf: $(BUILD_DIR)/hello-crt0.o $(BUILD_DIR)/hello-boot-main.o $(BUILD_DIR)/hello-io.o $(ROCO_LD) | build
+	$(ROCO_LD) -o $@ --binary $(BUILD_DIR)/hello-boot.bin --hex $(BUILD_DIR)/hello-boot.hex \
+		--map $(BUILD_DIR)/hello-boot.map $(BUILD_DIR)/hello-crt0.o $(BUILD_DIR)/hello-boot-main.o $(BUILD_DIR)/hello-io.o
+
+$(BUILD_DIR)/hello-boot.bin: $(BUILD_DIR)/hello-boot.elf
+	@test -f $@ || $(ROCO_LD) -o $(BUILD_DIR)/hello-boot.elf --binary $@ \
+		--hex $(BUILD_DIR)/hello-boot.hex --map $(BUILD_DIR)/hello-boot.map \
+		$(BUILD_DIR)/hello-crt0.o $(BUILD_DIR)/hello-boot-main.o $(BUILD_DIR)/hello-io.o
+
+$(BUILD_DIR)/hello-boot.packet.hex: $(BUILD_DIR)/hello-boot.bin | build
+	$(PYTHON) scripts/boot.py --bin $< --emit-hex $@
+
 $(BUILD_DIR)/hello.s: sw/hello/main.c sw/hello/roco_io.h $(ROCO_CC) | build
 	$(ROCO_CC) -S -o $@ $<
 
@@ -259,7 +277,11 @@ $(BUILD_DIR)/tb_soc_boot.vvp: $(RTL_SV) sim/tb_soc_boot.sv sim/sdram_model.sv | 
 	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
 		sim/tb_soc_boot.sv sim/sdram_model.sv $(SIM_RTL)
 
-test-boot: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
+test-boot: $(BUILD_DIR)/hello-boot.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
+	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello-boot.packet.hex
+
+.PHONY: test-hello
+test-hello: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
 	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello.packet.hex
 
 test-core: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/tb_core.vvp

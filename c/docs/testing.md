@@ -41,8 +41,10 @@ while still validating the complete toolchain against the RTL.
 
 `cpu_smoke_c` does the same from a C source file: `roco-cc` emits
 assembly, `roco-as` creates an object, `roco-ld` links it with the C
-startup, and the core testbench must print `PASS`. The CPU's `test-vector-c`
-and `test-boot` targets use the same compiler, assembler, and linker path.
+startup, and the core testbench must print `PASS`. The CPU's `test-vector-c`,
+`test-boot`, and `test-hello` targets use the same compiler, assembler, and
+linker path. `test-boot` uses a minimal UART image for a fast bootloader
+check; `test-hello` runs the full demo.
 
 ## Documentation
 

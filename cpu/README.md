@@ -217,7 +217,8 @@ make test-sdram  # SDRAM controller: bursts, refresh, retention
 make test-soc    # same program through caches, arbiter and SDRAM
 make test-isa    # official riscv-tests rv32ui on the bare core
 make test-isa-soc # official riscv-tests rv32ui through the SoC
-make test-boot   # boot the hello image over UART in simulation
+make test-boot   # boot the minimal hello image over UART in simulation
+make test-hello  # full hello demo over UART (slower)
 make synth       # Yosys synth_ecp5 -> build/roco.json
 make bitstream   # nextpnr-ecp5 + ecppack (if installed)
 ```

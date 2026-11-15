@@ -8,9 +8,9 @@
 
 `timescale 1ns / 1ps
 
-module tb_soc;
-
-  localparam int CLK_HZ = 48_000_000;
+module tb_soc #(
+    parameter int CLK_HZ = 48_000_000
+);
   localparam int BAUD = 1_000_000;
   localparam int DIV = CLK_HZ / BAUD;
   localparam int IMAGE_WORDS = 16384;
@@ -193,6 +193,7 @@ module tb_soc;
   );
 
   sdram_model #(
+      .REFRESH_MAX(CLK_HZ / 130_000 + 400),
       .CL(3)
   ) u_sdram (
       .clk(clk),
@@ -212,7 +213,7 @@ module tb_soc;
 
   initial begin
     clk = 1'b0;
-    forever #5 clk = ~clk;
+    forever #(500_000_000.0 / CLK_HZ) clk = ~clk;
   end
 
   initial begin

@@ -28,8 +28,11 @@ include the source path, line, and column.
 | `.local` | keep a symbol local |
 | `.type symbol, @function` | record a symbol type |
 | `.equ` / `.set` | define an absolute symbol |
-| `.align n`, `.p2align n` | align to `2^n` bytes |
+| `.align n` | align to `n` bytes |
+| `.p2align n` | align to `2^n` bytes |
 | `.balign n` | align to `n` bytes |
+| `.macro name[, args]` / `.endm` | define a macro; `\arg` and `\@` substitute |
+| `.rept n` / `.endr` | repeat the enclosed block `n` times |
 | `.byte`, `.half`, `.word` | emit 8-, 16-, or 32-bit values |
 | `.ascii`, `.asciz`, `.string` | emit string bytes; `.asciz` appends NUL |
 | `.zero`, `.space`, `.skip` | reserve zero-filled bytes |
@@ -46,6 +49,9 @@ The assembler expands:
 `nop`, `mv`, `not`, `neg`, `li`, `la`, `j`, `jr`, `ret`, `call`, `tail`,
 `beqz`, `bnez`, `bltz`, `bgez`, `blez`, `bgtz`, `bgt`, `ble`, `bgtu`,
 `bleu`, `csrr`, `csrw`, `csrs`, `csrc`, `csrwi`, `csrsi`, `csrci`.
+
+The raw CSR forms `csrrw`, `csrrs`, `csrrc`, `csrrwi`, `csrrsi`, and
+`csrrci` are also accepted.
 
 `call` and `tail` use `JAL` with `ra`/`zero`; the linker resolves the
 target. `la` uses absolute `HI20` + `LO12_I` relocations for a

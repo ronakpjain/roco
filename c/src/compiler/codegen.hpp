@@ -767,7 +767,7 @@ class Codegen {
       value *= 2;
       ++exponent;
     }
-    emit("  .align " + std::to_string(exponent));
+    emit("  .p2align " + std::to_string(exponent));
   }
 
   void emit_value(const TypePtr& type, const std::string& value) {

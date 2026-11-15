@@ -351,3 +351,64 @@ TEST(AssemblerTest, RejectsUnsupportedRocoForms) {
 }
 
 }  // namespace
+
+TEST(AssemblerTest, ExpandsMacrosAndRepetition) {
+  const roco::Object object = roco::assemble(R"(
+    .macro put value
+      addi a0, zero, \value
+    .Lspin_\@:
+    .endm
+    .text
+    put 1
+    put 2
+    .rept 2
+      nop
+    .endr
+  )",
+                                       "test.S");
+  const auto text = words(section(object, ".text"));
+  ASSERT_EQ(text.size(), 4U);
+  EXPECT_EQ(text[0], 0x00100513U);
+  EXPECT_EQ(text[1], 0x00200513U);
+  EXPECT_EQ(text[2], 0x00000013U);
+  EXPECT_EQ(text[3], 0x00000013U);
+}
+
+TEST(AssemblerTest, UsesByteAlignmentAndPowerOfTwoAlignment) {
+  const roco::Object object = roco::assemble(R"(
+    .data
+  a:
+    .byte 1
+    .align 4
+  b:
+    .word 0x11223344
+    .p2align 4
+  c:
+    .word 0x55667788
+  )",
+                                       "test.S");
+  EXPECT_EQ(symbol(object, "b").value, 4U);
+  EXPECT_EQ(symbol(object, "c").value, 16U);
+  EXPECT_EQ(section(object, ".data").size, 20U);
+}
+
+TEST(AssemblerTest, EncodesRawCsrInstructions) {
+  const roco::Object object = roco::assemble(R"(
+    .text
+    csrrw a0, mstatus, a1
+    csrrs a0, mstatus, a1
+    csrrc a0, mstatus, a1
+    csrrwi a0, mstatus, 5
+    csrrsi a0, mstatus, 5
+    csrrci a0, mstatus, 5
+  )",
+                                       "test.S");
+  const auto text = words(section(object, ".text"));
+  ASSERT_EQ(text.size(), 6U);
+  EXPECT_EQ(text[0], 0x30059573U);
+  EXPECT_EQ(text[1], 0x3005a573U);
+  EXPECT_EQ(text[2], 0x3005b573U);
+  EXPECT_EQ(text[3], 0x3002d573U);
+  EXPECT_EQ(text[4], 0x3002e573U);
+  EXPECT_EQ(text[5], 0x3002f573U);
+}

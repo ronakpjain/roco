@@ -5,6 +5,7 @@
 
 #include "assembler/instruction.hpp"
 #include "assembler/lexer.hpp"
+#include "assembler/preprocessor.hpp"
 #include "assembler/section.hpp"
 
 #include "roco/diagnostic.hpp"
@@ -30,7 +31,7 @@ class Assembler {
  public:
   Assembler(std::string_view source, std::string filename)
       : filename_(std::move(filename)),
-        tokens_(Lexer(source, filename_).tokenize()) {
+        tokens_(tokenize(source, filename_)) {
     add_initial_sections();
   }
 
@@ -43,6 +44,12 @@ class Assembler {
   }
 
  private:
+  static std::vector<Token> tokenize(std::string_view source,
+                                         const std::string& filename) {
+    const std::string expanded = MacroExpander(source, filename).run();
+    return Lexer(expanded, filename).tokenize();
+  }
+
   void add_initial_sections() {
     add_section(".text", kShtProgbits, kShfAlloc | kShfExecInstr);
     add_section(".rodata", kShtProgbits, kShfAlloc);
@@ -264,10 +271,10 @@ class Assembler {
   Expr parse_expr() { return parse_additive(); }
 
   Expr parse_additive() {
-    Expr left = parse_unary();
+    Expr left = parse_multiplicative();
     while (is_punct('+') || is_punct('-')) {
       const char operation = advance().text[0];
-      Expr right = parse_unary();
+      Expr right = parse_multiplicative();
       if (!left.has_symbol && !right.has_symbol) {
         if (operation == '+') {
           left.value += right.value;
@@ -289,6 +296,27 @@ class Assembler {
         continue;
       }
       fail("unsupported symbol arithmetic");
+    }
+    return left;
+  }
+
+  Expr parse_multiplicative() {
+    Expr left = parse_unary();
+    while (is_punct('*') || is_punct('/') || is_punct('%')) {
+      const char operation = advance().text[0];
+      Expr right = parse_unary();
+      if (left.has_symbol || right.has_symbol) {
+        fail("symbols cannot be multiplied or divided");
+      }
+      if (operation == '*') {
+        left.value *= right.value;
+      } else if (right.value == 0) {
+        fail("division by zero in expression");
+      } else if (operation == '/') {
+        left.value /= right.value;
+      } else {
+        left.value %= right.value;
+      }
     }
     return left;
   }
@@ -637,6 +665,29 @@ class Assembler {
       expect_punct(',');
       const std::uint32_t csr = parse_csr_operand();
       emit_csr(2, rd, 0, csr);
+      return;
+    }
+    if (name == "csrrw" || name == "csrrs" || name == "csrrc") {
+      const int rd = parse_register_operand();
+      expect_punct(',');
+      const std::uint32_t csr = parse_csr_operand();
+      expect_punct(',');
+      const int rs = parse_register_operand();
+      emit_csr(name == "csrrw" ? 1 : (name == "csrrs" ? 2 : 3), rd, rs, csr);
+      return;
+    }
+    if (name == "csrrwi" || name == "csrrsi" || name == "csrrci") {
+      const int rd = parse_register_operand();
+      expect_punct(',');
+      const std::uint32_t csr = parse_csr_operand();
+      expect_punct(',');
+      const std::int64_t immediate =
+          require_constant(parse_expr(), "CSR immediate");
+      if (immediate < 0 || immediate > 31) {
+        fail("CSR immediate must be in the range 0..31");
+      }
+      emit_csr(name == "csrrwi" ? 5 : (name == "csrrsi" ? 6 : 7), rd,
+               static_cast<int>(immediate), csr);
       return;
     }
     if (name == "csrw" || name == "csrs" || name == "csrc") {
@@ -1472,7 +1523,12 @@ class Assembler {
       parse_size_directive();
       return;
     }
-    if (name == ".align" || name == ".p2align") {
+    if (name == ".align") {
+      // GNU RISC-V treats .align as a byte alignment.
+      parse_align_directive(false);
+      return;
+    }
+    if (name == ".p2align") {
       parse_align_directive(true);
       return;
     }
@@ -1644,7 +1700,8 @@ class Assembler {
   void parse_align_directive(bool exponent) {
     const Expr amount = parse_expr();
     const std::int64_t value = require_constant(amount, "alignment");
-    if (value < 0 || value > 20) {
+    const std::int64_t limit = exponent ? 20 : (std::int64_t{1} << 20);
+    if (value < 0 || value > limit) {
       fail("alignment is out of range");
     }
     const std::uint64_t alignment =

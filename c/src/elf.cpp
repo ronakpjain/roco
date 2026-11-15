@@ -1,3 +1,6 @@
+/// \file elf.cpp
+/// \brief ELF32 reader and writer for roco objects and executables.
+
 #include "roco/elf.hpp"
 
 #include "roco/diagnostic.hpp"

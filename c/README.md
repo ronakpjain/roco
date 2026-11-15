@@ -1,11 +1,9 @@
-# roco C toolchain
+# roco c
 
-A self-hosted-in-design C toolchain for the roco RV32 CPU. The host
-programs are C++20; everything they consume and produce is for RV32.
-
-Target instruction set: RV32IMA plus Zicsr and Zifencei. Objects use the
-standard ELF32 little-endian RISC-V ABI so the tools can be validated
-against standard RISC-V assemblers and disassemblers.
+A C toolchain for the roco RV32 CPU in `../cpu`, written from scratch
+in C++20. The host programs build with a normal desktop compiler;
+everything they emit targets the FPGA CPU. No binutils, GCC runtime, or
+external assembler is required.
 
 ```text
 hello.c   -> roco-cc -> hello.s
@@ -13,19 +11,68 @@ hello.s   -> roco-as -> hello.o
 hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
 ```
 
-Current status:
+## Status
 
-- RV32 instruction encoder and CSR/register tables.
-- Assembler and linker are under construction.
+| Component | State |
+| --- | --- |
+| RV32 instruction encoder | complete |
+| `roco-as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
+| ELF32 objects | reader and writer complete |
+| `roco-ld` linker | under construction |
+| `roco-cc` C compiler | under construction |
+
+The assembler accepts the standard RV32 encodings and rejects instructions
+the roco RTL does not implement. See the [target profile](docs/target.md)
+for the exact support boundary and [hardware notes](docs/hardware-notes.md)
+for RTL behavior that differs from the ISA.
 
 ## Build
 
-GoogleTest is the only test dependency.
+Requires CMake 3.20+, a C++20 compiler, and system GoogleTest for tests.
+Doxygen is optional and only needed for documentation.
 
-```sh
+```bash
 cmake -S . -B build
 cmake --build build
 ctest --test-dir build --output-on-failure
+cmake --build build --target docs   # docs/html/index.html
 ```
 
-On macOS: `brew install googletest`.
+On macOS: `brew install googletest doxygen`.
+
+## Usage
+
+```bash
+./build/roco-as -o hello.o hello.S
+```
+
+The assembler accepts labels, numeric local labels, data directives,
+pseudoinstructions, ELF sections, and the relocation forms needed by the
+compiler. See the [assembler reference](docs/assembler.md).
+
+## Layout
+
+| Path | Contents |
+| --- | --- |
+| `include/roco/` | public object, ELF, ISA, and assembler interfaces |
+| `src/` | implementation and command-line drivers |
+| `tests/` | GoogleTest unit tests |
+| `docs/` | architecture, target, assembler, hardware, and testing notes |
+| `Doxyfile` | documentation build |
+
+## Design
+
+The pipeline keeps a narrow, inspectable object format between stages:
+
+1. The assembler parses one source file into sections, symbols, and
+   relocations.
+2. The ELF writer emits a standard ELF32 little-endian RISC-V object.
+3. The linker will resolve symbols, apply relocations, and place sections
+   at the roco SDRAM load address.
+
+The assembler does not silently accept unsupported instructions or
+relocations. Unimplemented vector forms and 64-bit atomics fail with a
+diagnostic instead of producing code that traps on hardware.
+
+See [architecture](docs/architecture.md) for the component view and
+[testing](docs/testing.md) for the verification strategy.

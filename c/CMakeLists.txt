@@ -28,3 +28,18 @@ target_compile_options(roco_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion 
 
 include(GoogleTest)
 gtest_discover_tests(roco_tests)
+
+option(ROCO_BUILD_DOCS "Generate HTML documentation with Doxygen" ON)
+if(ROCO_BUILD_DOCS)
+  find_package(Doxygen QUIET)
+  if(Doxygen_FOUND)
+    add_custom_target(docs
+      COMMAND ${DOXYGEN_EXECUTABLE} ${PROJECT_SOURCE_DIR}/Doxyfile
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      COMMENT "Generating roco toolchain HTML documentation"
+      VERBATIM
+    )
+  else()
+    message(STATUS "Doxygen not found; the docs target is unavailable")
+  endif()
+endif()

@@ -1,0 +1,71 @@
+# Doxygen configuration for the roco C toolchain.
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = "roco c"
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "C compiler, assembler and linker for the roco RV32 CPU"
+OUTPUT_DIRECTORY       = docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+OUTPUT_LANGUAGE        = English
+
+INPUT                  = README.md \
+                         docs/architecture.md \
+                         docs/target.md \
+                         docs/assembler.md \
+                         docs/hardware-notes.md \
+                         docs/testing.md \
+                         include \
+                         src
+FILE_PATTERNS          = *.md *.hpp *.cpp
+RECURSIVE              = YES
+EXCLUDE                = docs/html build
+USE_MDFILE_AS_MAINPAGE = README.md
+
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = NO
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MULTILINE_CPP_IS_BRIEF = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+BUILTIN_STL_SUPPORT    = YES
+
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_INCOMPLETE_DOC = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = NO
+WARN_LOGFILE           = docs/doxygen-warnings.log
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+HTML_COLORSTYLE        = LIGHT
+HTML_DYNAMIC_MENUS     = YES
+HTML_DYNAMIC_SECTIONS  = NO
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+DISABLE_INDEX          = NO
+SEARCHENGINE           = YES
+SERVER_BASED_SEARCH    = NO
+GENERATE_DOCSET        = NO
+GENERATE_HTMLHELP      = NO
+
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+GENERATE_MAN           = NO
+GENERATE_RTF           = NO
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_FROM_PATH        = .
+REFERENCES_RELATION    = YES
+REFERENCED_BY_RELATION = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+HAVE_DOT               = NO

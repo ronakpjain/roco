@@ -1,3 +1,6 @@
+/// \file isa.cpp
+/// \brief RV32 instruction encoding and register/CSR tables.
+
 #include "roco/isa.hpp"
 
 #include <array>

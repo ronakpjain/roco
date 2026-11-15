@@ -1,3 +1,6 @@
+/// \file assembler.cpp
+/// \brief Two-phase RV32 assembler with roco vector and atomic support.
+
 #include "roco/assembler.hpp"
 
 #include "roco/diagnostic.hpp"

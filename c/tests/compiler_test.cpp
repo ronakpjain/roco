@@ -45,6 +45,7 @@ TEST(CompilerTest, CompilesControlFlowAndFunctions) {
 TEST(CompilerTest, CompilesTypesGlobalsArraysAndStrings) {
   const std::string source = R"(
     int value = 0x12345678;
+    int folded = 1 + 2 * 3;
     int zero;
     char message[] = "roco";
     short half = 0x1234;
@@ -66,6 +67,7 @@ TEST(CompilerTest, CompilesTypesGlobalsArraysAndStrings) {
   )";
   const std::string assembly = compile(source);
   EXPECT_NE(assembly.find("message:"), std::string::npos);
+  EXPECT_NE(assembly.find(".word 7"), std::string::npos);
   EXPECT_NE(assembly.find("table:"), std::string::npos);
   EXPECT_NE(assembly.find("pointer:"), std::string::npos);
   EXPECT_NE(assembly.find("lh"), std::string::npos);
@@ -93,6 +95,10 @@ TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);
   EXPECT_THROW(compile("int main(void) { return missing; }\n"), roco::Error);
+  EXPECT_THROW(
+      compile("int main(void) { char text[4] = \"roco\"; return 0; }\n"),
+      roco::Error);
+  EXPECT_THROW(compile("int f(int x, ...) { return x; }\n"), roco::Error);
 }
 
 }  // namespace

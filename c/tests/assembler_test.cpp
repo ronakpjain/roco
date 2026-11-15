@@ -212,6 +212,35 @@ TEST(AssemblerTest, RejectsInvalidInput) {
   EXPECT_THROW(roco::assemble("beq a0, a1, 3\n", "test.S"), roco::Error);
 }
 
+TEST(AssemblerTest, EmitsCallRelocationPairs) {
+  const roco::Object object = roco::assemble(R"(
+    .text
+    .globl _start
+  _start:
+    call target
+    tail target
+  target:
+    ret
+  )",
+                                       "test.S");
+  const auto& text = section(object, ".text");
+  const auto program = words(text);
+  ASSERT_EQ(program.size(), 5U);
+  EXPECT_EQ(program[0],
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 1, 0));
+  EXPECT_EQ(program[1],
+            roco::isa::encode_i(roco::isa::kOpcodeJalr, 1, 0, 1, 0));
+  EXPECT_EQ(program[2],
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 6, 0));
+  EXPECT_EQ(program[3],
+            roco::isa::encode_i(roco::isa::kOpcodeJalr, 0, 0, 6, 0));
+  ASSERT_EQ(text.relocations.size(), 2U);
+  EXPECT_EQ(text.relocations[0].type, roco::isa::Reloc::CallPlt);
+  EXPECT_EQ(text.relocations[0].offset, 0U);
+  EXPECT_EQ(text.relocations[1].type, roco::isa::Reloc::CallPlt);
+  EXPECT_EQ(text.relocations[1].offset, 8U);
+}
+
 TEST(AssemblerTest, EncodesAtomicInstructions) {
   const roco::Object object = roco::assemble(R"(
     .text

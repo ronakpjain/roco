@@ -89,6 +89,9 @@ class Codegen {
     }
 
     generate_statement(*function.body, function);
+    if (function.name == "main" && function.type->base->kind != TypeKind::Void) {
+      emit("  li a0, 0");
+    }
     emit(return_label_ + ":");
     emit("  mv sp, s0");
     emit("  lw ra, 12(sp)");

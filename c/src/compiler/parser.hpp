@@ -660,6 +660,11 @@ class Parser {
           declaration->type->length == 0) {
         fail(declaration->token, "local arrays must have a size");
       }
+      if (declaration->type->kind == TypeKind::Array &&
+          declaration->init != nullptr) {
+        fail(declaration->token,
+             "local array initializers are not supported yet");
+      }
       declare_local(declaration.get());
       current_function_->locals.push_back(declaration.get());
       statement->declarations.push_back(std::move(declaration));

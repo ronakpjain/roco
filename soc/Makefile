@@ -258,9 +258,11 @@ test_vector_c: $(BUILD_DIR)/vector_c.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/vector_c.hex
 
 .PHONY: test_vector_irq
-test_vector_irq: $(BUILD_DIR)/vector_irq.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
+test_vector_irq: $(BUILD_DIR)/vector_irq.hex $(BUILD_DIR)/vector_prepare_irq.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(CORE_SIM) +hex=$(BUILD_DIR)/vector_irq.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/vector_irq.hex
+	$(CORE_SIM) +hex=$(BUILD_DIR)/vector_prepare_irq.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/vector_prepare_irq.hex
 
 .PHONY: test_vector_fence
 test_vector_fence: $(BUILD_DIR)/vector_fence.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)

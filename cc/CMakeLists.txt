@@ -53,11 +53,11 @@ target_compile_options(roco_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion 
 include(GoogleTest)
 gtest_discover_tests(roco_tests)
 
-# The CPU testbench lives in the sibling cpu/ tree. Run the complete
+# The CPU testbench lives in the sibling soc/ tree. Run the complete
 # assemble/link/execute path when both the simulator and image are present.
 find_program(ROCO_VVP vvp)
 set(ROCO_CPU_TESTBENCH
-    "${CMAKE_CURRENT_SOURCE_DIR}/../cpu/build/tb_core.vvp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../soc/build/tb_core.vvp"
     CACHE FILEPATH "roco core testbench used by the cpu_smoke test")
 if(ROCO_VVP AND EXISTS "${ROCO_CPU_TESTBENCH}")
   add_test(NAME cpu_smoke

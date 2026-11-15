@@ -101,7 +101,7 @@ The tools target the roco RTL, not a generic RV32 profile. The
 instruction tables include M, A, Zicsr, Zifencei, and only the vector
 operations implemented by `rtl/core/roco_cpu_vec*.sv`. The linker default
 load address is the SDRAM base at `0x1000_0000`, matching the boot
-protocol and the existing `cpu/sw/link.ld` layout.
+protocol and the existing `soc/sw/link.ld` layout.
 
 The toolchain does not assume Linux, virtual memory, an F/D unit,
 compressed instructions, or linker relaxation. Programs are freestanding

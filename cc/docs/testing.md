@@ -33,7 +33,7 @@ testbench. The sequence is:
 
 1. assemble `start.S` and `main.S` with `roco_as`;
 2. link with `roco_ld` and emit a word image;
-3. run `cpu/build/tb_core.vvp +hex=...` and require `PASS`.
+3. run `soc/build/tb_core.vvp +hex=...` and require `PASS`.
 
 The check is enabled in CTest when `vvp` and the core testbench are
 available; otherwise it is skipped. This keeps GoogleTest simulator-free

@@ -12,7 +12,7 @@ pcb/                 roco_pcb: KiCad 10 hardware project
 ├── *.kicad_sch      Hierarchical schematic sheets
 ├── libraries/       Symbols, footprints, and 3D models
 └── docs/            Design notes, budgets, pin plan, and datasheets
-cpu/                 roco_cpu: pipelined RV32I SoC (see cpu/README.md)
+soc/                 roco_soc: pipelined RV32I SoC (see soc/README.md)
 cc/                  roco_cc: C compiler, assembler, and linker
 ```
 
@@ -23,6 +23,6 @@ Open [`pcb/roco_pcb.kicad_pro`](pcb/roco_pcb.kicad_pro) in KiCad 10.
 - [Parts selection](pcb/docs/parts_selection.md)
 - [Power budget](pcb/docs/power_budget.md)
 - [Pin plan](pcb/docs/pin_plan.csv)
-- [roco_cpu](cpu/README.md)
+- [roco_soc](soc/README.md)
 - [roco_cc toolchain](cc/README.md)
 - [Datasheets](pcb/docs/datasheets/) and [sources](pcb/docs/datasheet_sources.csv)

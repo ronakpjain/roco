@@ -80,7 +80,7 @@ at the label address, which is the standard GCC/LLVM pairing.
 - The flat image starts at the base address, includes alignment gaps as
   zeroes, and excludes `.bss`.
 - The hex image is one 32-bit little-endian word per line, matching
-  `cpu/scripts/elf2hex.py` and the CPU testbenches.
+  `soc/scripts/elf2hex.py` and the CPU testbenches.
 
 ## Limits
 

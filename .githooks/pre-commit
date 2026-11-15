@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-commit checks for the roco repository.
 #
-# Staged SystemVerilog sources under cpu/ must be verible-formatted and
+# Staged SystemVerilog sources under soc/ must be verible-formatted and
 # syntactically valid. The hook is intentionally fast: full lint and
 # simulation live in `make -C cpu check`.
 
@@ -12,7 +12,7 @@ cd "$root"
 
 mapfile -t files < <(
   git diff --cached --name-only --diff-filter=ACM |
-    grep -E '^cpu/.*\.(sv|svh)$' || true
+    grep -E '^soc/.*\.(sv|svh)$' || true
 )
 
 if [ "${#files[@]}" -eq 0 ]; then
@@ -27,7 +27,7 @@ fi
 format_status=0
 for file in "${files[@]}"; do
   if ! verible-verilog-format \
-    --flagfile=cpu/.verible-verilog-format \
+    --flagfile=soc/.verible-verilog-format \
     --verify \
     "$file"; then
     format_status=1

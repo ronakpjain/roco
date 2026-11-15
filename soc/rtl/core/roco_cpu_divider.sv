@@ -2,9 +2,9 @@
 //
 // The execute stage starts the divide and moves on; the scoreboard in
 // the core holds only an instruction that needs the pending destination
-// register. Quotient digits are selected two per cycle with a fused
-// subtract, so a divide takes eighteen cycles but does not block
-// independent instructions.
+// register. Radix-four quotient digits use parallel subtracts against
+// registered divisor multiples. Magnitude setup and final sign correction
+// have separate cycles; independent instructions can continue to issue.
 //
 // The start cycle only latches the raw operands, so the operand
 // forwarding path does not include the magnitude negation. The sign
@@ -37,7 +37,7 @@ module roco_cpu_divider (
   localparam logic [4:0] LAST_CHUNK = 5'd1;
 
   logic fsm_busy;
-  logic loading;
+  logic loading, preparing, finishing;
   logic done_q;
   logic [4:0] div_chunks;
 
@@ -57,6 +57,7 @@ module roco_cpu_divider (
 
   logic [31:0] div_dividend;
   logic [31:0] div_divisor;
+  logic [33:0] div_triple;
   logic [31:0] div_orig_a;
   logic [31:0] div_quot;
   logic [32:0] div_rem;
@@ -66,14 +67,14 @@ module roco_cpu_divider (
   logic div_a_neg;
   logic div_by_zero;
 
-  (* mem2reg *) logic [33:0] rem_step[0:CHUNK_BITS];
-  (* mem2reg *) logic [31:0] quot_step[0:CHUNK_BITS];
-  logic [33:0] div_diff;
+  logic [33:0] digit_dividend;
+  logic [34:0] digit_diff1, digit_diff2, digit_diff3;
+  logic [1:0] quotient_digit;
+  logic [32:0] remainder_next;
+  logic [31:0] quotient_next;
   logic [31:0] div_quot_final;
   logic [31:0] div_rem_final;
   logic [31:0] div_final;
-
-  integer i;
 
   // ------------------------------------------------ Sign fixup in a cycle
   // The magnitudes are computed from the latched operands, so the
@@ -89,28 +90,32 @@ module roco_cpu_divider (
   assign is_zero = (mag_b == 32'd0);
 
   // -------------------------------------------------------------- Divide
-  // One chunk of restoring division: shift in one dividend bit, subtract
-  // the divisor, and keep the difference when the borrow is clear. The
-  // borrow of the wide subtract replaces a separate magnitude compare.
+  // Choose the largest digit whose subtraction has no borrow. All three
+  // subtracts start at registers; no digit depends on another subtract.
+  assign digit_dividend = {div_rem[31:0], div_dividend[31:30]};
+  assign digit_diff1 = {1'b0, digit_dividend} - {3'b0, div_divisor};
+  assign digit_diff2 = {1'b0, digit_dividend} - {2'b0, div_divisor, 1'b0};
+  assign digit_diff3 = {1'b0, digit_dividend} - {1'b0, div_triple};
   always_comb begin
-    rem_step[0] = {1'b0, div_rem};
-    quot_step[0] = div_quot;
-    for (i = 0; i < CHUNK_BITS; i = i + 1) begin
-      div_diff = {1'b0, rem_step[i][31:0], div_dividend[31-i]} - {2'b0, div_divisor};
-      if (div_diff[33]) begin
-        rem_step[i+1] = {1'b0, rem_step[i][31:0], div_dividend[31-i]};
-        quot_step[i+1] = {quot_step[i][30:0], 1'b0};
-      end else begin
-        rem_step[i+1] = {1'b0, div_diff[32:0]};
-        quot_step[i+1] = {quot_step[i][30:0], 1'b1};
-      end
+    quotient_digit = 2'b00;
+    remainder_next = {1'b0, digit_dividend[31:0]};
+    if (!digit_diff3[34]) begin
+      quotient_digit = 2'b11;
+      remainder_next = digit_diff3[32:0];
+    end else if (!digit_diff2[34]) begin
+      quotient_digit = 2'b10;
+      remainder_next = digit_diff2[32:0];
+    end else if (!digit_diff1[34]) begin
+      quotient_digit = 2'b01;
+      remainder_next = digit_diff1[32:0];
     end
   end
+  assign quotient_next = {div_quot[29:0], quotient_digit};
 
-  assign div_quot_final = div_by_zero ? 32'hffff_ffff :
-                          div_sign ? -quot_step[CHUNK_BITS] : quot_step[CHUNK_BITS];
-  assign div_rem_final = div_by_zero ? div_orig_a :
-                         div_a_neg ? -rem_step[CHUNK_BITS][31:0] : rem_step[CHUNK_BITS][31:0];
+  // Completion uses the registered last digit, keeping sign correction
+  // out of the restoring-division feedback path.
+  assign div_quot_final = div_by_zero ? 32'hffff_ffff : div_sign ? -div_quot : div_quot;
+  assign div_rem_final = div_by_zero ? div_orig_a : div_a_neg ? -div_rem[31:0] : div_rem[31:0];
   assign div_final = div_is_rem ? div_rem_final : div_quot_final;
 
   assign busy = fsm_busy || done_q;
@@ -121,6 +126,8 @@ module roco_cpu_divider (
     if (rst) begin
       fsm_busy <= 1'b0;
       loading <= 1'b0;
+      preparing <= 1'b0;
+      finishing <= 1'b0;
       done_q <= 1'b0;
       div_chunks <= '0;
       start_a <= '0;
@@ -128,6 +135,7 @@ module roco_cpu_divider (
       start_op <= `RV32_MD_DIV;
       div_dividend <= '0;
       div_divisor <= '0;
+      div_triple <= '0;
       div_orig_a <= '0;
       div_quot <= '0;
       div_rem <= '0;
@@ -142,12 +150,15 @@ module roco_cpu_divider (
         if (start) begin
           fsm_busy <= 1'b1;
           loading <= 1'b1;
+          preparing <= 1'b0;
+          finishing <= 1'b0;
           start_a <= a;
           start_b <= b;
           start_op <= op;
         end
       end else if (loading) begin
         loading <= 1'b0;
+        preparing <= 1'b1;
         div_chunks <= FIRST_CHUNK;
         div_dividend <= mag_a;
         div_divisor <= mag_b;
@@ -158,15 +169,20 @@ module roco_cpu_divider (
         div_sign <= mag_neg;
         div_a_neg <= mag_neg_a;
         div_by_zero <= is_zero;
-      end else if (div_chunks == LAST_CHUNK) begin
+      end else if (preparing) begin
+        preparing <= 1'b0;
+        div_triple <= {2'b0, div_divisor} + {1'b0, div_divisor, 1'b0};
+      end else if (finishing) begin
+        finishing <= 1'b0;
         fsm_busy <= 1'b0;
         done_q <= 1'b1;
         div_result_q <= div_final;
       end else begin
         div_dividend <= div_dividend << CHUNK_BITS;
-        div_quot <= quot_step[CHUNK_BITS];
-        div_rem <= rem_step[CHUNK_BITS][32:0];
-        div_chunks <= div_chunks - 1'b1;
+        div_quot <= quotient_next;
+        div_rem <= remainder_next;
+        if (div_chunks == LAST_CHUNK) finishing <= 1'b1;
+        else div_chunks <= div_chunks - 1'b1;
       end
     end
   end

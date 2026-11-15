@@ -73,7 +73,7 @@ Notably:
 - vector memory operations are unit-stride and unmasked;
 - unsupported vector arithmetic is rejected.
 
-See the [target profile](target.md) and [hardware notes](hardware-notes.md).
+See the [target profile](target.md).
 
 ## Example
 

@@ -13,7 +13,6 @@ INPUT                  = README.md \
                          docs/compiler.md \
                          docs/target.md \
                          docs/assembler.md \
-                         docs/hardware-notes.md \
                          docs/linker.md \
                          docs/testing.md \
                          include \

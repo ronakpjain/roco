@@ -1,8 +1,8 @@
 # Target profile
 
 The tools target the roco five-stage RV32 CPU. This is the supported
-assembly boundary; instructions outside it are rejected rather than
-encoded and left to trap.
+assembly boundary; unsupported instructions are rejected by the
+assembler or trap in the RTL.
 
 ## Scalar ISA
 
@@ -22,6 +22,17 @@ encoded and left to trap.
 The assembler implements the integer, CSR, atomic, fence, and system
 mnemonics in the [assembler reference](assembler.md). It emits
 little-endian ELF32 RISC-V objects and uses 4-byte instruction alignment.
+
+Scalar behavior:
+
+- `WFI` is not decoded and traps as an illegal instruction.
+- Misaligned loads and stores trap; hardware does not split them.
+  Declared objects must be naturally aligned.
+- `FENCE` is a no-op. `FENCE.I` writes back the D-cache and invalidates
+  the I-cache.
+- `lr.w`, `sc.w`, and `amo*.w` accept the `aq`/`rl` bits. The single-hart,
+  in-order, blocking memory pipeline orders all data accesses, so these
+  bits require no additional stalls or flushes.
 
 ## Vector ISA
 
@@ -49,9 +60,11 @@ Not implemented by roco, and therefore rejected by the assembler:
 - vector integer multiply, divide, shift, compare, min/max, slide, gather,
   and other Zve32x operations not listed above.
 
+`vstart` is honored for element-wise operations and unit-stride memory
+accesses. A nonzero `vstart` on `vredsum.vs` is illegal. A reduction
+writes only element 0; elements 1 through VLMAX-1 follow the tail policy.
 Tail policy `ta` is implemented by the RTL. Mask policy `ma` is accepted
-in the syntax but has no effect because masking is absent. See
-[hardware notes](hardware-notes.md) for the exact consequences.
+in the syntax but has no effect because masking is absent.
 
 ## Memory and boot
 
@@ -68,6 +81,23 @@ there. The existing freestanding startup code places the stack at
 `0x100f_0000`. The linker uses the SDRAM base and a section order of
 `.text`, `.rodata`, `.data`, `.bss`, with `.text.init` first for startup
 code.
+
+## Privilege and memory
+
+- `mtvec` supports direct mode only.
+- The core has machine timer and external interrupt inputs. There is no
+  software interrupt injection beyond the existing CSR state.
+- Sv32 supports 4 KiB pages and 4 MiB superpages. A/D bits are
+  software-managed: a PTE with A=0, or D=0 for a store, faults.
+- TLBs are 16-entry direct mapped and tagged by virtual page. `satp`
+  writes and `SFENCE.VMA` flush them completely; ASID selection and
+  address-specific flushes are ignored.
+- Page tables must live in the SDRAM window. Physical PPN bits 21:20 are
+  zero.
+- `FENCE.I` and `SFENCE.VMA` write back the whole D-cache before
+  invalidating caches and TLBs. There is no cache coherence and no DMA
+  master.
+- PMP, the debug module, and hardware A/D updates are not implemented.
 
 ## ABI and code-generation policy
 
@@ -88,8 +118,7 @@ backend work:
 
 - Use `vsetvli` with SEW 8/16/32 and LMUL=m1.
 - Prefer scalar code for operations not in the vector table.
-- Do not emit `vmv.v.v` until the RTL source-field issue in the
-  [hardware notes](hardware-notes.md) is fixed. Use `vmv.v.i`, `vmv.v.x`,
-  or scalar moves instead.
 - Do not rely on `vma` or masked vector operations.
-- Use the standard A extension only for 32-bit atomics.
+- Use the standard A extension only for 32-bit atomics. The compiler does
+  not emit atomics; hand-written atomic code must respect the `.w`-only
+  restriction and pair each `sc.w` with a preceding `lr.w`.

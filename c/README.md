@@ -23,8 +23,7 @@ hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
 
 The assembler accepts the standard RV32 encodings and rejects instructions
 the roco RTL does not implement. See the [target profile](docs/target.md)
-for the exact support boundary and [hardware notes](docs/hardware-notes.md)
-for RTL behavior that differs from the ISA.
+for the exact support boundary and RTL behavior.
 
 ## Build
 

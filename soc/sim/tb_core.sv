@@ -302,6 +302,8 @@ module tb_core;
     cycles = 0;
     exit_code = 32'd0;
     repeat (5) @(posedge clk);
+    // Release away from the sampling edge to avoid simulator scheduling races.
+    @(negedge clk);
     rst = 1'b0;
   end
 

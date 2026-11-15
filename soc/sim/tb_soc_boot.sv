@@ -174,6 +174,8 @@ module tb_soc_boot #(
     uart_rx = 1'b1;
     rst = 1'b1;
     repeat (10) @(posedge clk);
+    // Release away from the sampling edge to avoid simulator scheduling races.
+    @(negedge clk);
     rst = 1'b0;
 
     // Wait for the SDRAM controller and the bootloader.

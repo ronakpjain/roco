@@ -68,7 +68,25 @@ def main():
             rows.append(row)
             runtime = f'{row["estimated_us"]:.3f} us' if frequency else 'timing pending'
             print(f'{image:15} {name:14} {cycles:8} cycles {runtime}', flush=True)
-    args.output.write_text(json.dumps({'results': rows}, indent=2) + '\n')
+    summary = {}
+    for name, _ in args.variant:
+        selected = [row for row in rows if row['variant'] == name]
+        summary[name] = {
+            'programs': len(selected),
+            'total_cycles': sum(row['cycles'] for row in selected),
+            'active_cycles': sum(row['active_cycles'] for row in selected),
+            'total_estimated_us': (sum(row['estimated_us'] for row in selected)
+                                   if all(row['estimated_us'] is not None for row in selected) else None),
+            'active_estimated_us': (sum(row['active_estimated_us'] for row in selected)
+                                    if all(row['active_estimated_us'] is not None for row in selected) else None),
+        }
+    baseline = summary[args.variant[0][0]]
+    for entry in summary.values():
+        entry['total_speedup'] = (baseline['total_estimated_us'] / entry['total_estimated_us']
+                                  if baseline['total_estimated_us'] and entry['total_estimated_us'] else None)
+        entry['active_speedup'] = (baseline['active_estimated_us'] / entry['active_estimated_us']
+                                   if baseline['active_estimated_us'] and entry['active_estimated_us'] else None)
+    args.output.write_text(json.dumps({'results': rows, 'summary': summary}, indent=2) + '\n')
 
 
 if __name__ == '__main__':

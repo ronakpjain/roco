@@ -61,6 +61,8 @@ module roco_cpu_if_stage (
   logic [1:0] q_head;
   logic [1:0] q_tail;
   logic [2:0] q_count;
+  logic prediction_pending;
+  logic apply_prediction;
   logic pending_pred_taken;
   logic [31:0] pending_pred_target;
 
@@ -95,8 +97,9 @@ module roco_cpu_if_stage (
   // register enable. Requests may repeat while busy; the cache/MMU ignores
   // unaccepted requests and the response address still validates each push.
   assign request_pc = retry_pending ? retry_pc : pc_if;
-  assign issue = !boot_load && !halt && !stall && (q_count < 3'(DEPTH - 1));
-  assign pc_next = pred_taken ? pred_target : (request_pc + 32'd4);
+  assign apply_prediction = prediction_pending && pending_pred_taken;
+  assign issue = !boot_load && !halt && !stall && !apply_prediction && (q_count < 3'(DEPTH - 1));
+  assign pc_next = request_pc + 32'd4;
   assign fault_push = imem_fault && !halt && (imem_fault_addr == request_pc) && (q_count < 3'(DEPTH));
   assign push = !fault_push && imem_rsp_valid && !halt &&
                 (q_count < 3'(DEPTH)) && (imem_rsp_addr == last_req);
@@ -123,6 +126,17 @@ module roco_cpu_if_stage (
   assign if_fault = q_fault[q_head];
   assign if_pred_taken = q_pred_taken[q_head];
   assign if_pred_target = q_pred_target[q_head];
+
+  // Resolve a BTB prediction from the previous request's saved metadata.
+  // Taken predictions insert one fetch bubble, separating the BTB read
+  // and tag comparison from the PC feedback mux. No fall-through request
+  // is issued in that bubble, so the queue still contains the predicted
+  // instruction stream and EX can validate predictions unchanged.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) prediction_pending <= 1'b0;
+    else if (boot_load || flush || fault_push) prediction_pending <= 1'b0;
+    else if (!halt) prediction_pending <= issue;
+  end
 
   // A redirect invalidates queue pointers, not payload bits. Allowing
   // these writes on a flush edge keeps redirect resolution off the many
@@ -192,6 +206,8 @@ module roco_cpu_if_stage (
       if (fault_push) begin
         pc_if <= request_pc + 32'd4;
         last_req <= request_pc + 32'd4;
+      end else if (apply_prediction) begin
+        pc_if <= pending_pred_target;
       end else if (issue) begin
         last_req <= request_pc;
         pc_if <= pc_next;

@@ -405,5 +405,9 @@ $(BUILD_DIR)/tb_if_queue.vvp: rtl/core/roco_cpu_if_stage.sv sim/tb_if_queue.sv |
 	$(IVERILOG) -g2012 -s tb_if_queue -o $@ $^
 
 .PHONY: test_if_queue
-test_if_queue: $(BUILD_DIR)/tb_if_queue.vvp
-	$(VVP) $<
+$(BUILD_DIR)/tb_if_prediction.vvp: rtl/core/roco_cpu_if_stage.sv sim/tb_if_prediction.sv | build
+	$(IVERILOG) -g2012 -s tb_if_prediction -o $@ $^
+
+test_if_queue: $(BUILD_DIR)/tb_if_queue.vvp $(BUILD_DIR)/tb_if_prediction.vvp
+	$(VVP) $(BUILD_DIR)/tb_if_queue.vvp
+	$(VVP) $(BUILD_DIR)/tb_if_prediction.vvp

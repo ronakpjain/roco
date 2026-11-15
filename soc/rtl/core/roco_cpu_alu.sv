@@ -21,6 +21,15 @@ module roco_cpu_alu (
       .result(addsub_result)
   );
 
+  logic unused_equal, signed_lt, unsigned_lt;
+  roco_cpu_compare u_compare (
+      .a(a),
+      .b(b),
+      .equal(unused_equal),
+      .signed_lt(signed_lt),
+      .unsigned_lt(unsigned_lt)
+  );
+
   always_comb begin
     result = '0;
     case (op)
@@ -34,10 +43,10 @@ module roco_cpu_alu (
         result = a << b[4:0];
       end
       `RV32_ALU_SLT: begin
-        result = {31'd0, $signed(a) < $signed(b)};
+        result = {31'd0, signed_lt};
       end
       `RV32_ALU_SLTU: begin
-        result = {31'd0, a < b};
+        result = {31'd0, unsigned_lt};
       end
       `RV32_ALU_XOR: begin
         result = a ^ b;

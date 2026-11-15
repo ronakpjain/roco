@@ -88,7 +88,7 @@ module icache #(
   assign mem_word_addr = fill_word_addr;
   assign mem_len = 4'(LINE_WORDS - 1);
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= S_IDLE;
       rsp_valid_q <= 1'b0;
@@ -134,13 +134,11 @@ module icache #(
         end
         S_FILL: begin
           if (mem_rvalid) begin
-            data_ram[{fill_idx, beat}] <= mem_rdata;
             if (mem_rlast) begin
               if (flush || flush_pending) begin
                 valid_ram[fill_idx] <= 1'b0;
                 flush_pending <= 1'b0;
               end else begin
-                tag_ram[fill_idx] <= fill_tag;
                 valid_ram[fill_idx] <= 1'b1;
               end
               state <= S_IDLE;
@@ -153,6 +151,18 @@ module icache #(
           state <= S_IDLE;
         end
       endcase
+    end
+  end
+
+  // Tag and data RAM carry no reset value. A line is only observable once
+  // its valid bit is set in the state machine above, so both arrays stay out
+  // of the asynchronous reset cone and remain block RAM.
+  always_ff @(posedge clk) begin
+    if ((state == S_FILL) && mem_rvalid) begin
+      data_ram[{fill_idx, beat}] <= mem_rdata;
+      if (mem_rlast && !(flush || flush_pending)) begin
+        tag_ram[fill_idx] <= fill_tag;
+      end
     end
   end
 

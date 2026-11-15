@@ -71,12 +71,25 @@ module roco_cpu_if_stage (
   logic queue_push;
   logic miss_now;
   logic [31:0] pc_next;
+  // Asynchronous reset can only clear to a constant, so the image base
+  // address is loaded on the first cycle after reset instead of during
+  // it. Fetch stays idle across that cycle so no request uses the zero
+  // PC that the reset leaves behind.
+  logic boot_load;
+
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      boot_load <= 1'b1;
+    end else begin
+      boot_load <= 1'b0;
+    end
+  end
 
   assign q_empty = (q_count == 3'd0);
   // A request may be issued on a redirect cycle. Flush discards its
   // response and overrides PC/queue updates below, so branch resolution
   // need not feed the instruction-cache request and miss-counter paths.
-  assign issue = !rst && !halt && !stall && !imem_busy && (q_count < 3'(DEPTH - 1));
+  assign issue = !rst && !boot_load && !halt && !stall && !imem_busy && (q_count < 3'(DEPTH - 1));
   assign miss_now = issue && imem_miss;
   assign pc_next = pred_taken ? pred_target : (pc_if + 32'd4);
   assign fault_push = imem_fault && !halt && !rst &&
@@ -99,7 +112,7 @@ module roco_cpu_if_stage (
   // A redirect invalidates queue pointers, not payload bits. Allowing
   // these writes on a flush edge keeps redirect resolution off the many
   // queue and prediction payload enables.
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       pending_pred_taken <= 1'b0;
       pending_pred_target <= '0;
@@ -107,6 +120,11 @@ module roco_cpu_if_stage (
       pending_pred_taken <= pred_taken;
       pending_pred_target <= pred_target;
     end
+  end
+
+  // Queue payloads hold no reset value; a slot is only observable once the
+  // pointers make it valid, so they stay out of the asynchronous reset cone.
+  always_ff @(posedge clk) begin
     if (push) begin
       q_pc[q_tail] <= imem_rsp_addr;
       q_instr[q_tail] <= imem_rsp_data;
@@ -122,8 +140,14 @@ module roco_cpu_if_stage (
     end
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
+      pc_if <= '0;
+      last_req <= '0;
+      q_head <= '0;
+      q_tail <= '0;
+      q_count <= '0;
+    end else if (boot_load) begin
       pc_if <= boot_addr;
       last_req <= boot_addr;
       q_head <= '0;

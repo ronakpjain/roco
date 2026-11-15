@@ -355,7 +355,7 @@ module roco_cpu_csr (
     endcase
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       priv_q <= PRIV_M;
       mtvec_q <= '0;

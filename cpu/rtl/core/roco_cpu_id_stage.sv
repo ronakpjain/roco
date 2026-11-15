@@ -217,7 +217,7 @@ module roco_cpu_id_stage (
                    (dec_vec_funct6 == `RV32_VOP_SCALAR) && (if_instr[14:12] == 3'b010)));
   assign wb_mul = dec_is_muldiv && !dec_md_op[2] && !wb_jump && !wb_csr && !wb_vec;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       idex_valid <= 1'b0;
       idex_wb_select <= 5'b00001;

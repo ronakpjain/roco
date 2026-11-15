@@ -207,7 +207,7 @@ module roco_soc #(
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
   // Hold the core in reset for one extra cycle after boot_done so that
   // pc_if samples the image base address, not the pre-boot zero value.
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       boot_release <= 1'b0;
     end else begin
@@ -542,7 +542,7 @@ module roco_soc #(
   assign dc_hits = dc_hit_q ? dc_hits_base + 32'd1 : dc_clear_q ? 32'd0 : dc_hits_base;
   assign dc_misses = dc_miss_q ? dc_misses_base + 32'd1 : dc_clear_q ? 32'd0 : dc_misses_base;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       dc_hits_base <= '0;
       dc_misses_base <= '0;
@@ -558,7 +558,7 @@ module roco_soc #(
     end
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       i_unc_rsp <= 1'b0;
       i_unc_rsp_addr <= '0;
@@ -632,7 +632,7 @@ module roco_soc #(
   localparam logic [1:0] F_DRAIN  = 2'd2;
   localparam logic [1:0] F_ICACHE = 2'd3;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       fence_state <= F_IDLE;
       dcache_flush <= 1'b0;

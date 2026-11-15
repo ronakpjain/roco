@@ -35,10 +35,16 @@ module roco_cpu_regfile (
   assign write_reg = divider_write ? drd : rd;
   assign write_data = divider_write ? ddata : wdata;
 
+  // The data array is distributed RAM and cannot take an asynchronous
+  // clear, so it stays a plain clocked write. Writers are themselves held
+  // cleared during reset, which keeps the array untouched before release.
   always_ff @(posedge clk) begin
-    if (!rst && write_enable) begin
+    if (write_enable) begin
       regs[write_reg] <= write_data;
     end
+  end
+
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       valid_regs <= '0;
     end else if (write_enable) begin

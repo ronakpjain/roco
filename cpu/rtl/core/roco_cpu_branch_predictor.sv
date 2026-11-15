@@ -74,8 +74,16 @@ module roco_cpu_branch_predictor #(
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (rst || flush) begin
+  // Yosys only accepts an asynchronous reset branch guarded by the reset
+  // signal alone, so the flush clear repeats the same entry sweep instead of
+  // sharing one `rst || flush` branch.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      for (i = 0; i < ENTRIES; i = i + 1) begin
+        valid[i] <= 1'b0;
+        counters[i] <= 2'b01;
+      end
+    end else if (flush) begin
       for (i = 0; i < ENTRIES; i = i + 1) begin
         valid[i] <= 1'b0;
         counters[i] <= 2'b01;
@@ -85,15 +93,20 @@ module roco_cpu_branch_predictor #(
         counters[ex_idx] <= counter_next;
         if (ex_taken) begin
           valid[ex_idx] <= 1'b1;
-          tags[ex_idx] <= ex_tag;
-          targets[ex_idx] <= ex_target;
         end
       end else if (ex_is_jal || ex_is_jalr) begin
         counters[ex_idx] <= 2'b11;
         valid[ex_idx] <= 1'b1;
-        tags[ex_idx] <= ex_tag;
-        targets[ex_idx] <= ex_target;
       end
+    end
+  end
+
+  // Tag and target arrays carry no reset value, so they stay out of the
+  // asynchronous reset cone and keep mapping to distributed RAM.
+  always_ff @(posedge clk) begin
+    if (ex_update && (((ex_is_branch && ex_taken)) || ex_is_jal || ex_is_jalr)) begin
+      tags[ex_idx] <= ex_tag;
+      targets[ex_idx] <= ex_target;
     end
   end
 

@@ -71,7 +71,7 @@ module roco_cpu_vec (
     logic ex_select, mem_select;
     assign ex_select = (ex_wd == 5'(r));
     assign mem_select = (mem_wd == 5'(r));
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge rst) begin
       if (rst) begin
         valid_regs[r] <= 1'b0;
       end else if (ex_we) begin
@@ -92,8 +92,11 @@ module roco_cpu_vec (
     assign vs2_data[8*b+:8] = valid_regs[vs2] ? data[vs2] : 8'd0;
     assign vd_data[8*b+:8] = valid_regs[vd] ? data[vd] : 8'd0;
 
+    // Distributed RAM cannot be asynchronously cleared, and the write
+    // enables are already held low during reset by the pipeline registers
+    // that produce them.
     always_ff @(posedge clk) begin
-      if (!rst && write_byte) begin
+      if (write_byte) begin
         data[write_reg] <= write_data;
       end
     end

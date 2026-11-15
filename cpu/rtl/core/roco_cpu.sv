@@ -275,10 +275,16 @@ module roco_cpu (
   // and uncached-read dependencies below are the remaining ID interlocks.
   // Register EX redirects before distributing them through the front end.
   // The pending redirect cancels the one younger EX instruction below.
-  always_ff @(posedge clk) begin
-    ex_redirect_pc <= ex_redirect_pc_raw;
-    if (rst || mem_redirect) ex_redirect_en <= 1'b0;
-    else ex_redirect_en <= ex_redirect_raw;
+  always_ff @(posedge clk) ex_redirect_pc <= ex_redirect_pc_raw;
+
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      ex_redirect_en <= 1'b0;
+    end else if (mem_redirect) begin
+      ex_redirect_en <= 1'b0;
+    end else begin
+      ex_redirect_en <= ex_redirect_raw;
+    end
   end
 
   assign if_consume = if_valid && !stall && !bubble && !ex_redirect_en && !mem_redirect;
@@ -293,7 +299,7 @@ module roco_cpu (
   // translation wait without routing that same hold through lookup enable.
   assign dmem_lu_stall = ex_lu_present && !d_fault_q && !ex_lu_hit;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       d_fault_q <= 1'b0;
       d_fault_cause_q <= '0;
@@ -659,6 +665,8 @@ module roco_cpu (
   logic [31:2] bp_update_pc;
   logic [31:0] bp_update_target;
   logic bp_update_branch, bp_update_jal, bp_update_jalr, bp_update_taken;
+  // Payload flops carry no reset value; only bp_update_valid gates their
+  // visibility, which keeps them out of the asynchronous reset cone.
   always_ff @(posedge clk) begin
     bp_update_pc <= idex_pc[31:2];
     bp_update_target <= btb_target;
@@ -666,7 +674,12 @@ module roco_cpu (
     bp_update_jal <= btb_is_jal;
     bp_update_jalr <= btb_is_jalr;
     bp_update_taken <= btb_taken;
-    if (rst || mem_redirect || satp_write) begin
+  end
+
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      bp_update_valid <= 1'b0;
+    end else if (mem_redirect || satp_write) begin
       bp_update_valid <= 1'b0;
     end else begin
       bp_update_valid <= btb_update;

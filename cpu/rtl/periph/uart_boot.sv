@@ -104,8 +104,28 @@ module uart_boot (
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (rst || restart) begin
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      state <= S_MAGIC;
+      magic_idx <= '0;
+      hdr_idx <= '0;
+      base_q <= '0;
+      len_q <= '0;
+      crc_q <= '0;
+      crc_reg <= 32'hFFFF_FFFF;
+      byte_cnt <= '0;
+      word_buf <= '0;
+      word_be <= '0;
+      word_idx <= '0;
+      word_addr <= '0;
+      last_payload <= 1'b0;
+      tx_done <= 1'b0;
+      boot_done <= 1'b0;
+      boot_addr <= '0;
+      boot_error <= 1'b0;
+    end else if (restart) begin
+      // Yosys only accepts an asynchronous reset guarded by the reset
+      // signal alone, so a restart repeats the same clear.
       state <= S_MAGIC;
       magic_idx <= '0;
       hdr_idx <= '0;

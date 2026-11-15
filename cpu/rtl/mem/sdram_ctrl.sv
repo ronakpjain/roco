@@ -201,7 +201,7 @@ module sdram_ctrl #(
   assign wready = (state == S_WRITE) && (wr_phase == 2'd0);
 
   // ------------------------------------------------------------- Sequencer
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= S_POWERUP;
       wait_cnt <= '0;

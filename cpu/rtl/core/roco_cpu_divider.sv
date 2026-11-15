@@ -117,7 +117,7 @@ module roco_cpu_divider (
   assign done = done_q;
   assign div_result = div_result_q;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       fsm_busy <= 1'b0;
       loading <= 1'b0;

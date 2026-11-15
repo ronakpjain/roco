@@ -168,7 +168,7 @@ module dcache #(
   assign miss_pulse = lookup_valid_q && (state == S_IDLE) && !lookup_hit_q;
 
   assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_line_valid_q <= 1'b0;
       request_tag_q <= '0;
@@ -334,7 +334,7 @@ module dcache #(
   assign mem_wdata = ram_data;
   assign mem_wbe = 4'hf;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= S_IDLE;
       lu_addr_q <= '0;
@@ -419,7 +419,6 @@ module dcache #(
         S_FILL: begin
           if (mem_rvalid) begin
             if (mem_rlast) begin
-              tag_ram[miss_idx] <= miss_tag;
               valid_ram[miss_idx] <= 1'b1;
               dirty_ram[miss_idx] <= 1'b0;
               state <= S_IDLE;
@@ -468,6 +467,15 @@ module dcache #(
           state <= S_IDLE;
         end
       endcase
+    end
+  end
+
+  // The tag array carries no reset value. A line is only observable once its
+  // valid bit is set in the state machine above, so the tag RAM stays out of
+  // the asynchronous reset cone.
+  always_ff @(posedge clk) begin
+    if ((state == S_FILL) && mem_rvalid && mem_rlast) begin
+      tag_ram[miss_idx] <= miss_tag;
     end
   end
 

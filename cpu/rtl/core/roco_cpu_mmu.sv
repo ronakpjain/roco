@@ -348,7 +348,7 @@ module roco_cpu_mmu #(
     end
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       wstate <= W_IDLE;
       w_is_if <= 1'b0;
@@ -578,19 +578,32 @@ module roco_cpu_mmu #(
   // Register the fill data first, then write the LUTRAM on the following
   // cycle. This keeps the large walker control cone off the TLB write
   // enables, which otherwise becomes a critical path at 48 MHz.
-  always_ff @(posedge clk) begin
-    if (rst || flush) begin
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      i_valid <= '0;
+      d_valid <= '0;
+    end else if (flush) begin
       i_valid <= '0;
       d_valid <= '0;
     end else if ((wstate == W_INSTALL) && !w_discard) begin
       if (w_is_if) begin
         // Redirect cancellation affects validity, not refill RAM data.
         // The discarded payload is never visible to a translation hit.
-        itlb[w_idx] <= w_install_word;
         i_valid[w_idx] <= !iflush;
       end else begin
-        dtlb[w_idx] <= w_install_word;
         d_valid[w_idx] <= 1'b1;
+      end
+    end
+  end
+
+  // TLB payload RAM carries no reset; an entry is only observable through
+  // its validity bit above, so it stays out of the asynchronous reset cone.
+  always_ff @(posedge clk) begin
+    if ((wstate == W_INSTALL) && !w_discard) begin
+      if (w_is_if) begin
+        itlb[w_idx] <= w_install_word;
+      end else begin
+        dtlb[w_idx] <= w_install_word;
       end
     end
   end

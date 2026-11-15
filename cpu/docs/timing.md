@@ -16,6 +16,31 @@ Defaults are seed 4 and `--placer-heap-timingweight 30`.
 To reproduce explicitly, use
 `make bitstream PNR_SEED=4 PNR_FLAGS="--placer-heap-timingweight 30"`.
 
+## Reset
+
+Every clocked process uses an active-high asynchronous reset,
+`always_ff @(posedge clk or posedge rst)` with `if (rst)` as the first
+branch. Yosys maps that to the flip-flop's dedicated LSR pin, so reset costs
+no look-up table and the reset net is excluded from the routed timing report
+by `BLOCK ASYNCPATHS` in `constraints/roco.lpf`. A synchronous reset instead
+has to meet setup at every flip-flop through general routing, which made the
+reset distribution net the longest path in the design.
+
+Two rules keep that mapping intact:
+
+- The asynchronous branch must be guarded by the reset signal alone. A
+  combined test such as `if (rst || flush)` is rejected by Yosys, so the
+  clear is repeated in a separate `else if` branch.
+- Only constant values may be loaded by the asynchronous branch. State that
+  must take a non-constant value after reset is loaded on the first cycle
+  instead; `roco_cpu_if_stage` does this for the boot address. Memory arrays
+  with no reset value must be written from a separate process that does not
+  mention `rst`, otherwise Yosys cannot map them to block or distributed RAM
+  and expands them into flip-flops.
+
+Reset is asserted asynchronously and released synchronously by the
+`rst_sync` shift register in `roco_top`.
+
 ## Regression coverage
 
 `make all` checks formatting, syntax, and structural lint. Unit tests cover

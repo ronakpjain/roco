@@ -350,7 +350,7 @@ module roco_cpu_ex_stage (
   assign div_busy = div_engine_busy || div_write_pending;
   assign div_wb_en = (div_wb_en_raw || div_write_pending) && (div_rd_q != 5'd0) &&
                      !wb_we && !halt && !rst;
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       div_write_pending <= 1'b0;
     end else if (!halt) begin
@@ -362,7 +362,7 @@ module roco_cpu_ex_stage (
     end
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       div_rd_q <= '0;
     end else if (div_start) begin
@@ -641,11 +641,15 @@ module roco_cpu_ex_stage (
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
                     !fence_hold && !halt && !rst && !cancel_ex;
   assign trap_capture = (irq_take || ex_trap) && !fence_hold && !halt && !rst && !cancel_ex;
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) trap_pending <= 1'b0;
     else trap_pending <= trap_capture;
-    // Payload does not need the late trap-valid enable. Only pending
-    // makes it visible, and younger EX side effects are canceled then.
+  end
+
+  // Payload does not need the late trap-valid enable, and it carries no
+  // reset value. Only pending makes it visible, and younger EX side
+  // effects are canceled then.
+  always_ff @(posedge clk) begin
     csr_trap_pc <= ex_trap ? idex_pc : irq_next_pc;
     csr_trap_cause <= ex_trap ? ex_trap_cause : {1'b1, 26'd0, irq_code};
     csr_trap_tval <= ex_trap ? ex_trap_tval : 32'd0;
@@ -681,7 +685,7 @@ module roco_cpu_ex_stage (
   assign btb_taken = (idex_is_branch && ex_branch_taken) || idex_is_jal || idex_is_jalr;
   assign btb_target = idex_is_jalr ? ex_jump_target : ex_branch_target;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       stall_active <= 1'b0;
       stall_alu <= '0;
@@ -904,7 +908,7 @@ module roco_cpu_ex_stage (
   assign vec_elem_sew = (idex_instr[14:12] == 3'b000) ? 3'd0 :
                         (idex_instr[14:12] == 3'b101) ? 3'd1 : 3'd2;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       vmem_active <= 1'b0;
       vmem_k <= '0;
@@ -934,7 +938,7 @@ module roco_cpu_ex_stage (
   always_ff @(posedge clk) exmem_vec_data <= vec_ex_wdata;
 
   // ------------------------------------------------------ EX/MEM register
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       exmem_valid <= 1'b0;
       exmem_vec_we <= 1'b0;
@@ -956,6 +960,10 @@ module roco_cpu_ex_stage (
       exmem_is_lr <= 1'b0;
       exmem_is_sc <= 1'b0;
       exmem_amo_op <= '0;
+      exmem_is_vload <= 1'b0;
+      exmem_is_vstore <= 1'b0;
+      exmem_vec_elem <= '0;
+      exmem_vec_sew <= '0;
       exmem_is_sfence <= 1'b0;
       exmem_is_fence_i <= 1'b0;
     end else if (halt || fence_hold) begin

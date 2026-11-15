@@ -18,7 +18,9 @@ module tb_vec_regs;
 
   roco_cpu_vec dut (.*);
 
-  always @(posedge clk) begin
+  // The vector register file uses an asynchronous reset, so the reference
+  // model must clear on the reset edge rather than waiting for a clock edge.
+  always @(posedge clk or posedge rst) begin
     if (rst) begin
       for (int r = 0; r < 32; r++) expected[r] = '0;
     end else if (ex_we) begin

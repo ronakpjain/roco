@@ -191,7 +191,7 @@ module roco_cpu_mem_stage (
 
   // Load-reserved / store-conditional reservation. The set is one word
   // wide: any store to it, any store-conditional and any trap clears it.
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       res_valid <= 1'b0;
       res_addr <= '0;
@@ -209,7 +209,7 @@ module roco_cpu_mem_stage (
     end
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       memwb_valid <= 1'b0;
       memwb_data <= '0;

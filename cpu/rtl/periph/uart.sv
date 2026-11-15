@@ -55,7 +55,7 @@ module uart #(
   logic tx_direct;
   assign tx_direct = tx_valid && tx_ready && tx_empty && !tx_busy;
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       tx_head <= '0;
       tx_tail <= '0;
@@ -66,7 +66,6 @@ module uart #(
       uart_tx <= 1'b1;
     end else begin
       if (tx_valid && tx_ready && !tx_direct) begin
-        tx_mem[tx_tail[ADDR_BITS-1:0]] <= tx_data;
         tx_tail <= tx_tail + 1'b1;
       end
 
@@ -121,7 +120,7 @@ module uart #(
   assign rx_valid = !rx_empty;
   assign rx_data = rx_mem[rx_head[ADDR_BITS-1:0]];
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       rx_sync <= 2'b11;
       rx_state <= RX_IDLE;
@@ -192,12 +191,26 @@ module uart #(
 
       if (rx_done) begin
         if (!rx_full) begin
-          rx_mem[rx_tail[ADDR_BITS-1:0]] <= rx_shift;
           rx_tail <= rx_tail + 1'b1;
         end else begin
           rx_overflow <= 1'b1;
         end
       end
+    end
+  end
+
+  // The TX and RX FIFO memories carry no reset value; only the head and tail
+  // pointers above do, so the arrays stay out of the asynchronous reset cone
+  // and keep mapping to distributed RAM.
+  always_ff @(posedge clk) begin
+    if (tx_valid && tx_ready && !tx_direct) begin
+      tx_mem[tx_tail[ADDR_BITS-1:0]] <= tx_data;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rx_done && !rx_full) begin
+      rx_mem[rx_tail[ADDR_BITS-1:0]] <= rx_shift;
     end
   end
 

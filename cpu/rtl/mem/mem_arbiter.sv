@@ -225,7 +225,7 @@ module mem_arbiter (
     endcase
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       locked <= 1'b0;
       owner <= OWN_NONE;

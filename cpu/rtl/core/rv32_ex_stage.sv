@@ -755,7 +755,10 @@ module rv32_ex_stage (
   );
   assign vec_reduce_sum[127:32] = '0;
 
-  assign vec_wr_vl = (idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110) ?
+  // Scalar-element moves and reductions define only destination element
+  // zero. Every other element follows the tail policy, independently of vl.
+  assign vec_wr_vl = ((idex_vec_funct6 == `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b110)) ||
+                     ((idex_vec_funct6 != `RV32_VOP_SCALAR) && (idex_instr[14:12] == 3'b010)) ?
                      5'd1 : vec_vl;
 
   // Select scalar vector results by instruction class, without the

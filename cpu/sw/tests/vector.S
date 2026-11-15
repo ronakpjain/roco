@@ -7,6 +7,53 @@
 .section .text.init
 .globl _start
 
+
+# The reduction's destination is one scalar element; every other element
+# follows the tail policy even when it lies below vl.
+.macro check_reduce_tail sew, vlmax, store, load, step, ones
+  vsetivli zero, \vlmax, \sew, m1, tu, mu
+  vmv.v.i v15, 9
+  vmv.v.i v16, 1
+  vmv.v.i v17, 3
+  vsetivli zero, 2, \sew, m1, tu, mu
+  vredsum.vs v15, v16, v17
+  vsetivli zero, \vlmax, \sew, m1, tu, mu
+  \store v15, (s3)
+  \load t4, 0(s3)
+  li t5, 5
+  bne t4, t5, fail_12
+  addi a4, s3, \step
+  li t3, (\vlmax - 1)
+  li t5, 9
+.Lred_tu_\@:
+  \load t4, 0(a4)
+  bne t4, t5, fail_12
+  addi a4, a4, \step
+  addi t3, t3, -1
+  bnez t3, .Lred_tu_\@
+
+  vmv.v.i v15, 9
+  vsetivli zero, 2, \sew, m1, ta, mu
+  vredsum.vs v15, v16, v17
+  vsetivli zero, \vlmax, \sew, m1, ta, mu
+  \store v15, (s3)
+  \load t4, 0(s3)
+  li t5, 5
+  bne t4, t5, fail_12
+  addi a4, s3, \step
+  li t3, (\vlmax - 1)
+  li t5, 9
+  li t2, \ones
+.Lred_ta_\@:
+  \load t4, 0(a4)
+  beq t4, t5, .Lred_ok_\@
+  bne t4, t2, fail_12
+.Lred_ok_\@:
+  addi a4, a4, \step
+  addi t3, t3, -1
+  bnez t3, .Lred_ta_\@
+.endm
+
 _start:
   li x31, 0x80001000
   la s1, vbuf_a
@@ -192,6 +239,11 @@ _start:
   li t5, 45
   bne t4, t5, fail_11
 
+  # 12: reduction tail layout at every supported element width.
+  check_reduce_tail e8, 16, vse8.v, lbu, 1, 255
+  check_reduce_tail e16, 8, vse16.v, lhu, 2, 65535
+  check_reduce_tail e32, 4, vse32.v, lw, 4, -1
+
   li a0, 1
   sw a0, 0(x31)
 1:
@@ -229,6 +281,9 @@ fail_10:
   j fail
 fail_11:
   li a0, 51
+  j fail
+fail_12:
+  li a0, 52
 fail:
   sw a0, 0(x31)
 1:

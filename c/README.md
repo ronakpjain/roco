@@ -19,7 +19,7 @@ hello.o   -> roco-ld -> hello.elf + hello.bin + hello.hex
 | `roco-as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
 | ELF32 objects | reader and writer complete |
 | `roco-ld` linker | fixed-layout ELF executable, binary, and hex output |
-| `roco-cc` C compiler | freestanding subset: types, pointers, arrays, functions, control flow |
+| `roco-cc` C compiler | preprocessor, typedefs, types, pointers, arrays, functions, control flow |
 
 The assembler accepts the standard RV32 encodings and rejects instructions
 the roco RTL does not implement. See the [target profile](docs/target.md)
@@ -42,6 +42,7 @@ On macOS: `brew install googletest doxygen`.
 ## Usage
 
 ```bash
+./build/roco-cc -E -o hello.i hello.c   # preprocessed source
 ./build/roco-cc -S -o hello.s hello.c
 ./build/roco-as -o hello.o hello.s
 ./build/roco-ld -o hello.elf --hex hello.hex hello.o

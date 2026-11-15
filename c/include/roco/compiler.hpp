@@ -34,4 +34,11 @@ std::string compile_to_assembly(std::string_view source,
  */
 std::string compile_file(const std::string& path);
 
+/** @brief Run only the C preprocessor on one source file.
+ *  @param path Filesystem path of the C source.
+ *  @return Preprocessed C source.
+ *  @throws roco::Error if the file or an include cannot be read.
+ */
+std::string preprocess_file(const std::string& path);
+
 }  // namespace roco

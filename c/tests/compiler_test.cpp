@@ -117,3 +117,37 @@ TEST(CompilerTest, ReportsUnsupportedConstructs) {
 }
 
 }  // namespace
+
+TEST(CompilerTest, PreprocessesMacrosAndConditionals) {
+  const std::string assembly = compile(R"(
+    #define BASE 7
+    #define ADD(a, b) ((a) + (b))
+    #if defined(BASE) && BASE == 7
+    int value = ADD(BASE, 1);
+    #else
+    #error BASE is missing
+    #endif
+    int main(void) {
+      return value;
+    }
+  )");
+  EXPECT_NE(assembly.find(".word 8"), std::string::npos);
+  EXPECT_NE(assembly.find("main:"), std::string::npos);
+}
+
+TEST(CompilerTest, SupportsTypedefsIncludesAndAttributes) {
+  const std::string assembly = compile(R"(
+    #include <stdint.h>
+    typedef uint32_t word;
+    __attribute__((noinline)) static word identity(word value) {
+      return value;
+    }
+    int main(void) {
+      word value = (word)-1;
+      return (int)(identity(value) & 1u);
+    }
+  )");
+  EXPECT_NE(assembly.find("identity:"), std::string::npos);
+  EXPECT_NE(assembly.find("main:"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}

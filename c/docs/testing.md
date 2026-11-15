@@ -18,7 +18,7 @@ ctest --test-dir build --output-on-failure
 | `elf_test` | object round trips, executable program headers, malformed input |
 | `assembler_test` | instructions, pseudoinstructions, labels, data, atomics, vectors, errors |
 | `linker_test` | cross-object symbols, absolute and PC-relative relocations, bss bounds, call pairs, errors |
-| `compiler_test` | expression/control-flow codegen, globals, arrays, strings, diagnostics, generated assembly assembling cleanly |
+| `compiler_test` | preprocessing, typedefs, expression/control-flow codegen, globals, arrays, strings, diagnostics, generated assembly assembling cleanly |
 
 Assembler tests check exact machine words against LLVM `llvm-mc` encodings
 for the supported forms, including the roco vector subset. Rejection tests
@@ -41,7 +41,8 @@ while still validating the complete toolchain against the RTL.
 
 `cpu_smoke_c` does the same from a C source file: `roco-cc` emits
 assembly, `roco-as` creates an object, `roco-ld` links it with the C
-startup, and the core testbench must print `PASS`.
+startup, and the core testbench must print `PASS`. The CPU's `test-vector-c`
+and `test-boot` targets use the same compiler, assembler, and linker path.
 
 ## Documentation
 

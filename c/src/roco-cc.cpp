@@ -15,7 +15,7 @@
 namespace {
 
 void usage() {
-  std::cerr << "usage: roco-cc [-S|-c] [-o output] input.c\n";
+  std::cerr << "usage: roco-cc [-S|-c|-E] [-o output] input.c\n";
 }
 
 void write_text(const std::filesystem::path& path, const std::string& text) {
@@ -46,6 +46,7 @@ void write_bytes(const std::filesystem::path& path,
 
 int main(int argc, char** argv) {
   bool emit_object = false;
+  bool emit_preprocessed = false;
   std::filesystem::path output;
   std::filesystem::path input;
 
@@ -61,6 +62,10 @@ int main(int argc, char** argv) {
     }
     if (argument == "-c") {
       emit_object = true;
+      continue;
+    }
+    if (argument == "-E") {
+      emit_preprocessed = true;
       continue;
     }
     if (argument == "-o") {
@@ -89,10 +94,14 @@ int main(int argc, char** argv) {
   }
   if (output.empty()) {
     output = input;
-    output.replace_extension(emit_object ? ".o" : ".s");
+    output.replace_extension(emit_preprocessed ? ".i" : (emit_object ? ".o" : ".s"));
   }
 
   try {
+    if (emit_preprocessed) {
+      write_text(output, roco::preprocess_file(input.string()));
+      return 0;
+    }
     if (!emit_object) {
       write_text(output, roco::compile_file(input.string()));
       return 0;

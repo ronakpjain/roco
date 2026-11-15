@@ -5,6 +5,7 @@ to an ELF object. The backend emits instructions accepted by `roco-as`
 and uses the standard RV32 ILP32 integer calling convention.
 
 ```bash
+roco-cc -E -o program.i program.c   # preprocessed C
 roco-cc -S -o program.s program.c   # assembly
 roco-cc -c -o program.o program.c   # ELF relocatable object
 ```
@@ -16,9 +17,11 @@ runtime objects, or use the `cpu_smoke_c` test as an end-to-end example.
 
 | Area | Support |
 | --- | --- |
-| Types | `void`, `char`, `short`, `int`, `long`; signed and unsigned variants; pointers; arrays |
-| Qualifiers | `const`, `volatile`, `restrict` parsed and ignored |
+| Preprocessor | `#include`, object/function `#define`, `#undef`, `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`, `#pragma`, `#error` |
+| Types | `void`, `char`, `short`, `int`, `long`; signed and unsigned variants; file-scope `typedef` aliases; pointers; arrays |
+| Qualifiers | `const`, `volatile`, `restrict` parsed and ignored; `__attribute__((...))` ignored |
 | Declarations | globals, locals, functions, prototypes, multiple declarators |
+| Headers | quoted includes search the source directory; angled includes search the freestanding `include/freestanding` directory |
 | Initializers | scalar globals, array brace lists, string arrays, pointer-to-symbol/string globals |
 | Statements | compound, expression, `return`, `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue` |
 | Expressions | assignment and compound assignment, casts, `?:`, `||`, `&&`, bitwise, equality, relational, shifts, `+ - * / %`, unary `+ - ! ~ & *`, pre/post `++`/`--`, `sizeof`, calls, subscripts |
@@ -30,8 +33,8 @@ and indexed but brace-initialized local arrays are not implemented.
 
 ## Not supported yet
 
-- preprocessor (`#include`, `#define`, conditionals);
-- `struct`, `union`, `enum`, `typedef`, `_Bool`;
+- `struct`, `union`, `enum`, `_Bool`;
+- inline assembly (`__asm__`); use a small assembly helper instead;
 - function pointers;
 - `switch`, `goto`, labels;
 - floating point and 64-bit integer types;
@@ -68,6 +71,7 @@ objects or relocation handling.
 | File | Purpose |
 | --- | --- |
 | `src/compiler/token.hpp`, `token.cpp` | tokens and keyword classification |
+| `src/compiler/preprocessor.hpp` | includes, macros, and conditional compilation |
 | `src/compiler/lexer.hpp` | C lexer |
 | `src/compiler/types.hpp` | type objects and conversions |
 | `src/compiler/ast.hpp` | declarations, statements, expressions |
@@ -78,7 +82,8 @@ objects or relocation handling.
 ## Verification
 
 GoogleTest checks assembly shape, generated code that must assemble,
-control flow, globals, arrays, strings, and diagnostics. The
+preprocessing, typedefs, casts, control flow, globals, arrays, strings,
+and diagnostics. The
 `cpu_smoke_c` CTest compiles a C program, assembles and links it, and
 runs it on the real core testbench. It passes only when the program
 writes `1` to the `tohost` register.

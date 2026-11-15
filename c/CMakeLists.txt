@@ -20,6 +20,8 @@ add_library(roco_core
   src/compiler/token.cpp
 )
 target_include_directories(roco_core PUBLIC include PRIVATE src)
+target_compile_definitions(roco_core PRIVATE
+  ROCO_INCLUDE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/include/freestanding")
 target_compile_options(roco_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
 add_executable(roco-as src/roco-as.cpp)

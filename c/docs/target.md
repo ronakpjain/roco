@@ -117,6 +117,10 @@ The current C compiler emits scalar RV32IMA only. It does not auto-vectorize,
 so the vector caveats below apply to hand-written assembly and future
 backend work:
 
+- `roco-cc` supplies freestanding `<stdint.h>`; quoted headers are searched
+  relative to the source file.
+- `__attribute__((...))` is ignored, and inline assembly is not supported;
+  put CSR access in a small `.S` helper.
 - Use `vsetvli` with SEW 8/16/32 and LMUL=m1.
 - Prefer scalar code for operations not in the vector table.
 - Do not rely on `vma` or masked vector operations.

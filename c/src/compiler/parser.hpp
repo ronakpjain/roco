@@ -119,8 +119,12 @@ class Parser {
     return advance().text;
   }
 
-  bool is_declaration_start() const {
-    if (peek().kind != TokenKind::Keyword) {
+  bool is_declaration_start(std::size_t lookahead = 0) const {
+    if (peek(lookahead).kind == TokenKind::Identifier &&
+        typedefs_.find(peek(lookahead).text) != typedefs_.end()) {
+      return true;
+    }
+    if (peek(lookahead).kind != TokenKind::Keyword) {
       return false;
     }
     static const std::unordered_set<std::string> starters = {
@@ -129,13 +133,18 @@ class Parser {
         "extern", "register", "typedef", "struct", "union",
         "enum",   "_Bool",
     };
-    return starters.count(peek().text) != 0;
+    return starters.count(peek(lookahead).text) != 0;
   }
 
   void parse_external_declaration() {
     bool is_static = false;
     bool is_extern = false;
+    bool is_typedef = false;
     while (true) {
+      if (consume_keyword("typedef")) {
+        is_typedef = true;
+        continue;
+      }
       if (consume_keyword("static")) {
         is_static = true;
         continue;
@@ -153,6 +162,17 @@ class Parser {
       return;
     }
     const TypePtr base = parse_declspec();
+    if (is_typedef) {
+      while (true) {
+        Declarator alias = parse_declarator(base, false, false);
+        typedefs_[alias.name] = alias.type;
+        if (!consume_punct(",")) {
+          break;
+        }
+      }
+      expect_punct(";");
+      return;
+    }
     if (consume_punct(";")) {
       return;
     }
@@ -165,6 +185,16 @@ class Parser {
   }
 
   TypePtr parse_declspec() {
+    while (consume_keyword("const") || consume_keyword("volatile") ||
+           consume_keyword("restrict")) {
+    }
+    if (peek().kind == TokenKind::Identifier) {
+      const auto alias = typedefs_.find(peek().text);
+      if (alias != typedefs_.end()) {
+        advance();
+        return alias->second;
+      }
+    }
     bool is_unsigned = false;
     bool is_signed = false;
     bool saw_char = false;
@@ -1031,18 +1061,6 @@ class Parser {
     return parse_postfix();
   }
 
-  bool is_declaration_start(std::size_t lookahead) const {
-    if (peek(lookahead).kind != TokenKind::Keyword) {
-      return false;
-    }
-    static const std::unordered_set<std::string> starters = {
-        "void",   "char",   "short",  "int",     "long",
-        "signed", "unsigned", "const", "volatile", "struct",
-        "union",  "enum",   "_Bool",
-    };
-    return starters.count(peek(lookahead).text) != 0;
-  }
-
   ExprPtr parse_increment(bool prefix, bool increment) {
     ExprPtr operand = parse_unary();
     if (!operand->lvalue || !is_scalar(operand->type)) {
@@ -1464,6 +1482,7 @@ class Parser {
   std::size_t position_ = 0;
   Program program_;
   std::unordered_map<std::string, GlobalVar*> globals_;
+  std::unordered_map<std::string, TypePtr> typedefs_;
   std::unordered_map<std::string, Function*> functions_;
   std::vector<std::unordered_map<std::string, Decl*>> scopes_;
   Function* current_function_ = nullptr;

@@ -27,6 +27,8 @@ module tb_if_queue;
       .redirect_pc(32'h80001000),
       .pred_taken(1'b0),
       .pred_target(32'd0),
+      .pred_direct(1'b0),
+      .pred_imm(21'd0),
       .imem_req(req),
       .imem_addr(req_addr),
       .imem_rsp_valid(rsp_valid),

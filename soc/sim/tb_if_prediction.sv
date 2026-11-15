@@ -5,7 +5,8 @@ module tb_if_prediction;
   always #5 clk = !clk;
   logic rst = 1, flush = 0, consume_enable = 1;
   logic [31:0] redirect = 32'h300;
-  wire req, valid, fault, pred_taken;
+  wire req, valid, fault, pred_taken, pred_direct;
+  wire [20:0] pred_imm;
   wire [31:0] addr, pc, instr, pred_target, fetch_pc;
   wire rsp_valid;
   wire [31:0] rsp_addr, rsp_data;
@@ -29,6 +30,8 @@ module tb_if_prediction;
       .redirect_pc(redirect),
       .pred_taken(lookup_taken),
       .pred_target(lookup_target),
+      .pred_direct(lookup_taken),
+      .pred_imm(21'(lookup_target - fetch_pc)),
       .imem_req(req),
       .imem_addr(addr),
       .imem_rsp_valid(rsp_valid),
@@ -46,6 +49,8 @@ module tb_if_prediction;
       .if_fault(fault),
       .if_pred_taken(pred_taken),
       .if_pred_target(pred_target),
+      .if_pred_direct(pred_direct),
+      .if_pred_imm(pred_imm),
       .fetch_pc(fetch_pc),
       .if_consume(consume)
   );
@@ -110,6 +115,8 @@ module tb_if_prediction;
       assert (pred_taken == (pc == 32'h100 || pc == 32'h200))
       else $fatal(1, "prediction metadata mismatch");
       if (pred_taken) begin
+        assert (pred_direct && pred_imm == 21'(pred_target - pc))
+        else $fatal(1, "prediction metadata lost during queue/cache replay");
         assert (pred_target == (pc == 32'h100 ? 32'h200 : 32'h100))
         else $fatal(1, "prediction target mismatch");
       end

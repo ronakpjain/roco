@@ -75,9 +75,13 @@ module roco_cpu (
   logic [31:0] if_instr;
   logic if_pred_taken;
   logic [31:0] if_pred_target;
+  logic if_pred_direct;
+  logic [20:0] if_pred_imm;
   logic [31:0] fetch_pc;
   logic pred_taken;
   logic [31:0] pred_target;
+  logic pred_direct;
+  logic [20:0] pred_imm;
   logic idex_pred_taken;
   logic idex_pred_target_match;
   logic [31:0] idex_pred_jalr_base;
@@ -415,6 +419,8 @@ module roco_cpu (
       .flush(ex_redirect_en || mem_redirect),
       .pred_taken(pred_taken),
       .pred_target(pred_target),
+      .pred_direct(pred_direct),
+      .pred_imm(pred_imm),
       .if_consume(if_consume),
       .redirect_pc(mem_redirect ? (exmem_pc + 32'd4) : ex_redirect_pc),
       .imem_req(if_imem_req),
@@ -434,6 +440,8 @@ module roco_cpu (
       .if_fault(if_fault),
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
+      .if_pred_direct(if_pred_direct),
+      .if_pred_imm(if_pred_imm),
       .fetch_pc(fetch_pc)
   );
 
@@ -447,6 +455,8 @@ module roco_cpu (
       .if_fault(if_fault),
       .if_pred_taken(if_pred_taken),
       .if_pred_target(if_pred_target),
+      .if_pred_direct(if_pred_direct),
+      .if_pred_imm(if_pred_imm),
       .hold(stall),
       .bubble(bubble),
       .flush(ex_redirect_en || mem_redirect),
@@ -759,12 +769,14 @@ module roco_cpu (
   logic bp_update_valid;
   logic [31:2] bp_update_pc;
   logic [31:0] bp_update_target;
+  logic [20:0] bp_update_imm;
   logic bp_update_branch, bp_update_jal, bp_update_jalr, bp_update_taken;
   // Payload flops carry no reset value; only bp_update_valid gates their
   // visibility, which keeps them out of the asynchronous reset cone.
   always_ff @(posedge clk) begin
     bp_update_pc <= idex_pc[31:2];
     bp_update_target <= btb_target;
+    bp_update_imm <= idex_imm[20:0];
     bp_update_branch <= btb_is_branch;
     bp_update_jal <= btb_is_jal;
     bp_update_jalr <= btb_is_jalr;
@@ -788,13 +800,16 @@ module roco_cpu (
       .if_pc(fetch_pc),
       .if_pred_taken(pred_taken),
       .if_pred_target(pred_target),
+      .if_pred_direct(pred_direct),
+      .if_pred_imm(pred_imm),
       .ex_pc(bp_update_pc),
       .ex_update(bp_update_valid && !halt),
       .ex_is_branch(bp_update_branch),
       .ex_is_jal(bp_update_jal),
       .ex_is_jalr(bp_update_jalr),
       .ex_taken(bp_update_taken),
-      .ex_target(bp_update_target)
+      .ex_target(bp_update_target),
+      .ex_imm(bp_update_imm)
   );
 
   roco_cpu_mem_stage u_mem (
@@ -891,6 +906,9 @@ module roco_cpu (
 
 `ifndef SYNTHESIS
   always @(posedge clk) begin
+    if (!rst && pred_taken && pred_direct &&
+        (pred_target != fetch_pc + {{11{pred_imm[20]}}, pred_imm}))
+      $fatal(1, "direct BTB immediate does not describe its target");
     if (!rst && idex_valid && idex_is_csr &&
         ((idex_csr_addr == 12'hb02) || (idex_csr_addr == 12'hb82) || (idex_csr_addr == 12'hc02)) &&
         retire)

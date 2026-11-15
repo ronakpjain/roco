@@ -25,6 +25,8 @@ module roco_cpu_if_stage (
   input logic [31:0] redirect_pc,
   input logic pred_taken,
   input logic [31:0] pred_target,
+  input logic pred_direct,
+  input logic [20:0] pred_imm,
   /* Streaming instruction memory port. */
   output logic imem_req,
   output logic [31:0] imem_addr,
@@ -44,6 +46,8 @@ module roco_cpu_if_stage (
   output logic if_fault,
   output logic if_pred_taken,
   output logic [31:0] if_pred_target,
+  output logic if_pred_direct,
+  output logic [20:0] if_pred_imm,
   output logic [31:0] fetch_pc,
   input logic if_consume
 );
@@ -60,6 +64,10 @@ module roco_cpu_if_stage (
   (* mem2reg *) logic q_fault[0:DEPTH-1];
   (* mem2reg *) logic q_pred_taken[0:DEPTH-1];
   (* mem2reg *) logic [31:0] q_pred_target[0:DEPTH-1];
+  (* mem2reg *) logic q_pred_direct[0:DEPTH-1];
+  (* mem2reg *) logic [20:0] q_pred_imm[0:DEPTH-1];
+  logic pending_pred_direct;
+  logic [20:0] pending_pred_imm;
   logic [1:0] q_head;
   logic [1:0] q_tail;
   logic [2:0] q_count;
@@ -135,6 +143,8 @@ module roco_cpu_if_stage (
   assign if_fault = q_fault[q_head];
   assign if_pred_taken = q_pred_taken[q_head];
   assign if_pred_target = q_pred_target[q_head];
+  assign if_pred_direct = q_pred_direct[q_head];
+  assign if_pred_imm = q_pred_imm[q_head];
 
   // Resolve a BTB prediction from the previous request's saved metadata.
   // Taken predictions insert one fetch bubble, separating the BTB read
@@ -154,9 +164,13 @@ module roco_cpu_if_stage (
     if (rst) begin
       pending_pred_taken <= 1'b0;
       pending_pred_target <= '0;
+      pending_pred_direct <= 1'b0;
+      pending_pred_imm <= '0;
     end else if (issue) begin
       pending_pred_taken <= pred_taken;
       pending_pred_target <= pred_target;
+      pending_pred_direct <= pred_direct;
+      pending_pred_imm <= pred_imm;
     end
   end
 
@@ -172,6 +186,8 @@ module roco_cpu_if_stage (
       q_pred_taken[q_tail] <= !fault_push && pending_pred_taken;
       // Fault entries never execute a branch; their target is ignored.
       q_pred_target[q_tail] <= pending_pred_target;
+      q_pred_direct[q_tail] <= !fault_push && pending_pred_direct;
+      q_pred_imm[q_tail] <= pending_pred_imm;
     end
   end
 

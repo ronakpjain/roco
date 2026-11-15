@@ -24,6 +24,8 @@ module roco_cpu_branch_predictor #(
   input logic [31:0] if_pc,
   output logic if_pred_taken,
   output logic [31:0] if_pred_target,
+  output logic if_pred_direct,
+  output logic [20:0] if_pred_imm,
   /* Execute-side update. The byte offset inside a word is never used. */
   input logic [31:2] ex_pc,
   input logic ex_update,
@@ -31,6 +33,7 @@ module roco_cpu_branch_predictor #(
   input logic ex_is_jal,
   input logic ex_is_jalr,
   input logic ex_taken,
+  input logic [20:0] ex_imm,
   input logic [31:0] ex_target
 );
 
@@ -42,6 +45,8 @@ module roco_cpu_branch_predictor #(
   logic [TAG_BITS-1:0] tags[0:ENTRIES-1];
   logic [31:0] targets[0:ENTRIES-1];
   logic valid[0:ENTRIES-1];
+  logic direct[0:ENTRIES-1];
+  logic [20:0] immediates[0:ENTRIES-1];
 
   logic [IDX_BITS-1:0] if_idx;
   logic [IDX_BITS-1:0] ex_idx;
@@ -63,6 +68,10 @@ module roco_cpu_branch_predictor #(
   // computes its own sequential PC, so a miss need not select a fallback
   // address through the tag comparator and wide target mux.
   assign if_pred_target = targets[if_idx];
+  // A matching PC tag and direct-branch immediate identify the target
+  // without putting another address sum in the decode stage.
+  assign if_pred_direct = direct[if_idx] && (if_pc[1:0] == 2'b00);
+  assign if_pred_imm = immediates[if_idx];
 
   always_comb begin
     counter_next = counters[ex_idx];
@@ -110,6 +119,8 @@ module roco_cpu_branch_predictor #(
     if (ex_update && (((ex_is_branch && ex_taken)) || ex_is_jal || ex_is_jalr)) begin
       tags[ex_idx] <= ex_tag;
       targets[ex_idx] <= ex_target;
+      direct[ex_idx] <= !ex_is_jalr;
+      immediates[ex_idx] <= ex_imm;
     end
   end
 

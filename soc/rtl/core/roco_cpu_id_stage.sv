@@ -18,6 +18,8 @@ module roco_cpu_id_stage (
   input logic if_fault,
   input logic if_pred_taken,
   input logic [31:0] if_pred_target,
+  input logic if_pred_direct,
+  input logic [20:0] if_pred_imm,
   input logic hold,
   input logic flush,
   input logic bubble,
@@ -291,15 +293,10 @@ module roco_cpu_id_stage (
       idex_instr <= if_instr;
       idex_ifault <= if_fault;
       idex_pred_taken <= if_pred_taken;
-      // B/JAL targets depend only on decode operands. Validate the BTB
-      // target here so EX redirect control does not wait for an adder
-      // followed by a full-width equality comparison.
-      // Split addition at bit zero. The high halfword receives a carry
-      // only when both source low bits are one. The same two differences
-      // validate a full B/J target and JALR's bit-zero-masked target.
-      idex_pred_target_match <= ((if_pc[0] ^ dec_imm[0]) == if_pred_target[0]) &&
-          (if_pc[31:1] == ((if_pc[0] && dec_imm[0]) ?
-                           pred_jalr_carry[30:0] : pred_jalr_base[30:0]));
+      // The BTB tag already matches this PC. A direct prediction has
+      // target PC+imm, so matching the trained immediate verifies it.
+      // Indirect predictions retain full source/target validation below.
+      idex_pred_target_match <= if_pred_direct && (dec_imm[20:0] == if_pred_imm);
       idex_pred_jalr_base <= {1'b0, pred_jalr_base[30:0]};
       idex_pred_jalr_carry <= {1'b0, pred_jalr_carry[30:0]};
       idex_pred_jalr_aligned <= !if_pred_target[0];

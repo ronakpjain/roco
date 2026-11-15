@@ -7,21 +7,21 @@ linker once it exists.
 
 ```text
 source.c
-  |-- Lexer ------------- tokens, comments, strings
-  |-- Parser ------------ declarations, expressions, control flow
-  `-- Codegen ----------- RV32IM assembly
+├── Preprocessor   includes, macros, conditionals
+├── Lexer          tokens, comments, strings
+├── Parser         declarations, expressions, control flow
+└── Codegen        RV32IM assembly
 
 source.S
-  |-- Lexer ------------- tokens, comments, strings, numeric local labels
-  |-- Parser ------------ sections, symbols, directives, instructions
-  |-- Encoder ----------- RV32 + roco vector subset words
-  |-- Relocations ------- resolved local labels or deferred symbols
-  `-- Object ------------ sections, symbols, relocation records
-          |
-          `-- ELF writer -> .o
+├── Lexer          tokens, comments, strings, numeric local labels
+├── Parser         sections, symbols, directives, instructions
+├── Encoder        RV32 + roco vector subset words
+├── Relocations    resolved local labels or deferred symbols
+└── Object         sections, symbols, relocation records
+    └── ELF writer -> .o
 
 .o files
-  `-- ELF reader -> linker -> .elf / .bin / .hex
+└── ELF reader -> linker -> .elf / .bin / .hex
 ```
 
 ## Compiler

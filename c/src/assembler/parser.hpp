@@ -456,7 +456,18 @@ class Assembler {
     if (remainder == 0) {
       return;
     }
-    emit_fill(alignment - remainder, static_cast<std::uint8_t>(fill));
+    std::uint64_t padding = alignment - remainder;
+    const bool executable = (section.flags & kShfExecInstr) != 0;
+    if (fill == 0 && executable) {
+      // Executable padding must be a legal instruction, not data zero.
+      while (padding >= 4) {
+        emit_u32(0x00000013U);
+        padding -= 4;
+      }
+    }
+    if (padding != 0) {
+      emit_fill(padding, static_cast<std::uint8_t>(fill));
+    }
   }
 
   void emit_fill(std::uint64_t count, std::uint8_t fill = 0) {
@@ -792,13 +803,24 @@ class Assembler {
       }
       return;
     }
+    // GNU's la is PC-relative, which also keeps code correct when it runs
+    // through a virtual alias. The low relocation refers to the AUIPC site.
     const std::uint32_t high_offset = place_instruction(
-        isa::encode_u(isa::kOpcodeLui, static_cast<std::uint32_t>(rd), 0));
-    add_relocation(high_offset, isa::Reloc::Hi20, expression);
+        isa::encode_u(isa::kOpcodeAuipc, static_cast<std::uint32_t>(rd), 0));
+    add_relocation(high_offset, isa::Reloc::PcrelHi20, expression);
+    const std::string anchor_name =
+        ".Lla." + std::to_string(numeric_label_sequence_++);
+    AsmSymbol& anchor = symbol_for(anchor_name);
+    anchor.defined = true;
+    anchor.section = static_cast<std::int64_t>(current_section_);
+    anchor.value = high_offset;
+    Expr low_expression;
+    low_expression.has_symbol = true;
+    low_expression.symbol = anchor_name;
     const std::uint32_t low_offset = place_instruction(isa::encode_i(
         isa::kOpcodeOpImm, static_cast<std::uint32_t>(rd), 0,
         static_cast<std::uint32_t>(rd), 0));
-    add_relocation(low_offset, isa::Reloc::Lo12I, expression);
+    add_relocation(low_offset, isa::Reloc::PcrelLo12I, low_expression);
   }
 
   void emit_spec(const InstructionSpec& spec) {
@@ -840,7 +862,7 @@ class Assembler {
         emit_u32(isa::encode_i(
             spec.opcode, static_cast<std::uint32_t>(rd), spec.funct3,
             static_cast<std::uint32_t>(rs1),
-            spec.funct7 | static_cast<std::uint32_t>(value)));
+            static_cast<std::uint32_t>(spec.funct7 << 5) | static_cast<std::uint32_t>(value)));
         return;
       }
       case Format::Load: {

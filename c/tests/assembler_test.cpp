@@ -79,7 +79,7 @@ TEST(AssemblerTest, EncodesIntegerInstructions) {
   EXPECT_EQ(text[12], 0x00a02933U);
   EXPECT_EQ(text[13], 0x01f51293U);
   EXPECT_EQ(text[14], 0x00355293U);
-  EXPECT_EQ(text[15], 0x02355293U);
+  EXPECT_EQ(text[15], 0x40355293U);
 }
 
 TEST(AssemblerTest, ExpandsLoadImmediateAndAddressPseudoInstructions) {
@@ -98,16 +98,16 @@ TEST(AssemblerTest, ExpandsLoadImmediateAndAddressPseudoInstructions) {
   EXPECT_EQ(text[2], 0xfff00593U);
   EXPECT_EQ(text[3], 0x00001637U);
   EXPECT_EQ(text[4], 0x80060613U);
-  EXPECT_EQ(text[5], 0x000006b7U);
+  EXPECT_EQ(text[5], 0x00000697U);
   EXPECT_EQ(text[6], 0x00068693U);
 
   const auto& text_section = section(object, ".text");
   ASSERT_EQ(text_section.relocations.size(), 2U);
   EXPECT_EQ(text_section.relocations[0].offset, 20U);
-  EXPECT_EQ(text_section.relocations[0].type, roco::isa::Reloc::Hi20);
+  EXPECT_EQ(text_section.relocations[0].type, roco::isa::Reloc::PcrelHi20);
   EXPECT_EQ(object.symbols[text_section.relocations[0].symbol].name, "value");
   EXPECT_EQ(text_section.relocations[1].offset, 24U);
-  EXPECT_EQ(text_section.relocations[1].type, roco::isa::Reloc::Lo12I);
+  EXPECT_EQ(text_section.relocations[1].type, roco::isa::Reloc::PcrelLo12I);
 }
 
 TEST(AssemblerTest, ResolvesNamedAndNumericLabels) {

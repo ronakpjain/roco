@@ -106,8 +106,7 @@ code.
   at calls.
 - No compressed instructions, no floating point, no PIC/PIE.
 - No linker relaxation.
-- `la` uses absolute `LUI` + `ADDI` relocations, matching a fixed-address
-  freestanding image.
+- `la` uses PC-relative `AUIPC` + `ADDI` relocations.
 - Branches and jumps use the standard ±4 KiB and ±1 MiB ranges.
 
 ## Compiler guidance

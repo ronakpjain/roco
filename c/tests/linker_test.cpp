@@ -97,7 +97,7 @@ TEST(LinkerTest, LinksCrossObjectReferences) {
   EXPECT_EQ(symbol(result, "message").value, 0U);
 
   EXPECT_EQ(word_at_offset(text, 0),
-            roco::isa::encode_u(roco::isa::kOpcodeLui, 10, 0x10000));
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 10, 0));
   EXPECT_EQ(word_at_offset(text, 4),
             roco::isa::encode_i(roco::isa::kOpcodeOpImm, 10, 0, 10, 0x01c));
   EXPECT_EQ(word_at_offset(text, 8),
@@ -110,7 +110,7 @@ TEST(LinkerTest, LinksCrossObjectReferences) {
 
   const auto flat = roco::flatten(result);
   ASSERT_GE(flat.size(), 28U);
-  EXPECT_EQ(flat[0], 0x37U);
+  EXPECT_EQ(flat[0], 0x17U);
   EXPECT_EQ(flat[text.data.size()], 'r');
 }
 
@@ -138,9 +138,9 @@ TEST(LinkerTest, AppliesAbsoluteAndPcRelativeRelocations) {
   EXPECT_EQ(word_at_offset(text, 0), 0x00000517U);  // auipc a0, 0
   EXPECT_EQ(word_at_offset(text, 4), 0x01450513U);  // addi a0, a0, 20
   EXPECT_EQ(word_at_offset(text, 8),
-            roco::isa::encode_u(roco::isa::kOpcodeLui, 11, 0x10000));
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 11, 0));
   EXPECT_EQ(word_at_offset(text, 12),
-            roco::isa::encode_i(roco::isa::kOpcodeOpImm, 11, 0, 11, 0x014));
+            roco::isa::encode_i(roco::isa::kOpcodeOpImm, 11, 0, 11, 0x00c));
   EXPECT_EQ(word_at_offset(text, 16), 0x10000014U);
   EXPECT_EQ(word_at(data, 0x10000014U), 0x12345678U);
 }
@@ -167,13 +167,13 @@ TEST(LinkerTest, DefinesBssBoundsAndKeepsBssOutOfFlatImage) {
   EXPECT_EQ(bss.size, 16U);
   EXPECT_EQ(bss.data.size(), 0U);
   EXPECT_EQ(word_at_offset(text, 0),
-            roco::isa::encode_u(roco::isa::kOpcodeLui, 5, 0x10000));
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 5, 0));
   EXPECT_EQ(word_at_offset(text, 4),
             roco::isa::encode_i(roco::isa::kOpcodeOpImm, 5, 0, 5, 0x014));
   EXPECT_EQ(word_at_offset(text, 8),
-            roco::isa::encode_u(roco::isa::kOpcodeLui, 6, 0x10000));
+            roco::isa::encode_u(roco::isa::kOpcodeAuipc, 6, 0));
   EXPECT_EQ(word_at_offset(text, 12),
-            roco::isa::encode_i(roco::isa::kOpcodeOpImm, 6, 0, 6, 0x024));
+            roco::isa::encode_i(roco::isa::kOpcodeOpImm, 6, 0, 6, 0x01c));
 
   const Symbol& bss_start = symbol(result, "__bss_start");
   const Symbol& bss_end = symbol(result, "__bss_end");

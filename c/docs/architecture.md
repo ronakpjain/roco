@@ -85,8 +85,8 @@ The assembler currently emits these relocation kinds:
 | `R_RISCV_32` | `.word symbol` |
 | `R_RISCV_BRANCH` | conditional branches to symbols |
 | `R_RISCV_JAL` | `j`, `jal`, `call`, `tail` |
-| `R_RISCV_HI20` / `LO12_I` / `LO12_S` | `la`, `%hi`, `%lo` |
-| `R_RISCV_PCREL_HI20` | `auipc` with a symbol |
+| `R_RISCV_HI20` / `LO12_I` / `LO12_S` | `%hi`, `%lo` |
+| `R_RISCV_PCREL_HI20` | `la`, `auipc` with a symbol |
 | `R_RISCV_PCREL_LO12_I/S` | `%pcrel_lo` markers |
 
 The linker applies the standard two's-complement split for HI20/LO12

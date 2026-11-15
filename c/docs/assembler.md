@@ -54,8 +54,8 @@ The raw CSR forms `csrrw`, `csrrs`, `csrrc`, `csrrwi`, `csrrsi`, and
 `csrrci` are also accepted.
 
 `call` and `tail` use `JAL` with `ra`/`zero`; the linker resolves the
-target. `la` uses absolute `HI20` + `LO12_I` relocations for a
-fixed-address image.
+target. `la` uses PC-relative `AUIPC` + `ADDI` relocations, matching
+GNU RISC-V and remaining correct when code runs through a virtual alias.
 
 ## Relocations
 

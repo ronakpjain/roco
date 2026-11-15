@@ -103,12 +103,14 @@ module dcache #(
   // A LUT-RAM mirror registers its read at the fabric edge. It supplies
   // forwarding without the block RAM's long clock-to-output delay.
   // Both copies receive every byte write and refill beat.
-  (* ram_style = "distributed" *) logic [7:0] forward_lane0[0:DEPTH-1];
-  (* ram_style = "distributed" *) logic [7:0] forward_lane1[0:DEPTH-1];
-  (* ram_style = "distributed" *) logic [7:0] forward_lane2[0:DEPTH-1];
-  (* ram_style = "distributed" *) logic [7:0] forward_lane3[0:DEPTH-1];
-  logic [31:0] forward_raw;
-  logic [31:0] forward_word, forward_merged;
+  localparam int BANK_ADDR_BITS = (IDX_BITS + OFF_BITS > 6) ? 6 : IDX_BITS + OFF_BITS;
+  localparam int BANK_DEPTH = 1 << BANK_ADDR_BITS;
+  localparam int BANK_COUNT = DEPTH / BANK_DEPTH;
+  logic [31:0] forward_bank_data[0:BANK_COUNT-1];
+  logic [IDX_BITS+OFF_BITS-1:0] forward_addr_q;
+  logic [31:0] forward_raw, forward_mask;
+  logic [31:0] forward_store_data_q, forward_mask_q;
+  logic forward_store_q;
   logic [1:0] lookup_offset_q, forward_offset;
   logic [2:0] lookup_funct3_q, forward_funct3;
   logic forward_store;
@@ -215,23 +217,42 @@ module dcache #(
       default: format_load = word_data;
     endcase
   endfunction
-  assign forward_word = {
-    forward_lane3[ram_raddr],
-    forward_lane2[ram_raddr],
-    forward_lane1[ram_raddr],
-    forward_lane0[ram_raddr]
-  };
+  // Read and align small banks in parallel, then select the registered
+  // bank in MEM. The full-depth mux no longer follows EX address arithmetic.
+  for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_forward_bank
+    (* ram_style = "distributed" *) logic [7:0] lane0[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] lane1[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] lane2[0:BANK_DEPTH-1];
+    (* ram_style = "distributed" *) logic [7:0] lane3[0:BANK_DEPTH-1];
+    logic [31:0] word_data;
+    wire [BANK_ADDR_BITS-1:0] read_addr = ram_raddr[BANK_ADDR_BITS-1:0];
+    wire [BANK_ADDR_BITS-1:0] write_addr = ram_waddr[BANK_ADDR_BITS-1:0];
+    assign word_data = {lane3[read_addr], lane2[read_addr], lane1[read_addr], lane0[read_addr]};
+    always_ff @(posedge clk) begin
+      forward_bank_data[bank] <= format_load(word_data, forward_offset, forward_funct3);
+      if (ram_we && ((ram_waddr >> BANK_ADDR_BITS) == bank)) begin
+        if (ram_wbe[0]) lane0[write_addr] <= ram_wdata[7:0];
+        if (ram_wbe[1]) lane1[write_addr] <= ram_wdata[15:8];
+        if (ram_wbe[2]) lane2[write_addr] <= ram_wdata[23:16];
+        if (ram_wbe[3]) lane3[write_addr] <= ram_wdata[31:24];
+      end
+    end
+  end
+  assign forward_raw = forward_bank_data[forward_addr_q>>BANK_ADDR_BITS];
   assign forward_store = (state == S_IDLE) && cm_valid && cm_we && lu_valid && (cm_addr == lu_addr);
-  for (genvar b = 0; b < 4; b = b + 1) begin : g_early_merge
-    assign forward_merged[8*b+:8] = (forward_store && cm_be[b]) ? cm_wdata[8*b+:8] : forward_word[8*b+:8];
+  for (genvar b = 0; b < 4; b = b + 1) begin : g_forward_mask
+    assign forward_mask[8*b+:8] = {8{cm_be[b]}};
   end
   assign forward_offset = (pending_miss && !recovery_ready) ? lookup_offset_q : lu_offset;
   assign forward_funct3 = (pending_miss && !recovery_ready) ? lookup_funct3_q : lu_funct3;
   always_ff @(posedge clk) begin
     ram_data <= {lane3[ram_raddr], lane2[ram_raddr], lane1[ram_raddr], lane0[ram_raddr]};
-    // Alignment and same-edge store forwarding finish before this flop.
-    // Dependent EX consumers start from the final scalar value.
-    forward_raw <= format_load(forward_merged, forward_offset, forward_funct3);
+    // Register alignment and store matching independently. Formatting the
+    // byte mask also selects the sign-extension bits of partial loads.
+    forward_addr_q <= ram_raddr;
+    forward_store_q <= forward_store;
+    forward_store_data_q <= format_load(cm_wdata, forward_offset, forward_funct3);
+    forward_mask_q <= format_load(forward_mask, forward_offset, forward_funct3);
     if (lu_valid) begin
       lookup_offset_q <= lu_offset;
       lookup_funct3_q <= lu_funct3;
@@ -262,19 +283,15 @@ module dcache #(
     if (ram_we) begin
       if (ram_wbe[0]) begin
         lane0[ram_waddr] <= ram_wdata[7:0];
-        forward_lane0[ram_waddr] <= ram_wdata[7:0];
       end
       if (ram_wbe[1]) begin
         lane1[ram_waddr] <= ram_wdata[15:8];
-        forward_lane1[ram_waddr] <= ram_wdata[15:8];
       end
       if (ram_wbe[2]) begin
         lane2[ram_waddr] <= ram_wdata[23:16];
-        forward_lane2[ram_waddr] <= ram_wdata[23:16];
       end
       if (ram_wbe[3]) begin
         lane3[ram_waddr] <= ram_wdata[31:24];
-        forward_lane3[ram_waddr] <= ram_wdata[31:24];
       end
     end
   end
@@ -284,7 +301,9 @@ module dcache #(
   assign merged[23:16] = prev_store_be[2] ? prev_store_data[23:16] : ram_data[23:16];
   assign merged[31:24] = prev_store_be[3] ? prev_store_data[31:24] : ram_data[31:24];
   assign cm_rdata = merged;
-  assign cm_forward_data = forward_raw;
+  assign cm_forward_data = forward_store_q ?
+                           ((forward_raw & ~forward_mask_q) |
+                            (forward_store_data_q & forward_mask_q)) : forward_raw;
 
   assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ) || (state == S_FLUSH_REQ);
   assign mem_we = (state == S_WB_REQ) || (state == S_FLUSH_REQ);

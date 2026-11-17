@@ -895,14 +895,309 @@ class Codegen {
     return true;
   }
 
+  int sequence_cost(int instructions, int latency) const {
+    const int issue = options_.costs.issue > 0 ? options_.costs.issue : 1;
+    return instructions * issue + std::max(0, latency - issue);
+  }
+
+  static int highest_bit(std::uint32_t value) {
+    int bit = -1;
+    while (value != 0) {
+      ++bit;
+      value >>= 1;
+    }
+    return bit;
+  }
+
+  static int count_bits(std::uint32_t value) {
+    int count = 0;
+    while (value != 0) {
+      count += static_cast<int>(value & 1u);
+      value >>= 1;
+    }
+    return count;
+  }
+
+  static int immediate_instruction_count(std::int64_t value) {
+    if (fits_signed_12(value)) {
+      return 1;
+    }
+    const std::uint32_t bits = static_cast<std::uint32_t>(value);
+    return (bits & 0xfffu) == 0 ? 1 : 2;
+  }
+
+  int temporary_push_cost() const {
+    return temp_stack_.size() < 7 ? 1 : 2;
+  }
+
+  int temporary_pop_cost() const {
+    return temp_stack_.size() < 7 ? 1 : 2;
+  }
+
+  int latency_of_sequence(const std::vector<std::string>& sequence) const {
+    if (sequence.empty()) {
+      return options_.costs.arithmetic;
+    }
+    const std::string& last = sequence.back();
+    if (last.find("slli") != std::string::npos ||
+        last.find("srli") != std::string::npos ||
+        last.find("srai") != std::string::npos ||
+        last.find("andi") != std::string::npos ||
+        last.find("ori") != std::string::npos ||
+        last.find("xori") != std::string::npos) {
+      return options_.costs.shift;
+    }
+    return options_.costs.arithmetic;
+  }
+
+  void consider_sequence(std::vector<std::string>& best, int& best_cost,
+                         std::vector<std::string> candidate) const {
+    const int cost =
+        sequence_cost(static_cast<int>(candidate.size()),
+                      latency_of_sequence(candidate));
+    if (cost < best_cost) {
+      best_cost = cost;
+      best = std::move(candidate);
+    }
+  }
+
+  bool emit_constant_multiply(std::int32_t value) {
+    std::vector<std::string> best;
+    int best_cost = std::numeric_limits<int>::max();
+    if (value == 0) {
+      consider_sequence(best, best_cost, {"li a0, 0"});
+    } else if (value == 1) {
+      consider_sequence(best, best_cost, {});
+    } else if (value == -1) {
+      consider_sequence(best, best_cost, {"neg a0, a0"});
+    } else {
+      const bool negative = value < 0;
+      const std::uint32_t magnitude =
+          negative ? 0u - static_cast<std::uint32_t>(value)
+                   : static_cast<std::uint32_t>(value);
+      const auto with_sign = [&](std::vector<std::string> sequence) {
+        if (negative) {
+          sequence.push_back("neg a0, a0");
+        }
+        return sequence;
+      };
+
+      if (is_power_of_two(static_cast<std::size_t>(magnitude))) {
+        const unsigned shift = power_of_two_shift(magnitude);
+        consider_sequence(best, best_cost,
+                          with_sign({"slli a0, a0, " +
+                                     std::to_string(shift)}));
+      }
+
+      const int bits = count_bits(magnitude);
+      if (bits == 2) {
+        const int high = highest_bit(magnitude);
+        int low = 0;
+        while ((magnitude & (1u << low)) == 0) {
+          ++low;
+        }
+        if (low == 0) {
+          consider_sequence(
+              best, best_cost,
+              with_sign({"slli a1, a0, " + std::to_string(high),
+                         "add a0, a0, a1"}));
+        } else {
+          consider_sequence(
+              best, best_cost,
+              with_sign({"slli a1, a0, " + std::to_string(high),
+                         "slli a0, a0, " + std::to_string(low),
+                         "add a0, a0, a1"}));
+        }
+      }
+      if (bits == 3) {
+        const int high = highest_bit(magnitude);
+        int middle = high - 1;
+        while (middle >= 0 && (magnitude & (1u << middle)) == 0) {
+          --middle;
+        }
+        int low = 0;
+        while ((magnitude & (1u << low)) == 0) {
+          ++low;
+        }
+        std::vector<std::string> sequence = {
+            "slli a1, a0, " + std::to_string(high),
+            "slli a2, a0, " + std::to_string(middle),
+            "add a1, a1, a2"};
+        if (low == 0) {
+          sequence.push_back("add a0, a1, a0");
+        } else {
+          sequence.push_back("slli a0, a0, " + std::to_string(low));
+          sequence.push_back("add a0, a1, a0");
+        }
+        consider_sequence(best, best_cost, with_sign(std::move(sequence)));
+      }
+
+      for (int low = 0; low < 31; ++low) {
+        const std::uint64_t power = std::uint64_t{1} << low;
+        const std::uint64_t sum = static_cast<std::uint64_t>(magnitude) + power;
+        if (sum > 0x80000000ULL ||
+            !is_power_of_two(static_cast<std::size_t>(sum))) {
+          continue;
+        }
+        const int high = static_cast<int>(power_of_two_shift(sum));
+        if (high <= low || high > 31) {
+          continue;
+        }
+        if (low == 0) {
+          consider_sequence(
+              best, best_cost,
+              with_sign({"slli a1, a0, " + std::to_string(high),
+                         "sub a0, a1, a0"}));
+        } else {
+          consider_sequence(
+              best, best_cost,
+              with_sign({"slli a1, a0, " + std::to_string(high),
+                         "slli a0, a0, " + std::to_string(low),
+                         "sub a0, a1, a0"}));
+        }
+      }
+
+      if (magnitude != 1) {
+        std::vector<std::string> sequence = {"mv a1, a0"};
+        const int high = highest_bit(magnitude);
+        for (int bit = high - 1; bit >= 0; --bit) {
+          sequence.push_back("slli a0, a0, 1");
+          if ((magnitude & (1u << bit)) != 0) {
+            sequence.push_back("add a0, a0, a1");
+          }
+        }
+        consider_sequence(best, best_cost, with_sign(std::move(sequence)));
+      }
+    }
+
+    const int fallback_cost = sequence_cost(
+        temporary_push_cost() + immediate_instruction_count(value) +
+            temporary_pop_cost() + 1,
+        options_.costs.multiply);
+    if (best_cost < fallback_cost) {
+      for (const std::string& line : best) {
+        emit("  " + line);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  bool emit_constant_divmod(BinaryOp operation, std::int32_t value,
+                            bool is_unsigned) {
+    std::vector<std::string> best;
+    int best_cost = std::numeric_limits<int>::max();
+    const auto consider = [&](std::vector<std::string> candidate) {
+      consider_sequence(best, best_cost, std::move(candidate));
+    };
+    const bool is_mod = operation == BinaryOp::Mod;
+    const std::uint32_t bits = static_cast<std::uint32_t>(value);
+    if (is_unsigned) {
+      if (bits == 0) {
+        return false;
+      }
+      if (bits == 1) {
+        consider(is_mod ? std::vector<std::string>{"li a0, 0"}
+                        : std::vector<std::string>{});
+      } else if (is_power_of_two(static_cast<std::size_t>(bits))) {
+        const unsigned shift = power_of_two_shift(bits);
+        if (is_mod) {
+          const std::uint32_t mask = bits - 1u;
+          if (mask <= 2047u) {
+            consider({"andi a0, a0, " + std::to_string(mask)});
+          } else {
+            consider({"li a1, " + std::to_string(mask),
+                      "and a0, a0, a1"});
+          }
+        } else {
+          consider({"srli a0, a0, " + std::to_string(shift)});
+        }
+      } else {
+        return false;
+      }
+    } else {
+      if (value == 0) {
+        return false;
+      }
+      if (value == 1 || value == -1) {
+        if (is_mod) {
+          consider({"li a0, 0"});
+        } else if (value == 1) {
+          consider({});
+        } else {
+          consider({"neg a0, a0"});
+        }
+      } else {
+        const bool negative = value < 0;
+        const std::uint32_t magnitude =
+            negative ? 0u - static_cast<std::uint32_t>(value)
+                     : static_cast<std::uint32_t>(value);
+        if (!is_power_of_two(static_cast<std::size_t>(magnitude))) {
+          return false;
+        }
+        const unsigned shift = power_of_two_shift(magnitude);
+        if (!is_mod) {
+          std::vector<std::string> sequence = {
+              "srai a1, a0, 31",
+              "srli a1, a1, " + std::to_string(32u - shift),
+              "add a0, a0, a1",
+              "srai a0, a0, " + std::to_string(shift)};
+          if (negative) {
+            sequence.push_back("neg a0, a0");
+          }
+          consider(std::move(sequence));
+        } else {
+          std::vector<std::string> sequence = {
+              "srai a1, a0, 31",
+              "srli a1, a1, " + std::to_string(32u - shift),
+              "add a0, a0, a1"};
+          const std::uint32_t mask = magnitude - 1u;
+          if (mask <= 2047u) {
+            sequence.push_back("andi a0, a0, " + std::to_string(mask));
+          } else {
+            sequence.push_back("li a2, " + std::to_string(mask));
+            sequence.push_back("and a0, a0, a2");
+          }
+          sequence.push_back("sub a0, a0, a1");
+          consider(std::move(sequence));
+        }
+      }
+    }
+
+    const int fallback_cost = sequence_cost(
+        temporary_push_cost() + immediate_instruction_count(value) +
+            temporary_pop_cost() + 1,
+        options_.costs.divide);
+    if (best_cost < fallback_cost) {
+      for (const std::string& line : best) {
+        emit("  " + line);
+      }
+      return true;
+    }
+    return false;
+  }
+
   bool emit_immediate(BinaryOp operation, std::int64_t value,
                       const TypePtr& left_type, const TypePtr& right_type) {
-    if (!fits_signed_12(value)) {
-      return false;
-    }
     const bool is_unsigned = left_type->is_unsigned ||
                              right_type->is_unsigned ||
                              is_pointer(left_type) || is_pointer(right_type);
+    if (optimizing(OptimizationLevel::O2) &&
+        (operation == BinaryOp::Mul || operation == BinaryOp::Div ||
+         operation == BinaryOp::Mod)) {
+      if (value < std::numeric_limits<std::int32_t>::min() ||
+          value > std::numeric_limits<std::int32_t>::max()) {
+        return false;
+      }
+      const std::int32_t constant = static_cast<std::int32_t>(value);
+      if (operation == BinaryOp::Mul) {
+        return emit_constant_multiply(constant);
+      }
+      return emit_constant_divmod(operation, constant, is_unsigned);
+    }
+    if (!fits_signed_12(value)) {
+      return false;
+    }
     switch (operation) {
       case BinaryOp::Add:
         if (value != 0) emit("  addi a0, a0, " + std::to_string(value));

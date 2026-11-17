@@ -246,6 +246,49 @@ TEST(CompilerTest, DropsDeadExpressionResultsAtO1) {
   EXPECT_NO_THROW(roco::assemble(postfix_optimized, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, StrengthReducesConstantsAtO2) {
+  const char* source = R"(
+    int multiply(int x) { return x * 11; }
+    int divide(int x) { return x / 4; }
+    int remainder(int x) { return x % 4; }
+    unsigned int udivide(unsigned int x) { return x / 8u; }
+    unsigned int uremainder(unsigned int x) { return x % 8u; }
+  )";
+  const std::string baseline = compile(source, roco::OptimizationLevel::O1);
+  const std::string optimized = compile(source, roco::OptimizationLevel::O2);
+  EXPECT_NE(baseline.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_EQ(optimized.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_EQ(optimized.find("div a0, a1, a0"), std::string::npos);
+  EXPECT_EQ(optimized.find("rem a0, a1, a0"), std::string::npos);
+  EXPECT_NE(optimized.find("srai a1, a0, 31"), std::string::npos);
+  EXPECT_NE(optimized.find("andi a0, a0, 3"), std::string::npos);
+  EXPECT_NE(optimized.find("srli a0, a0, 3"), std::string::npos);
+  EXPECT_NE(optimized.find("andi a0, a0, 7"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+}
+
+TEST(CompilerTest, UsesCostModelToChooseInstructionSequences) {
+  const char* source = "int f(int x) { return (x * 11) + (x / 4); }\n";
+  roco::CompilerOptions options;
+  options.optimization = roco::OptimizationLevel::O2;
+
+  options.costs.multiply = 1;
+  options.costs.divide = 1;
+  const std::string cheap =
+      roco::compile_to_assembly(source, "cost.c", options);
+  EXPECT_NE(cheap.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_NE(cheap.find("div a0, a1, a0"), std::string::npos);
+
+  options.costs.multiply = 2;
+  options.costs.divide = 20;
+  const std::string expensive =
+      roco::compile_to_assembly(source, "cost.c", options);
+  EXPECT_EQ(expensive.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_EQ(expensive.find("div a0, a1, a0"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(expensive, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

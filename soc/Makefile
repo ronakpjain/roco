@@ -44,6 +44,7 @@ ROCO_CC ?= $(ROCO_DIR)/build/roco_cc
 # exercised exactly as written. Override for an optimized build, e.g.
 # make test_vector_c ROCO_CCFLAGS=-O2.
 ROCO_CCFLAGS ?= -O0
+CCFLAGS_STAMP := $(BUILD_DIR)/roco_ccflags
 
 FORMAT_FLAGS := --flagfile=.verible-verilog-format
 
@@ -102,6 +103,16 @@ roco_tools:
 	cmake -S $(ROCO_DIR) -B $(ROCO_DIR)/build
 	cmake --build $(ROCO_DIR)/build
 
+.PHONY: FORCE
+FORCE:
+
+# Rebuild C outputs when ROCO_CCFLAGS changes without touching them when it
+# does not. The final test run then matches the requested optimization level.
+$(CCFLAGS_STAMP): FORCE | build
+	@printf '%s\n' "$(ROCO_CCFLAGS)" > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+
 $(BUILD_DIR)/%.o: sw/tests/%.S $(ROCO_AS) | build
 	$(ROCO_AS) -o $@ $<
 
@@ -130,7 +141,7 @@ test_satp_fetch: $(BUILD_DIR)/satp_fetch.hex $(BUILD_DIR)/fetch_page_boundary.he
 	$(CORE_SIM) +hex=$(BUILD_DIR)/fetch_page_boundary.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/fetch_page_boundary.hex
 
-$(BUILD_DIR)/vector_c.s: sw/vector/main.c $(ROCO_CC) | build
+$(BUILD_DIR)/vector_c.s: sw/vector/main.c $(ROCO_CC) $(CCFLAGS_STAMP) | build
 	$(ROCO_CC) $(ROCO_CCFLAGS) -S -o $@ $<
 
 $(BUILD_DIR)/vector_c-main.o: $(BUILD_DIR)/vector_c.s $(ROCO_AS) | build
@@ -153,7 +164,7 @@ test_atomic_order: $(BUILD_DIR)/atomic_order.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(CORE_SIM) +hex=$(BUILD_DIR)/atomic_order.hex +max_cycles=100000
 	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic_order.hex +max_cycles=100000 +check_atomic_order
 
-$(BUILD_DIR)/hello_boot.s: sw/hello/boot.c sw/hello/roco_io.h $(ROCO_CC) | build
+$(BUILD_DIR)/hello_boot.s: sw/hello/boot.c sw/hello/roco_io.h $(ROCO_CC) $(CCFLAGS_STAMP) | build
 	$(ROCO_CC) $(ROCO_CCFLAGS) -S -o $@ $<
 
 $(BUILD_DIR)/hello_boot-main.o: $(BUILD_DIR)/hello_boot.s $(ROCO_AS) | build
@@ -171,7 +182,7 @@ $(BUILD_DIR)/hello_boot.bin: $(BUILD_DIR)/hello_boot.elf
 $(BUILD_DIR)/hello_boot.packet.hex: $(BUILD_DIR)/hello_boot.bin | build
 	$(PYTHON) scripts/boot.py --bin $< --emit-hex $@
 
-$(BUILD_DIR)/hello.s: sw/hello/main.c sw/hello/roco_io.h $(ROCO_CC) | build
+$(BUILD_DIR)/hello.s: sw/hello/main.c sw/hello/roco_io.h $(ROCO_CC) $(CCFLAGS_STAMP) | build
 	$(ROCO_CC) $(ROCO_CCFLAGS) -S -o $@ $<
 
 $(BUILD_DIR)/hello-main.o: $(BUILD_DIR)/hello.s $(ROCO_AS) | build

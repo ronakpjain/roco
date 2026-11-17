@@ -74,7 +74,7 @@ compiler. See the [compiler reference](docs/compiler.md), the
 | `src/` | public entry points and command-line drivers |
 | `targets/` | Target cost model files for `-O2` |
 | `tests/` | GoogleTest unit tests |
-| `docs/` | architecture, target, assembler, linker, hardware, and testing notes |
+| `docs/` | architecture, target, assembler, linker, hardware, optimization, and testing notes |
 | `Doxyfile` | documentation build |
 
 ## Design

@@ -35,7 +35,9 @@ call arguments.
 
 The generated assembly is ordinary text consumed by the same assembler
 and linker as hand-written programs. There is no compiler-specific object
-format or runtime. See the [compiler reference](compiler.md).
+format or runtime. Optimization levels and the configurable target cost
+model are described in the [optimization reference](optimizations.md); see
+also the [compiler reference](compiler.md).
 
 ## Object model
 

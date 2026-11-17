@@ -233,6 +233,15 @@ are much faster than Icarus. Unit tests, the boot/UART tests, and the
 official ISA suites stay on Icarus. Use `make test_core SIM=icarus` (or
 `SIM=icarus` on any directed target) to run the same test through Icarus.
 
+C tests compile with `ROCO_CCFLAGS`, which defaults to `-O0` so directed
+tests keep the exact unoptimized instruction pattern. Build an optimized
+variant explicitly when measuring the compiler:
+
+```sh
+make test_vector_c ROCO_CCFLAGS=-O2
+ROCO_CCFLAGS="-O2 --cost-model ../cc/targets/roco_soc.costs" make test_hello
+```
+
 `make format` applies the repository Verible profile. The pre-commit
 hook (`git config core.hooksPath .githooks`) checks formatting and
 syntax of staged SystemVerilog.

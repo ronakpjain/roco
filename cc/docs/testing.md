@@ -18,7 +18,8 @@ ctest --test-dir build --output-on-failure
 | `elf_test` | object round trips, executable program headers, malformed input |
 | `assembler_test` | instructions, pseudoinstructions, labels, data, atomics, vectors, errors |
 | `linker_test` | cross-object symbols, absolute and PC-relative relocations, bss bounds, call pairs, errors |
-| `compiler_test` | preprocessing, typedefs, expression/control-flow codegen, globals, arrays, strings, diagnostics, generated assembly assembling cleanly |
+| `compiler_test` | preprocessing, typedefs, expression/control-flow codegen, globals, arrays, strings, diagnostics, `-O1`/`-O2` transformations, cost-model selection, generated assembly assembling cleanly |
+| `target_test` | default costs, `key=value` cost files, overrides, and compiling at every optimization level |
 
 Assembler tests check exact machine words against LLVM `llvm-mc` encodings
 for the supported forms, including the roco vector subset. Rejection tests
@@ -41,9 +42,13 @@ while still validating the complete toolchain against the RTL.
 
 `cpu_smoke_c` does the same from a C source file: `roco_cc` emits
 assembly, `roco_as` creates an object, `roco_ld` links it with the C
-startup, and the core testbench must print `PASS`. The CPU's `test_vector_c`,
+startup, and the core testbench must print `PASS`. It compiles at `-O0`;
+`cpu_smoke_c_o2` repeats the run at `-O2` with an arithmetic workload that
+checks the strength-reduced sequences. The CPU's `test_vector_c`,
 `test_boot`, and `test_hello` targets use the same compiler, assembler, and
-linker path. Directed core/SoC tests default to Verilator; UART boot, unit
+linker path. The SoC Makefile defaults `ROCO_CCFLAGS` to `-O0` so directed
+hardware tests exercise the exact unoptimized instruction pattern; pass
+`ROCO_CCFLAGS=-O2` to build an optimized variant. Directed core/SoC tests default to Verilator; UART boot, unit
 tests, and the official ISA suites stay on Icarus. `test_boot` uses a
 minimal UART image for a fast bootloader check; `test_hello` runs the full
 demo.

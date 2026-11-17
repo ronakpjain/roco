@@ -6,7 +6,10 @@ and uses the standard RV32 ILP32 integer calling convention.
 
 ```bash
 roco_cc -E -o program.i program.c   # preprocessed C
-roco_cc -S -o program.s program.c   # assembly
+roco_cc -S -o program.s program.c   # assembly (-O0 by default)
+roco_cc -O1 -S -o program.s program.c
+roco_cc -O2 -S -o program.s program.c
+roco_cc -O2 --cost-model targets/roco_soc.costs -S -o program.s program.c
 roco_cc -c -o program.o program.c   # ELF relocatable object
 ```
 
@@ -78,6 +81,23 @@ vector instructions yet. The assembler and linker support roco's vector
 subset independently, so a later backend can target it without changing
 objects or relocation handling.
 
+### Optimization levels
+
+`-O0` is the default and preserves the direct stack-machine lowering used
+by hardware-directed tests. `-O1` folds constants with 32-bit C semantics,
+lowers conditions to direct branches, folds constant indexes and index
+scaling, removes dead expression results, and materializes constant call
+arguments directly. `-O2` adds cost-model instruction selection for
+constant multiply, divide, and remainder: powers of two, `2^a ± 2^b`
+multipliers, signed division bias sequences, and unsigned masks replace the
+hardware operation only when their score beats the fallback.
+
+The target costs are configurable with `--cost-model FILE` or repeated
+`--cost key=value` options. See the
+[optimization reference](optimizations.md) for the exact transformations,
+default costs, measured effects, and the policy that keeps SoC tests at
+`-O0`.
+
 ## Frontend structure
 
 | File | Purpose |
@@ -96,6 +116,8 @@ objects or relocation handling.
 GoogleTest checks assembly shape, generated code that must assemble,
 preprocessing, typedefs, casts, control flow, globals, arrays, strings,
 and diagnostics. The
-`cpu_smoke_c` CTest compiles a C program, assembles and links it, and
-runs it on the real core testbench. It passes only when the program
-writes `1` to the `tohost` register.
+`cpu_smoke_c` CTest compiles the C programs at `-O0`, assembles and links
+them, and runs them on the real core testbench. `cpu_smoke_c_o2` runs the
+same path at `-O2`, including a workload that checks the strength-reduced
+multiply/divide sequences. Both pass only when the program writes `1` to
+the `tohost` register.

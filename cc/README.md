@@ -19,7 +19,7 @@ hello.o   -> roco_ld -> hello.elf + hello.bin + hello.hex
 | `roco_as` assembler | RV32IMA, Zicsr, Zifencei, and roco's vector subset |
 | ELF32 objects | reader and writer complete |
 | `roco_ld` linker | fixed-layout ELF executable, binary, and hex output |
-| `roco_cc` C compiler | preprocessor, typedefs, types, pointers, arrays, functions, control flow |
+| `roco_cc` C compiler | preprocessor, typedefs, types, pointers, arrays, functions, control flow; `-O0`/`-O1`/`-O2` |
 
 The assembler accepts the standard RV32 encodings and rejects instructions
 the roco RTL does not implement. See the [target profile](docs/target.md)
@@ -43,10 +43,18 @@ On macOS: `brew install googletest doxygen`.
 
 ```bash
 ./build/roco_cc -E -o hello.i hello.c   # preprocessed source
-./build/roco_cc -S -o hello.s hello.c
+./build/roco_cc -S -o hello.s hello.c   # default -O0
+./build/roco_cc -O2 -S -o hello.s hello.c
+./build/roco_cc -O2 --cost-model targets/roco_soc.costs -S -o hello.s hello.c
 ./build/roco_as -o hello.o hello.s
 ./build/roco_ld -o hello.elf --hex hello.hex hello.o
 ```
+
+`-O0` is the default and keeps hardware-directed tests predictable.
+`-O1` adds local scalar cleanups. `-O2` uses the configurable
+[target cost model](targets/roco_soc.costs) to choose shift/add sequences
+instead of multiply/divide. See the
+[optimization reference](docs/optimizations.md).
 
 The assembler accepts labels, numeric local labels, data directives,
 pseudoinstructions, ELF sections, and the relocation forms needed by the
@@ -64,6 +72,7 @@ compiler. See the [compiler reference](docs/compiler.md), the
 | `src/elf/` | ELF32 reader and writer |
 | `src/linker/` | linker layout, symbols, and relocations |
 | `src/` | public entry points and command-line drivers |
+| `targets/` | Target cost model files for `-O2` |
 | `tests/` | GoogleTest unit tests |
 | `docs/` | architecture, target, assembler, linker, hardware, and testing notes |
 | `Doxyfile` | documentation build |

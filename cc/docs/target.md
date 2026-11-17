@@ -115,7 +115,16 @@ code.
 
 The current C compiler emits scalar RV32IMA only. It does not auto-vectorize,
 so the vector caveats below apply to hand-written assembly and future
-backend work:
+backend work.
+
+`roco_cc` has three optimization levels. `-O0` is the default and keeps the
+direct lowering used by hardware-directed tests. `-O1` adds local scalar
+cleanups. `-O2` uses the costs in
+[`../targets/roco_soc.costs`](../targets/roco_soc.costs) to choose between
+hardware multiply/divide and shift/add sequences. Update that file when the
+multiply pipeline or divider changes, or override individual values with
+`--cost multiply=N` / `--cost divide=N`. See
+[optimizations](optimizations.md) for the defaults and transformations.
 
 - `roco_cc` supplies freestanding `<stdint.h>`; quoted headers are searched
   relative to the source file.

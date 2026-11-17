@@ -220,6 +220,32 @@ TEST(CompilerTest, FoldsConstantIndexesIntoLoadsAtO1) {
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, DropsDeadExpressionResultsAtO1) {
+  const char* decrement = "int f(int x) { while (x) x--; return x; }\n";
+  const char* discard = "int f(int x, int y) { x + y; return x; }\n";
+  const char* postfix = "int f(int x) { int old = x++; return old + x; }\n";
+
+  const std::string baseline = compile(decrement);
+  const std::string optimized =
+      compile(decrement, roco::OptimizationLevel::O1);
+  EXPECT_NE(baseline.find("mv a2, a0"), std::string::npos);
+  EXPECT_EQ(optimized.find("mv a2, a0"), std::string::npos);
+
+  const std::string discard_baseline = compile(discard);
+  const std::string discard_optimized =
+      compile(discard, roco::OptimizationLevel::O1);
+  EXPECT_NE(discard_baseline.find("add a0, a1, a0"), std::string::npos);
+  EXPECT_EQ(discard_optimized.find("add a0, a1, a0"), std::string::npos);
+
+  const std::string postfix_optimized =
+      compile(postfix, roco::OptimizationLevel::O1);
+  EXPECT_NE(postfix_optimized.find("mv a0, a2"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+  EXPECT_NO_THROW(roco::assemble(discard_optimized, "compiler-output.S"));
+  EXPECT_NO_THROW(roco::assemble(postfix_optimized, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

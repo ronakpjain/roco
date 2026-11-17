@@ -350,7 +350,8 @@ class Codegen {
       case StmtKind::Empty:
         return;
       case StmtKind::Expression:
-        generate_expression(*statement.expr, function);
+        generate_expression(*statement.expr, function,
+                            !optimizing(OptimizationLevel::O1));
         return;
       case StmtKind::Return: {
         if (statement.expr) {
@@ -497,7 +498,8 @@ class Codegen {
         generate_statement(*statement.body, function);
         emit(increment + ":");
         if (statement.inc) {
-          generate_expression(*statement.inc, function);
+          generate_expression(*statement.inc, function,
+                              !optimizing(OptimizationLevel::O1));
         }
         emit("  j " + start);
         emit(end + ":");
@@ -529,7 +531,13 @@ class Codegen {
     }
   }
 
-  void generate_expression(const Expr& expression, const Function& function) {
+  void generate_expression(const Expr& expression, const Function& function,
+                           bool need_value = true) {
+    if (!need_value && optimizing(OptimizationLevel::O1) &&
+        (expression.kind == ExprKind::Int ||
+         expression.kind == ExprKind::String)) {
+      return;
+    }
     switch (expression.kind) {
       case ExprKind::Int:
         emit("  li a0, " + std::to_string(expression.value));
@@ -555,13 +563,13 @@ class Codegen {
         return;
       }
       case ExprKind::Unary:
-        generate_unary(expression, function);
+        generate_unary(expression, function, need_value);
         return;
       case ExprKind::Binary:
-        generate_binary(expression, function);
+        generate_binary(expression, function, need_value);
         return;
       case ExprKind::Assign:
-        generate_assignment(expression, function);
+        generate_assignment(expression, function, need_value);
         return;
       case ExprKind::Conditional: {
         const std::string else_label = new_label();
@@ -572,10 +580,10 @@ class Codegen {
           generate_expression(*expression.lhs, function);
           emit("  beqz a0, " + else_label);
         }
-        generate_expression(*expression.rhs, function);
+        generate_expression(*expression.rhs, function, need_value);
         emit("  j " + end_label);
         emit(else_label + ":");
-        generate_expression(*expression.third, function);
+        generate_expression(*expression.third, function, need_value);
         emit(end_label + ":");
         return;
       }
@@ -605,28 +613,37 @@ class Codegen {
         load(expression.type);
         return;
       case ExprKind::Cast:
-        generate_expression(*expression.lhs, function);
-        convert_value(expression.type);
+        generate_expression(*expression.lhs, function, need_value);
+        if (need_value || !optimizing(OptimizationLevel::O1)) {
+          convert_value(expression.type);
+        }
         return;
     }
   }
 
-  void generate_unary(const Expr& expression, const Function& function) {
+  void generate_unary(const Expr& expression, const Function& function,
+                      bool need_value = true) {
     switch (expression.unary) {
       case UnaryOp::Plus:
-        generate_expression(*expression.lhs, function);
+        generate_expression(*expression.lhs, function, need_value);
         return;
       case UnaryOp::Negate:
-        generate_expression(*expression.lhs, function);
-        emit("  neg a0, a0");
+        generate_expression(*expression.lhs, function, need_value);
+        if (need_value || !optimizing(OptimizationLevel::O1)) {
+          emit("  neg a0, a0");
+        }
         return;
       case UnaryOp::Not:
-        generate_expression(*expression.lhs, function);
-        emit("  seqz a0, a0");
+        generate_expression(*expression.lhs, function, need_value);
+        if (need_value || !optimizing(OptimizationLevel::O1)) {
+          emit("  seqz a0, a0");
+        }
         return;
       case UnaryOp::BitNot:
-        generate_expression(*expression.lhs, function);
-        emit("  not a0, a0");
+        generate_expression(*expression.lhs, function, need_value);
+        if (need_value || !optimizing(OptimizationLevel::O1)) {
+          emit("  not a0, a0");
+        }
         return;
       case UnaryOp::Dereference:
         generate_expression(*expression.lhs, function);
@@ -639,20 +656,25 @@ class Codegen {
       case UnaryOp::PreDecrement:
       case UnaryOp::PostIncrement:
       case UnaryOp::PostDecrement:
-        generate_increment(expression, function);
+        generate_increment(expression, function, need_value);
         return;
     }
   }
 
-  void generate_increment(const Expr& expression, const Function& function) {
+  void generate_increment(const Expr& expression, const Function& function,
+                          bool need_value = true) {
     if (expression.lhs->kind == ExprKind::Var &&
         expression.lhs->local != nullptr &&
         expression.lhs->local->type->kind != TypeKind::Array) {
       const int offset = expression.lhs->local->offset;
       load_from(expression.lhs->type, "s0", offset);
-      emit("  mv a2, a0");
       const bool increment = expression.unary == UnaryOp::PreIncrement ||
                              expression.unary == UnaryOp::PostIncrement;
+      const bool post = expression.unary == UnaryOp::PostIncrement ||
+                        expression.unary == UnaryOp::PostDecrement;
+      if (post && need_value) {
+        emit("  mv a2, a0");
+      }
       const std::int64_t delta = increment ? 1 : -1;
       if (is_pointer(expression.type)) {
         const std::int64_t step =
@@ -662,19 +684,32 @@ class Codegen {
         emit("  addi a0, a0, " + std::to_string(delta));
       }
       store_to(expression.lhs->type, "s0", offset);
-      convert_value(expression.lhs->type);
-      if (expression.unary == UnaryOp::PostIncrement ||
-          expression.unary == UnaryOp::PostDecrement) {
-        emit("  mv a0, a2");
+      if (optimizing(OptimizationLevel::O1)) {
+        if (need_value) {
+          if (post) {
+            emit("  mv a0, a2");
+          } else {
+            convert_value(expression.lhs->type);
+          }
+        }
+      } else {
+        convert_value(expression.lhs->type);
+        if (post) {
+          emit("  mv a0, a2");
+        }
       }
       return;
     }
     generate_address(*expression.lhs, function);
     push_a0();
     load(expression.lhs->type);
-    emit("  mv a2, a0");
     const bool increment = expression.unary == UnaryOp::PreIncrement ||
                            expression.unary == UnaryOp::PostIncrement;
+    const bool post = expression.unary == UnaryOp::PostIncrement ||
+                      expression.unary == UnaryOp::PostDecrement;
+    if (post && need_value) {
+      emit("  mv a2, a0");
+    }
     const std::int64_t delta = increment ? 1 : -1;
     if (is_pointer(expression.type)) {
       const std::int64_t step =
@@ -690,21 +725,31 @@ class Codegen {
     }
     pop_to("a1");
     store(expression.lhs->type);
-    convert_value(expression.lhs->type);
-    if (expression.unary == UnaryOp::PostIncrement ||
-        expression.unary == UnaryOp::PostDecrement) {
-      emit("  mv a0, a2");
+    if (optimizing(OptimizationLevel::O1)) {
+      if (need_value) {
+        if (post) {
+          emit("  mv a0, a2");
+        } else {
+          convert_value(expression.lhs->type);
+        }
+      }
+    } else {
+      convert_value(expression.lhs->type);
+      if (post) {
+        emit("  mv a0, a2");
+      }
     }
   }
 
-  void generate_assignment(const Expr& expression, const Function& function) {
+  void generate_assignment(const Expr& expression, const Function& function,
+                           bool need_value = true) {
     if (!expression.compound) {
       if (expression.lhs->kind == ExprKind::Var &&
           expression.lhs->local != nullptr &&
           expression.lhs->local->type->kind != TypeKind::Array) {
         generate_expression(*expression.rhs, function);
         store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
-        convert_value(expression.lhs->type);
+        convert_result(expression.lhs->type, need_value);
         return;
       }
       if (expression.lhs->kind == ExprKind::Var &&
@@ -713,10 +758,10 @@ class Codegen {
         generate_expression(*expression.rhs, function);
         emit("  la a1, " + expression.lhs->global->decl->name);
         store(expression.lhs->type);
-        convert_value(expression.lhs->type);
+        convert_result(expression.lhs->type, need_value);
         return;
       }
-      if (try_constant_index_store(expression, function)) {
+      if (try_constant_index_store(expression, function, need_value)) {
         return;
       }
       generate_address(*expression.lhs, function);
@@ -724,7 +769,7 @@ class Codegen {
       generate_expression(*expression.rhs, function);
       pop_to("a1");
       store(expression.lhs->type);
-      convert_value(expression.lhs->type);
+      convert_result(expression.lhs->type, need_value);
       return;
     }
 
@@ -750,7 +795,7 @@ class Codegen {
       apply_binary(expression.binary, expression.lhs->type,
                    expression.rhs->type, is_unsigned);
       store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
-      convert_value(expression.lhs->type);
+      convert_result(expression.lhs->type, need_value);
       return;
     }
     generate_address(*expression.lhs, function);
@@ -772,7 +817,7 @@ class Codegen {
                  is_unsigned);
     pop_to("a1");
     store(expression.lhs->type);
-    convert_value(expression.lhs->type);
+    convert_result(expression.lhs->type, need_value);
   }
 
   static bool constant_int(const Expr& expression, std::int64_t& value) {
@@ -1000,7 +1045,7 @@ class Codegen {
   }
 
   bool try_constant_index_store(const Expr& expression,
-                                const Function& function) {
+                                const Function& function, bool need_value) {
     if (!optimizing(OptimizationLevel::O1) || expression.compound ||
         expression.lhs->kind != ExprKind::Index ||
         expression.lhs->lhs->kind != ExprKind::Var ||
@@ -1022,27 +1067,38 @@ class Codegen {
         return false;
       }
       generate_expression(*expression.rhs, function);
-      convert_value(expression.lhs->type);
+      if (!optimizing(OptimizationLevel::O1)) {
+        convert_value(expression.lhs->type);
+      }
       store_to(expression.lhs->type, "s0", static_cast<int>(total));
-      convert_value(expression.lhs->type);
+      convert_result(expression.lhs->type, need_value);
       return true;
     }
     if (base.global != nullptr &&
         base.global->decl->type->kind == TypeKind::Array &&
         fits_signed_12(offset)) {
       generate_expression(*expression.rhs, function);
-      convert_value(expression.lhs->type);
+      if (!optimizing(OptimizationLevel::O1)) {
+        convert_value(expression.lhs->type);
+      }
       emit("  la a1, " + base.global->decl->name);
       store_to(expression.lhs->type, "a1", static_cast<int>(offset));
-      convert_value(expression.lhs->type);
+      convert_result(expression.lhs->type, need_value);
       return true;
     }
     return false;
   }
 
-  void generate_binary(const Expr& expression, const Function& function) {
+  void generate_binary(const Expr& expression, const Function& function,
+                       bool need_value = true) {
     if (expression.binary == BinaryOp::LogAnd ||
         expression.binary == BinaryOp::LogOr) {
+      if (!need_value && optimizing(OptimizationLevel::O1)) {
+        const std::string end = new_label();
+        emit_branch_condition(expression, function, end, false);
+        emit(end + ":");
+        return;
+      }
       const std::string short_label = new_label();
       const std::string end_label = new_label();
       generate_expression(*expression.lhs, function);
@@ -1061,8 +1117,13 @@ class Codegen {
       return;
     }
     if (expression.binary == BinaryOp::Comma) {
-      generate_expression(*expression.lhs, function);
-      generate_expression(*expression.rhs, function);
+      generate_expression(*expression.lhs, function, false);
+      generate_expression(*expression.rhs, function, need_value);
+      return;
+    }
+    if (!need_value && optimizing(OptimizationLevel::O1)) {
+      generate_expression(*expression.lhs, function, false);
+      generate_expression(*expression.rhs, function, false);
       return;
     }
 
@@ -1305,6 +1366,12 @@ class Codegen {
         emit("  slli a0, a0, 16");
         emit("  srai a0, a0, 16");
       }
+    }
+  }
+
+  void convert_result(const TypePtr& type, bool need_value) {
+    if (need_value || !optimizing(OptimizationLevel::O1)) {
+      convert_value(type);
     }
   }
 

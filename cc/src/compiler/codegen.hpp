@@ -1548,14 +1548,26 @@ class Codegen {
     if (expression.args.size() == 1) {
       generate_expression(*expression.args[0], function);
     } else {
+      static const std::vector<std::string> arg_registers = {
+          "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
+      const bool direct_constants = optimizing(OptimizationLevel::O1);
       for (const auto& argument : expression.args) {
+        std::int64_t value = 0;
+        if (direct_constants && constant_int(*argument, value)) {
+          continue;
+        }
         generate_expression(*argument, function);
         push_a0();
       }
-      static const std::vector<std::string> arg_registers = {
-          "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
       for (std::size_t i = expression.args.size(); i > 0; --i) {
-        pop_to(arg_registers[i - 1]);
+        std::int64_t value = 0;
+        if (direct_constants &&
+            constant_int(*expression.args[i - 1], value)) {
+          emit("  li " + arg_registers[i - 1] + ", " +
+               std::to_string(value));
+        } else {
+          pop_to(arg_registers[i - 1]);
+        }
       }
     }
     spill_temporaries();

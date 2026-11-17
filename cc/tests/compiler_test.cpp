@@ -289,6 +289,21 @@ TEST(CompilerTest, UsesCostModelToChooseInstructionSequences) {
   EXPECT_NO_THROW(roco::assemble(expensive, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, MaterializesConstantCallArgumentsDirectlyAtO1) {
+  const char* source = R"(
+    int add(int a, int b) { return a + b; }
+    int main(void) { return add(4, 5); }
+  )";
+  const std::string baseline = compile(source);
+  const std::string optimized = compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(baseline.find("mv t1, a0"), std::string::npos);
+  EXPECT_EQ(optimized.find("mv t1, a0"), std::string::npos);
+  EXPECT_NE(optimized.find("li a0, 4"), std::string::npos);
+  EXPECT_NE(optimized.find("li a1, 5"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

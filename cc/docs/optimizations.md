@@ -112,6 +112,30 @@ loads, stores, calls, and short-circuit control flow are preserved.
   j .L4
 ```
 
+### Immediate compound assignments
+
+Compound assignments with a constant right operand load the destination
+once and use the same immediate/strength-reduced selection as a plain
+binary expression. This covers `+=`, `-=`, shifts, bitwise operations,
+`*=`, `/=`, and `%=`; pointer `+=`/`-=` scale the constant at compile time.
+If the operation has no cheap immediate form, the backend still falls back
+from the loaded value without reloading it.
+
+```asm
+# x += 1;   -O0
+  li a0, 1
+  mv a2, a0
+  lw a1, -4(s0)
+  mv a0, a2
+  add a0, a1, a0
+  sw a0, -4(s0)
+
+# -O1
+  lw a0, -4(s0)
+  addi a0, a0, 1
+  sw a0, -4(s0)
+```
+
 ### Constant call arguments
 
 Constant arguments are materialized directly in their ABI argument
@@ -240,7 +264,7 @@ startup and memory stalls, so they are not frequency claims.
 | --- | ---: | ---: | ---: | ---: |
 | `tests/e2e/main.c` | 321 | 279 | 599 | 551 |
 | `tests/e2e/features.c` | 626 | 518 | 1279 | 1066 |
-| `tests/e2e/optimized.c` | 3296 | 2997 | 5778 | 5409 |
+| `tests/e2e/optimized.c` | 3518 | 3162 | 6301 | 5623 |
 | `soc/sw/vector/main.c` | 9045 | 7490 | 15431 | 13596 |
 
 `-O1` produces most of the code-size benefit; `-O2` adds the arithmetic

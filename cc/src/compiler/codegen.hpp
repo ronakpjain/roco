@@ -777,6 +777,80 @@ class Codegen {
         expression.lhs->kind == ExprKind::Var &&
         expression.lhs->local != nullptr &&
         expression.lhs->local->type->kind != TypeKind::Array;
+    std::int64_t immediate = 0;
+    const bool pointer_compound =
+        is_pointer(expression.lhs->type) &&
+        (expression.binary == BinaryOp::Add ||
+         expression.binary == BinaryOp::Sub) &&
+        is_integer(expression.rhs->type);
+    bool immediate_compound =
+        optimizing(OptimizationLevel::O1) &&
+        constant_int(*expression.rhs, immediate) &&
+        (is_integer(expression.lhs->type) || pointer_compound);
+    if (immediate_compound && pointer_compound) {
+      const std::int64_t signed_scale =
+          static_cast<std::int64_t>(expression.lhs->type->base->size);
+      if (immediate >
+              std::numeric_limits<std::int32_t>::max() / signed_scale ||
+          immediate <
+              std::numeric_limits<std::int32_t>::min() / signed_scale) {
+        immediate_compound = false;
+      } else {
+        immediate *= signed_scale;
+      }
+    }
+    if (immediate_compound) {
+      bool is_unsigned = expression.lhs->type->is_unsigned ||
+                         expression.rhs->type->is_unsigned;
+      if (expression.binary == BinaryOp::Shr) {
+        is_unsigned = expression.lhs->type->is_unsigned;
+      }
+      if (local_compound) {
+        load_into(expression.lhs->type, "a0", "s0",
+                  expression.lhs->local->offset);
+        if (emit_immediate(expression.binary, immediate,
+                           expression.lhs->type, expression.rhs->type)) {
+          store_to(expression.lhs->type, "s0",
+                   expression.lhs->local->offset);
+          convert_result(expression.lhs->type, need_value);
+          return;
+        }
+        push_a0();
+        generate_expression(*expression.rhs, function);
+        if (pointer_compound) {
+          emit_scale_a0(expression.lhs->type->base->size);
+        }
+        pop_to("a1");
+        apply_binary(expression.binary, expression.lhs->type,
+                     expression.rhs->type, is_unsigned);
+        store_to(expression.lhs->type, "s0",
+                 expression.lhs->local->offset);
+        convert_result(expression.lhs->type, need_value);
+        return;
+      }
+      generate_address(*expression.lhs, function);
+      push_a0();
+      load(expression.lhs->type);
+      if (emit_immediate(expression.binary, immediate,
+                         expression.lhs->type, expression.rhs->type)) {
+        pop_to("a1");
+        store(expression.lhs->type);
+        convert_result(expression.lhs->type, need_value);
+        return;
+      }
+      push_a0();
+      generate_expression(*expression.rhs, function);
+      if (pointer_compound) {
+        emit_scale_a0(expression.lhs->type->base->size);
+      }
+      pop_to("a1");
+      apply_binary(expression.binary, expression.lhs->type,
+                   expression.rhs->type, is_unsigned);
+      pop_to("a1");
+      store(expression.lhs->type);
+      convert_result(expression.lhs->type, need_value);
+      return;
+    }
     if (local_compound) {
       generate_expression(*expression.rhs, function);
       if (is_pointer(expression.lhs->type) &&

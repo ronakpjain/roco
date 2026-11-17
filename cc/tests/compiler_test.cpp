@@ -323,6 +323,24 @@ TEST(CompilerTest, CanonicalizesConstantsToTheRightAtO1) {
   EXPECT_NO_THROW(roco::assemble(strengthened, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, AppliesImmediateCompoundAssignmentsAtO1) {
+  const char* source = R"(
+    int add(int x) { x += 1; return x; }
+    int scale(int x) { x *= 3; return x; }
+    int divide(int x) { x /= 4; return x; }
+  )";
+  const std::string optimized = compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(optimized.find("addi a0, a0, 1"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+
+  const std::string strengthened =
+      compile(source, roco::OptimizationLevel::O2);
+  EXPECT_EQ(strengthened.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_EQ(strengthened.find("div a0, a1, a0"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(strengthened, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

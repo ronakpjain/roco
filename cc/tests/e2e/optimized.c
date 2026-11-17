@@ -27,6 +27,31 @@ unsigned int umod8(unsigned int x) { return x % 8u; }
 int div3(int x) { return x / 3; }
 int mod3(int x) { return x % 3; }
 
+int add5(int x) {
+  x += 5;
+  return x;
+}
+int times3(int x) {
+  x *= 3;
+  return x;
+}
+int quarter(int x) {
+  x /= 4;
+  return x;
+}
+int rem4(int x) {
+  x %= 4;
+  return x;
+}
+int advance(int *p) {
+  p += 2;
+  return *p;
+}
+int add_through(int *p) {
+  *p += 5;
+  return *p;
+}
+
 static int check_multipliers(int x) {
   int failures = 0;
   failures += mul3(x) != x * 3;
@@ -77,5 +102,17 @@ int main(void) {
   if (mod3(-10) != -1) return 48;
   if (div4(-2147483647 - 1) != -536870912) return 49;
   if (mod4(-2147483647 - 1) != 0) return 50;
+  if (add5(7) != 12) return 51;
+  if (times3(-7) != -21) return 52;
+  if (quarter(-9) != -2) return 53;
+  if (rem4(-9) != -1) return 54;
+
+  int array[4];
+  array[0] = 10;
+  array[1] = 20;
+  array[2] = 30;
+  array[3] = 40;
+  if (advance(array) != 30) return 55;
+  if (add_through(array) != 15) return 56;
   return 0;
 }

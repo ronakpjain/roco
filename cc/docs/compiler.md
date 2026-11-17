@@ -87,8 +87,8 @@ objects or relocation handling.
 by hardware-directed tests. `-O1` folds constants with 32-bit C semantics,
 canonicalizes commutative operands so constants sit on the right, lowers
 conditions to direct branches, folds constant indexes and index scaling,
-removes dead expression results, and materializes constant call arguments
-directly. `-O2` adds cost-model instruction selection for
+applies immediate compound assignments, removes dead expression results,
+and materializes constant call arguments directly. `-O2` adds cost-model instruction selection for
 constant multiply, divide, and remainder: powers of two, `2^a ± 2^b`
 multipliers, signed division bias sequences, and unsigned masks replace the
 hardware operation only when their score beats the fallback.

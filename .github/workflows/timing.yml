@@ -65,7 +65,7 @@ jobs:
           shopt -s nullglob
           reports=(soc/build/timing_seed*.json)
           if (( ${#reports[@]} )); then
-            python3 soc/scripts/timing_summary.py "${reports[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+            python3 soc/scripts/timing_summary.py "${reports[@]}"
           else
             echo "No timing report produced." >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -82,7 +82,7 @@ jobs:
 
       - name: Attach build outputs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fpga-build-${{ github.run_id }}
           path: ${{ runner.temp }}/fpga-build.tar.gz

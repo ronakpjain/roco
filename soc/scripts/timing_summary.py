@@ -99,9 +99,8 @@ def main():
     output = args.output
     if output is None and os.environ.get("GITHUB_STEP_SUMMARY"):
         output = Path(os.environ["GITHUB_STEP_SUMMARY"])
-    if output is None:
-        print(text, end="")
-    else:
+    print(text, end="")
+    if output is not None:
         with output.open("a") as stream:
             stream.write(text)
 

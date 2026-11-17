@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -582,6 +583,24 @@ class Codegen {
         generate_call(expression, function);
         return;
       case ExprKind::Index:
+        if (try_constant_index_load(expression)) {
+          return;
+        }
+        if (optimizing(OptimizationLevel::O1) && is_scalar(expression.type)) {
+          std::int64_t offset = 0;
+          if (constant_byte_offset(*expression.rhs, expression.type->size,
+                                   offset)) {
+            generate_expression(*expression.lhs, function);
+            if (fits_signed_12(offset)) {
+              load_into(expression.type, "a0", "a0",
+                        static_cast<int>(offset));
+            } else {
+              emit_add_to_a0(offset);
+              load(expression.type);
+            }
+            return;
+          }
+        }
         generate_address(expression, function);
         load(expression.type);
         return;
@@ -660,8 +679,12 @@ class Codegen {
     if (is_pointer(expression.type)) {
       const std::int64_t step =
           static_cast<std::int64_t>(expression.type->base->size) * delta;
-      emit("  li a1, " + std::to_string(step));
-      emit("  add a0, a0, a1");
+      if (optimizing(OptimizationLevel::O1)) {
+        emit_add_to_a0(step);
+      } else {
+        emit("  li a1, " + std::to_string(step));
+        emit("  add a0, a0, a1");
+      }
     } else {
       emit("  addi a0, a0, " + std::to_string(delta));
     }
@@ -693,6 +716,9 @@ class Codegen {
         convert_value(expression.lhs->type);
         return;
       }
+      if (try_constant_index_store(expression, function)) {
+        return;
+      }
       generate_address(*expression.lhs, function);
       push_a0();
       generate_expression(*expression.rhs, function);
@@ -710,11 +736,7 @@ class Codegen {
       generate_expression(*expression.rhs, function);
       if (is_pointer(expression.lhs->type) &&
           is_integer(expression.rhs->type)) {
-        const std::size_t scale = expression.lhs->type->base->size;
-        if (scale > 1) {
-          emit("  li a1, " + std::to_string(scale));
-          emit("  mul a0, a0, a1");
-        }
+        emit_scale_a0(expression.lhs->type->base->size);
       }
       emit("  mv a2, a0");
       load_into(expression.lhs->type, "a1", "s0",
@@ -738,11 +760,7 @@ class Codegen {
     generate_expression(*expression.rhs, function);
     if (is_pointer(expression.lhs->type) &&
         is_integer(expression.rhs->type)) {
-      const std::size_t scale = expression.lhs->type->base->size;
-      if (scale > 1) {
-        emit("  li a1, " + std::to_string(scale));
-        emit("  mul a0, a0, a1");
-      }
+      emit_scale_a0(expression.lhs->type->base->size);
     }
     pop_to("a1");
     bool is_unsigned = expression.lhs->type->is_unsigned ||
@@ -773,6 +791,63 @@ class Codegen {
 
   static bool fits_signed_12(std::int64_t value) {
     return value >= -2048 && value <= 2047;
+  }
+
+  static bool is_power_of_two(std::size_t value) {
+    return value != 0 && (value & (value - 1)) == 0;
+  }
+
+  static unsigned power_of_two_shift(std::size_t value) {
+    unsigned shift = 0;
+    while ((std::size_t{1} << shift) < value) {
+      ++shift;
+    }
+    return shift;
+  }
+
+  void emit_scale_a0(std::size_t scale) {
+    if (scale <= 1) {
+      return;
+    }
+    if (optimizing(OptimizationLevel::O1) && is_power_of_two(scale)) {
+      emit("  slli a0, a0, " +
+           std::to_string(power_of_two_shift(scale)));
+      return;
+    }
+    emit("  li a1, " + std::to_string(scale));
+    emit("  mul a0, a0, a1");
+  }
+
+  void emit_add_to_a0(std::int64_t offset) {
+    if (offset == 0) {
+      return;
+    }
+    if (fits_signed_12(offset)) {
+      emit("  addi a0, a0, " + std::to_string(offset));
+      return;
+    }
+    emit("  li a1, " + std::to_string(offset));
+    emit("  add a0, a0, a1");
+  }
+
+  static bool constant_byte_offset(const Expr& index, std::size_t scale,
+                                   std::int64_t& offset) {
+    std::int64_t value = 0;
+    if (!constant_int(index, value)) {
+      return false;
+    }
+    if (scale == 0) {
+      return false;
+    }
+    const std::int64_t signed_scale = static_cast<std::int64_t>(scale);
+    if (value > static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) /
+                    signed_scale ||
+        value < static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()) /
+                    signed_scale) {
+      return false;
+    }
+    offset = value * signed_scale;
+    return true;
   }
 
   bool emit_immediate(BinaryOp operation, std::int64_t value,
@@ -892,6 +967,79 @@ class Codegen {
     throw Error("cannot store a value of this type");
   }
 
+  bool try_constant_index_load(const Expr& expression) {
+    if (!optimizing(OptimizationLevel::O1) ||
+        expression.kind != ExprKind::Index || expression.lhs->kind != ExprKind::Var ||
+        !is_scalar(expression.type)) {
+      return false;
+    }
+    std::int64_t offset = 0;
+    if (!constant_byte_offset(*expression.rhs, expression.type->size, offset)) {
+      return false;
+    }
+    const Expr& base = *expression.lhs;
+    if (base.local != nullptr && base.local->type->kind == TypeKind::Array) {
+      const std::int64_t total =
+          static_cast<std::int64_t>(base.local->offset) + offset;
+      if (total < std::numeric_limits<int>::min() ||
+          total > std::numeric_limits<int>::max() ||
+          !fits_signed_12(total)) {
+        return false;
+      }
+      load_from(expression.type, "s0", static_cast<int>(total));
+      return true;
+    }
+    if (base.global != nullptr &&
+        base.global->decl->type->kind == TypeKind::Array &&
+        fits_signed_12(offset)) {
+      emit("  la a0, " + base.global->decl->name);
+      load_into(expression.type, "a0", "a0", static_cast<int>(offset));
+      return true;
+    }
+    return false;
+  }
+
+  bool try_constant_index_store(const Expr& expression,
+                                const Function& function) {
+    if (!optimizing(OptimizationLevel::O1) || expression.compound ||
+        expression.lhs->kind != ExprKind::Index ||
+        expression.lhs->lhs->kind != ExprKind::Var ||
+        !is_scalar(expression.lhs->type)) {
+      return false;
+    }
+    std::int64_t offset = 0;
+    if (!constant_byte_offset(*expression.lhs->rhs, expression.lhs->type->size,
+                              offset)) {
+      return false;
+    }
+    const Expr& base = *expression.lhs->lhs;
+    if (base.local != nullptr && base.local->type->kind == TypeKind::Array) {
+      const std::int64_t total =
+          static_cast<std::int64_t>(base.local->offset) + offset;
+      if (total < std::numeric_limits<int>::min() ||
+          total > std::numeric_limits<int>::max() ||
+          !fits_signed_12(total)) {
+        return false;
+      }
+      generate_expression(*expression.rhs, function);
+      convert_value(expression.lhs->type);
+      store_to(expression.lhs->type, "s0", static_cast<int>(total));
+      convert_value(expression.lhs->type);
+      return true;
+    }
+    if (base.global != nullptr &&
+        base.global->decl->type->kind == TypeKind::Array &&
+        fits_signed_12(offset)) {
+      generate_expression(*expression.rhs, function);
+      convert_value(expression.lhs->type);
+      emit("  la a1, " + base.global->decl->name);
+      store_to(expression.lhs->type, "a1", static_cast<int>(offset));
+      convert_value(expression.lhs->type);
+      return true;
+    }
+    return false;
+  }
+
   void generate_binary(const Expr& expression, const Function& function) {
     if (expression.binary == BinaryOp::LogAnd ||
         expression.binary == BinaryOp::LogOr) {
@@ -942,11 +1090,7 @@ class Codegen {
       push_a0();
       generate_expression(*expression.rhs, function);
       if (pointer_arith && is_integer(right_type)) {
-        const std::size_t scale = left_type->base->size;
-        if (scale > 1) {
-          emit("  li a1, " + std::to_string(scale));
-          emit("  mul a0, a0, a1");
-        }
+        emit_scale_a0(left_type->base->size);
       }
       pop_to("a1");
     }
@@ -955,8 +1099,13 @@ class Codegen {
       emit("  sub a0, a1, a0");
       const std::size_t scale = left_type->base->size;
       if (scale > 1) {
-        emit("  li a1, " + std::to_string(scale));
-        emit("  div a0, a0, a1");
+        if (optimizing(OptimizationLevel::O1) && is_power_of_two(scale)) {
+          emit("  srai a0, a0, " +
+               std::to_string(power_of_two_shift(scale)));
+        } else {
+          emit("  li a1, " + std::to_string(scale));
+          emit("  div a0, a0, a1");
+        }
       }
       return;
     }
@@ -1076,14 +1225,18 @@ class Codegen {
         }
         break;
       case ExprKind::Index: {
+        std::int64_t offset = 0;
+        if (optimizing(OptimizationLevel::O1) &&
+            constant_byte_offset(*expression.rhs, expression.type->size,
+                                 offset)) {
+          generate_expression(*expression.lhs, function);
+          emit_add_to_a0(offset);
+          return;
+        }
         generate_expression(*expression.lhs, function);
         push_a0();
         generate_expression(*expression.rhs, function);
-        const std::size_t scale = expression.type->size;
-        if (scale > 1) {
-          emit("  li a1, " + std::to_string(scale));
-          emit("  mul a0, a0, a1");
-        }
+        emit_scale_a0(expression.type->size);
         pop_to("a1");
         emit("  add a0, a1, a0");
         return;

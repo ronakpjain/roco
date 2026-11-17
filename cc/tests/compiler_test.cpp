@@ -189,6 +189,37 @@ TEST(CompilerTest, ShortCircuitsLogicalConditionsAtO1) {
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, ScalesIndexesWithShiftsAtO1) {
+  const std::string assembly = compile(R"(
+    int get(int *p, int index) { return p[index]; }
+    void put(int *p, int index, int value) { p[index] = value; }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("slli a0, a0, 2"), std::string::npos);
+  EXPECT_EQ(assembly.find("li a1, 4\n  mul a0, a0, a1"),
+            std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
+TEST(CompilerTest, FoldsConstantIndexesIntoLoadsAtO1) {
+  const std::string assembly = compile(R"(
+    int table[4];
+    int get(int *p) { return p[3]; }
+    int global(void) { return table[2]; }
+    int local(void) {
+      int values[4];
+      return values[2];
+    }
+    int distance(int *p, int *q) { return p - q; }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("lw a0, 12(a0)"), std::string::npos);
+  EXPECT_NE(assembly.find("la a0, table\n  lw a0, 8(a0)"),
+            std::string::npos);
+  EXPECT_NE(assembly.find("lw a0, -8(s0)"), std::string::npos);
+  EXPECT_NE(assembly.find("srai a0, a0, 2"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

@@ -16,6 +16,14 @@ Defaults are seed 96 and `--placer-heap-timingweight 30`.
 To reproduce explicitly, use
 `make bitstream PNR_SEED=96 PNR_FLAGS="--placer-heap-timingweight 30"`.
 
+## CI
+
+The `FPGA timing` GitHub Actions workflow runs this diagnostic route for
+changes under `soc/`. It writes the per-clock achieved and constraint
+frequencies to the job summary and attaches the complete `soc/build`
+directory as a `fpga-build.tar.gz` archive in the `fpga-build-<run-id>`
+artifact. A manually dispatched run can override the nextpnr seed.
+
 ## Reset
 
 Every clocked process uses an active-high asynchronous reset,

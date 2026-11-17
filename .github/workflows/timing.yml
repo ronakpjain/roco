@@ -1,0 +1,90 @@
+name: FPGA timing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "soc/**"
+      - ".github/workflows/timing.yml"
+  pull_request:
+    paths:
+      - "soc/**"
+      - ".github/workflows/timing.yml"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: nextpnr seed (leave empty to use the Makefile default)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpga-timing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  route:
+    name: Route and publish timing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OSS_CAD_SUITE_VERSION: "2026-11-16"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install OSS CAD Suite
+        uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show tool versions
+        run: |
+          yosys -V
+          nextpnr-ecp5 --version
+          ecppack --version
+
+      - name: Synthesize and route
+        env:
+          SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${SEED:-}" ]]; then
+            make -C soc timing TIMING_SEED="$SEED"
+          else
+            make -C soc timing
+          fi
+
+      - name: Publish timing summary
+        if: always()
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          reports=(soc/build/timing_seed*.json)
+          if (( ${#reports[@]} )); then
+            python3 soc/scripts/timing_summary.py "${reports[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No timing report produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Archive build outputs
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -d soc/build ]]; then
+            tar -czf "$RUNNER_TEMP/fpga-build.tar.gz" -C soc build
+          else
+            echo "No build directory to archive." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Attach build outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fpga-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/fpga-build.tar.gz
+          if-no-files-found: warn
+          retention-days: 30

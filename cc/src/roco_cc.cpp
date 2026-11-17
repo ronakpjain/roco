@@ -15,7 +15,26 @@
 namespace {
 
 void usage() {
-  std::cerr << "usage: roco_cc [-S|-c|-E] [-o output] input.c\n";
+  std::cerr << "usage: roco_cc [-S|-c|-E] [-O0|-O1|-O2] [--cost-model file]\n"
+               "                [--cost key=value] [-o output] input.c\n";
+}
+
+bool parse_non_negative(const std::string& text, int& value) {
+  if (text.empty()) {
+    return false;
+  }
+  long long parsed = 0;
+  for (const char character : text) {
+    if (character < '0' || character > '9') {
+      return false;
+    }
+    parsed = parsed * 10 + (character - '0');
+    if (parsed > 1000000) {
+      return false;
+    }
+  }
+  value = static_cast<int>(parsed);
+  return true;
 }
 
 void write_text(const std::filesystem::path& path, const std::string& text) {
@@ -47,6 +66,7 @@ void write_bytes(const std::filesystem::path& path,
 int main(int argc, char** argv) {
   bool emit_object = false;
   bool emit_preprocessed = false;
+  roco::CompilerOptions options;
   std::filesystem::path output;
   std::filesystem::path input;
 
@@ -66,6 +86,44 @@ int main(int argc, char** argv) {
     }
     if (argument == "-E") {
       emit_preprocessed = true;
+      continue;
+    }
+    if (argument == "-O" || argument == "-O1") {
+      options.optimization = roco::OptimizationLevel::O1;
+      continue;
+    }
+    if (argument == "-O0") {
+      options.optimization = roco::OptimizationLevel::O0;
+      continue;
+    }
+    if (argument == "-O2") {
+      options.optimization = roco::OptimizationLevel::O2;
+      continue;
+    }
+    if (argument == "--cost-model" || argument == "--cost") {
+      if (i + 1 >= argc) {
+        usage();
+        return 2;
+      }
+      const std::string value = argv[++i];
+      try {
+        if (argument == "--cost-model") {
+          options.costs = roco::load_cost_model(value);
+        } else {
+          const std::size_t equals = value.find('=');
+          int cost = 0;
+          if (equals == std::string::npos ||
+              !parse_non_negative(value.substr(equals + 1), cost) ||
+              !roco::set_cost(options.costs, value.substr(0, equals), cost)) {
+            std::cerr << "roco_cc: invalid cost override '" << value << "'\n";
+            usage();
+            return 2;
+          }
+        }
+      } catch (const roco::Error& error) {
+        std::cerr << "roco_cc: " << error.what() << '\n';
+        return 2;
+      }
       continue;
     }
     if (argument == "-o") {
@@ -103,10 +161,10 @@ int main(int argc, char** argv) {
       return 0;
     }
     if (!emit_object) {
-      write_text(output, roco::compile_file(input.string()));
+      write_text(output, roco::compile_file(input.string(), options));
       return 0;
     }
-    const std::string assembly = roco::compile_file(input.string());
+    const std::string assembly = roco::compile_file(input.string(), options);
     const roco::Object object = roco::assemble(assembly, input.string());
     write_bytes(output, roco::elf::encode_object(object));
     return 0;

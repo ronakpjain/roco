@@ -1,0 +1,22 @@
+# roco SoC instruction costs for roco_cc -O2.
+#
+# Values are dependent-result latencies in cycles. The compiler scores an
+# instruction sequence as instructions * issue + (latency - issue), so a
+# longer shift/add sequence wins only when the hardware operation's latency
+# makes it more expensive. Update this file when the pipeline changes.
+#
+# Usage:
+#   roco_cc -O2 --cost-model ../cc/targets/roco_soc.costs -S -o out.s in.c
+#
+# RTL references:
+#   multiply: one EX/MEM bubble, result forwarded from MEM
+#   divide:   iterative radix-four divider, start + prepare + 16 chunks + finish
+
+issue      = 1
+arithmetic = 1
+shift      = 1
+multiply   = 2
+divide     = 20
+load       = 2
+store      = 1
+branch     = 1

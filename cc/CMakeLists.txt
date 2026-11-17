@@ -18,6 +18,7 @@ add_library(roco_core
   src/linker.cpp
   src/compiler.cpp
   src/compiler/token.cpp
+  src/target.cpp
 )
 target_include_directories(roco_core PUBLIC include PRIVATE src)
 target_compile_definitions(roco_core PRIVATE
@@ -45,6 +46,7 @@ add_executable(roco_tests
   tests/assembler_test.cpp
   tests/linker_test.cpp
   tests/compiler_test.cpp
+  tests/target_test.cpp
 )
 target_link_libraries(roco_tests PRIVATE roco_core GTest::gtest_main)
 target_include_directories(roco_tests PRIVATE include)

@@ -8,6 +8,7 @@
 #include "compiler/types.hpp"
 
 #include "roco/diagnostic.hpp"
+#include "roco/target.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -36,8 +37,10 @@ struct Declarator {
 
 class Parser {
  public:
-  Parser(std::string_view source, std::string filename)
+  Parser(std::string_view source, std::string filename,
+         OptimizationLevel optimization = OptimizationLevel::O0)
       : filename_(std::move(filename)),
+        optimization_(optimization),
         tokens_(Lexer(source, filename_).tokenize()) {}
 
   Program parse() {
@@ -1478,6 +1481,7 @@ class Parser {
   }
 
   std::string filename_;
+  OptimizationLevel optimization_ = OptimizationLevel::O0;
   std::vector<Token> tokens_;
   std::size_t position_ = 0;
   Program program_;

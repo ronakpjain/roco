@@ -7,6 +7,7 @@
 #include "compiler/types.hpp"
 
 #include "roco/diagnostic.hpp"
+#include "roco/target.hpp"
 
 #include <cctype>
 #include <cstddef>
@@ -23,7 +24,8 @@ namespace roco::cc {
 
 class Codegen {
  public:
-  explicit Codegen(Program program) : program_(std::move(program)) {}
+  explicit Codegen(Program program, CompilerOptions options = {})
+      : program_(std::move(program)), options_(options) {}
 
   std::string generate() {
     mark_reachable_functions();
@@ -1150,6 +1152,7 @@ class Codegen {
   }
 
   Program program_;
+  CompilerOptions options_;
   std::ostringstream output_;
   std::unordered_set<Function*> reachable_;
   std::vector<TempValue> temp_stack_;

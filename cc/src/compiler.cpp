@@ -39,16 +39,19 @@ std::vector<std::string> include_dirs() {
 }  // namespace
 
 std::string compile_to_assembly(std::string_view source,
-                                std::string_view filename) {
+                                std::string_view filename,
+                                const CompilerOptions& options) {
   cc::Preprocessor preprocessor(source, std::string(filename), include_dirs());
-  cc::Parser parser(preprocessor.run(), std::string(filename));
+  cc::Parser parser(preprocessor.run(), std::string(filename),
+                    options.optimization);
   cc::Program program = parser.parse();
-  cc::Codegen codegen(std::move(program));
+  cc::Codegen codegen(std::move(program), options);
   return codegen.generate();
 }
 
-std::string compile_file(const std::string& path) {
-  return compile_to_assembly(read_source(path), path);
+std::string compile_file(const std::string& path,
+                         const CompilerOptions& options) {
+  return compile_to_assembly(read_source(path), path, options);
 }
 
 std::string preprocess_file(const std::string& path) {

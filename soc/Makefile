@@ -40,6 +40,10 @@ ROCO_DIR ?= ../cc
 ROCO_AS ?= $(ROCO_DIR)/build/roco_as
 ROCO_LD ?= $(ROCO_DIR)/build/roco_ld
 ROCO_CC ?= $(ROCO_DIR)/build/roco_cc
+# Directed hardware tests stay at -O0 so each instruction pattern is
+# exercised exactly as written. Override for an optimized build, e.g.
+# make test_vector_c ROCO_CCFLAGS=-O2.
+ROCO_CCFLAGS ?= -O0
 
 FORMAT_FLAGS := --flagfile=.verible-verilog-format
 
@@ -127,7 +131,7 @@ test_satp_fetch: $(BUILD_DIR)/satp_fetch.hex $(BUILD_DIR)/fetch_page_boundary.he
 	$(SOC_SIM) +hex=$(BUILD_DIR)/fetch_page_boundary.hex
 
 $(BUILD_DIR)/vector_c.s: sw/vector/main.c $(ROCO_CC) | build
-	$(ROCO_CC) -S -o $@ $<
+	$(ROCO_CC) $(ROCO_CCFLAGS) -S -o $@ $<
 
 $(BUILD_DIR)/vector_c-main.o: $(BUILD_DIR)/vector_c.s $(ROCO_AS) | build
 	$(ROCO_AS) -o $@ $<
@@ -150,7 +154,7 @@ test_atomic_order: $(BUILD_DIR)/atomic_order.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic_order.hex +max_cycles=100000 +check_atomic_order
 
 $(BUILD_DIR)/hello_boot.s: sw/hello/boot.c sw/hello/roco_io.h $(ROCO_CC) | build
-	$(ROCO_CC) -S -o $@ $<
+	$(ROCO_CC) $(ROCO_CCFLAGS) -S -o $@ $<
 
 $(BUILD_DIR)/hello_boot-main.o: $(BUILD_DIR)/hello_boot.s $(ROCO_AS) | build
 	$(ROCO_AS) -o $@ $<
@@ -168,7 +172,7 @@ $(BUILD_DIR)/hello_boot.packet.hex: $(BUILD_DIR)/hello_boot.bin | build
 	$(PYTHON) scripts/boot.py --bin $< --emit-hex $@
 
 $(BUILD_DIR)/hello.s: sw/hello/main.c sw/hello/roco_io.h $(ROCO_CC) | build
-	$(ROCO_CC) -S -o $@ $<
+	$(ROCO_CC) $(ROCO_CCFLAGS) -S -o $@ $<
 
 $(BUILD_DIR)/hello-main.o: $(BUILD_DIR)/hello.s $(ROCO_AS) | build
 	$(ROCO_AS) -o $@ $<

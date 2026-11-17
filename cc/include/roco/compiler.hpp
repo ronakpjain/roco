@@ -1,5 +1,7 @@
 #pragma once
 
+#include "roco/target.hpp"
+
 #include <string>
 #include <string_view>
 
@@ -21,18 +23,22 @@ namespace roco {
  *
  * @param source Complete C source text.
  * @param filename Display name used in diagnostics.
+ * @param options Optimization level and target instruction costs.
  * @return GNU-style RISC-V assembly accepted by roco_as.
  * @throws roco::Error on invalid input or unsupported C constructs.
  */
-std::string compile_to_assembly(std::string_view source,
-                                std::string_view filename);
+std::string compile_to_assembly(
+    std::string_view source, std::string_view filename,
+    const CompilerOptions& options = CompilerOptions{});
 
 /** @brief Read and compile one C source file.
  *  @param path Filesystem path of the C source.
+ *  @param options Optimization level and target instruction costs.
  *  @return Assembly text.
  *  @throws roco::Error if the file cannot be read or compilation fails.
  */
-std::string compile_file(const std::string& path);
+std::string compile_file(const std::string& path,
+                         const CompilerOptions& options = CompilerOptions{});
 
 /** @brief Run only the C preprocessor on one source file.
  *  @param path Filesystem path of the C source.

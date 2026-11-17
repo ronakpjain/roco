@@ -144,6 +144,51 @@ TEST(CompilerTest, FoldsConstantConditionalsAtO1) {
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, LowersConditionsToDirectBranchesAtO1) {
+  const char* source = R"(
+    int test(int x, int y) {
+      if (x < y) return 1;
+      return 0;
+    }
+    int unsigned_test(unsigned int x) {
+      if (x < 5u) return 1;
+      return 0;
+    }
+  )";
+  const std::string optimized = compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(optimized.find("bge a1, a0"), std::string::npos);
+  EXPECT_NE(optimized.find("bgeu a0, a1"), std::string::npos);
+  EXPECT_EQ(optimized.find("slt a0, a1, a0"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+}
+
+TEST(CompilerTest, RemovesConstantConditionalBranchesAtO1) {
+  const char* source = R"(
+    int main(void) {
+      if (1 > 2) return 12345;
+      return 6789;
+    }
+  )";
+  const std::string baseline = compile(source);
+  const std::string optimized = compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(baseline.find("li a0, 12345"), std::string::npos);
+  EXPECT_EQ(optimized.find("li a0, 12345"), std::string::npos);
+  EXPECT_NE(optimized.find("li a0, 6789"), std::string::npos);
+}
+
+TEST(CompilerTest, ShortCircuitsLogicalConditionsAtO1) {
+  const std::string assembly = compile(R"(
+    int both(int x, int y) {
+      if (x != 0 && y != 0) return 7;
+      return 0;
+    }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_EQ(assembly.find("snez a0, a0"), std::string::npos);
+  EXPECT_NE(assembly.find("beq a0, zero"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

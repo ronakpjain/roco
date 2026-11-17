@@ -194,6 +194,156 @@ class Codegen {
     }
   }
 
+  bool optimizing(OptimizationLevel level) const {
+    return options_.optimization >= level;
+  }
+
+  static bool is_comparison(BinaryOp operation) {
+    switch (operation) {
+      case BinaryOp::Lt:
+      case BinaryOp::Le:
+      case BinaryOp::Gt:
+      case BinaryOp::Ge:
+      case BinaryOp::Eq:
+      case BinaryOp::Ne:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  void emit_compare_branch_impl(BinaryOp operation, bool when_true,
+                                const std::string& left_reg,
+                                const std::string& right_reg, bool is_unsigned,
+                                const std::string& target) {
+    BinaryOp branch_operation = operation;
+    if (!when_true) {
+      switch (operation) {
+        case BinaryOp::Eq:
+          branch_operation = BinaryOp::Ne;
+          break;
+        case BinaryOp::Ne:
+          branch_operation = BinaryOp::Eq;
+          break;
+        case BinaryOp::Lt:
+          branch_operation = BinaryOp::Ge;
+          break;
+        case BinaryOp::Le:
+          branch_operation = BinaryOp::Gt;
+          break;
+        case BinaryOp::Gt:
+          branch_operation = BinaryOp::Le;
+          break;
+        case BinaryOp::Ge:
+          branch_operation = BinaryOp::Lt;
+          break;
+        default:
+          break;
+      }
+    }
+    std::string mnemonic;
+    std::string first = left_reg;
+    std::string second = right_reg;
+    switch (branch_operation) {
+      case BinaryOp::Eq:
+        mnemonic = "beq";
+        break;
+      case BinaryOp::Ne:
+        mnemonic = "bne";
+        break;
+      case BinaryOp::Lt:
+        mnemonic = is_unsigned ? "bltu" : "blt";
+        break;
+      case BinaryOp::Le:
+        mnemonic = is_unsigned ? "bgeu" : "bge";
+        first = right_reg;
+        second = left_reg;
+        break;
+      case BinaryOp::Gt:
+        mnemonic = is_unsigned ? "bltu" : "blt";
+        first = right_reg;
+        second = left_reg;
+        break;
+      case BinaryOp::Ge:
+        mnemonic = is_unsigned ? "bgeu" : "bge";
+        break;
+      default:
+        return;
+    }
+    emit("  " + mnemonic + " " + first + ", " + second + ", " + target);
+  }
+
+  void emit_comparison_condition(const Expr& expression,
+                                 const Function& function,
+                                 const std::string& target, bool when_true) {
+    const TypePtr left_type = expression.lhs->type;
+    const TypePtr right_type = expression.rhs->type;
+    const bool is_unsigned =
+        left_type->is_unsigned || right_type->is_unsigned ||
+        is_pointer(left_type) || is_pointer(right_type);
+    std::int64_t constant = 0;
+    if (constant_int(*expression.rhs, constant)) {
+      generate_expression(*expression.lhs, function);
+      std::string right_reg = "zero";
+      if (constant != 0) {
+        right_reg = "a1";
+        emit("  li a1, " + std::to_string(constant));
+      }
+      emit_compare_branch_impl(expression.binary, when_true, "a0", right_reg,
+                               is_unsigned, target);
+      return;
+    }
+    generate_expression(*expression.lhs, function);
+    push_a0();
+    generate_expression(*expression.rhs, function);
+    pop_to("a1");
+    emit_compare_branch_impl(expression.binary, when_true, "a1", "a0",
+                             is_unsigned, target);
+  }
+
+  void emit_branch_condition(const Expr& expression, const Function& function,
+                             const std::string& target, bool when_true) {
+    if (expression.kind == ExprKind::Unary &&
+        expression.unary == UnaryOp::Not) {
+      emit_branch_condition(*expression.lhs, function, target, !when_true);
+      return;
+    }
+    if (expression.kind == ExprKind::Binary) {
+      if (expression.binary == BinaryOp::LogAnd) {
+        if (!when_true) {
+          emit_branch_condition(*expression.lhs, function, target, false);
+          emit_branch_condition(*expression.rhs, function, target, false);
+        } else {
+          const std::string skip = new_label();
+          emit_branch_condition(*expression.lhs, function, skip, false);
+          emit_branch_condition(*expression.rhs, function, skip, false);
+          emit("  j " + target);
+          emit(skip + ":");
+        }
+        return;
+      }
+      if (expression.binary == BinaryOp::LogOr) {
+        if (when_true) {
+          emit_branch_condition(*expression.lhs, function, target, true);
+          emit_branch_condition(*expression.rhs, function, target, true);
+        } else {
+          const std::string skip = new_label();
+          emit_branch_condition(*expression.lhs, function, skip, true);
+          emit_branch_condition(*expression.rhs, function, skip, true);
+          emit("  j " + target);
+          emit(skip + ":");
+        }
+        return;
+      }
+      if (is_comparison(expression.binary)) {
+        emit_comparison_condition(expression, function, target, when_true);
+        return;
+      }
+    }
+    generate_expression(expression, function);
+    emit(std::string(when_true ? "  bnez a0, " : "  beqz a0, ") + target);
+  }
+
   void generate_statement(const Stmt& statement, const Function& function) {
     switch (statement.kind) {
       case StmtKind::Empty:
@@ -217,10 +367,27 @@ class Codegen {
         }
         return;
       case StmtKind::If: {
+        std::int64_t condition = 0;
+        if (optimizing(OptimizationLevel::O1) &&
+            constant_int(*statement.expr, condition)) {
+          if (condition != 0) {
+            generate_statement(*statement.then_stmt, function);
+          } else if (statement.else_stmt) {
+            generate_statement(*statement.else_stmt, function);
+          }
+          return;
+        }
         const std::string else_label = new_label();
         const std::string end_label = new_label();
-        generate_expression(*statement.expr, function);
-        emit("  beqz a0, " + (statement.else_stmt ? else_label : end_label));
+        if (optimizing(OptimizationLevel::O1)) {
+          emit_branch_condition(*statement.expr, function,
+                                statement.else_stmt ? else_label : end_label,
+                                false);
+        } else {
+          generate_expression(*statement.expr, function);
+          emit("  beqz a0, " +
+               (statement.else_stmt ? else_label : end_label));
+        }
         generate_statement(*statement.then_stmt, function);
         if (statement.else_stmt) {
           emit("  j " + end_label);
@@ -231,13 +398,26 @@ class Codegen {
         return;
       }
       case StmtKind::While: {
+        std::int64_t condition = 0;
+        const bool constant =
+            optimizing(OptimizationLevel::O1) &&
+            constant_int(*statement.expr, condition);
+        if (constant && condition == 0) {
+          return;
+        }
         const std::string start = new_label();
         const std::string end = new_label();
         break_labels_.push_back(end);
         continue_labels_.push_back(start);
         emit(start + ":");
-        generate_expression(*statement.expr, function);
-        emit("  beqz a0, " + end);
+        if (!(constant && condition != 0)) {
+          if (optimizing(OptimizationLevel::O1)) {
+            emit_branch_condition(*statement.expr, function, end, false);
+          } else {
+            generate_expression(*statement.expr, function);
+            emit("  beqz a0, " + end);
+          }
+        }
         generate_statement(*statement.body, function);
         emit("  j " + start);
         emit(end + ":");
@@ -246,22 +426,56 @@ class Codegen {
         return;
       }
       case StmtKind::DoWhile: {
+        std::int64_t condition = 0;
+        if (optimizing(OptimizationLevel::O1) &&
+            constant_int(*statement.expr, condition)) {
+          const std::string end = new_label();
+          break_labels_.push_back(end);
+          if (condition != 0) {
+            const std::string start = new_label();
+            continue_labels_.push_back(start);
+            emit(start + ":");
+            generate_statement(*statement.body, function);
+            emit("  j " + start);
+          } else {
+            continue_labels_.push_back(end);
+            generate_statement(*statement.body, function);
+          }
+          emit(end + ":");
+          continue_labels_.pop_back();
+          break_labels_.pop_back();
+          return;
+        }
         const std::string start = new_label();
-        const std::string condition = new_label();
+        const std::string condition_label = new_label();
         const std::string end = new_label();
         break_labels_.push_back(end);
-        continue_labels_.push_back(condition);
+        continue_labels_.push_back(condition_label);
         emit(start + ":");
         generate_statement(*statement.body, function);
-        emit(condition + ":");
-        generate_expression(*statement.expr, function);
-        emit("  bnez a0, " + start);
+        emit(condition_label + ":");
+        if (optimizing(OptimizationLevel::O1)) {
+          emit_branch_condition(*statement.expr, function, start, true);
+        } else {
+          generate_expression(*statement.expr, function);
+          emit("  bnez a0, " + start);
+        }
         emit(end + ":");
         continue_labels_.pop_back();
         break_labels_.pop_back();
         return;
       }
       case StmtKind::For: {
+        std::int64_t condition = 0;
+        const bool constant =
+            optimizing(OptimizationLevel::O1) && statement.expr != nullptr &&
+            constant_int(*statement.expr, condition);
+        if (constant && condition == 0) {
+          if (statement.init) {
+            generate_statement(*statement.init, function);
+          }
+          return;
+        }
         const std::string start = new_label();
         const std::string increment = new_label();
         const std::string end = new_label();
@@ -271,9 +485,13 @@ class Codegen {
           generate_statement(*statement.init, function);
         }
         emit(start + ":");
-        if (statement.expr) {
-          generate_expression(*statement.expr, function);
-          emit("  beqz a0, " + end);
+        if (statement.expr && !(constant && condition != 0)) {
+          if (optimizing(OptimizationLevel::O1)) {
+            emit_branch_condition(*statement.expr, function, end, false);
+          } else {
+            generate_expression(*statement.expr, function);
+            emit("  beqz a0, " + end);
+          }
         }
         generate_statement(*statement.body, function);
         emit(increment + ":");
@@ -347,8 +565,12 @@ class Codegen {
       case ExprKind::Conditional: {
         const std::string else_label = new_label();
         const std::string end_label = new_label();
-        generate_expression(*expression.lhs, function);
-        emit("  beqz a0, " + else_label);
+        if (optimizing(OptimizationLevel::O1)) {
+          emit_branch_condition(*expression.lhs, function, else_label, false);
+        } else {
+          generate_expression(*expression.lhs, function);
+          emit("  beqz a0, " + else_label);
+        }
         generate_expression(*expression.rhs, function);
         emit("  j " + end_label);
         emit(else_label + ":");

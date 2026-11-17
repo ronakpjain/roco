@@ -1,6 +1,6 @@
 # FPGA timing and validation
 
-The board clock remains 48 MHz, generated from the 24 MHz input. Routing
+The board clock is 96 MHz, generated from the 24 MHz input. Routing
 uses the LFE5U-45F, CABGA381 package, speed grade 6, and the pin and clock
 constraints in `constraints/roco.lpf`.
 
@@ -10,11 +10,11 @@ Run `make bitstream` for a timing-enforced build. It produces
 `build/roco.bit`, `build/roco_timing.json`, and `build/roco_route.log`.
 A timing failure stops the build before the configuration is packaged.
 `make timing` is diagnostic: it permits timing failures and writes
-`build/timing_seed4.json` by default. A successful diagnostic command does
+`build/timing_seed96.json` by default. A successful diagnostic command does
 not establish timing closure. Both targets share `PNR_SEED` and `PNR_FLAGS`.
-Defaults are seed 4 and `--placer-heap-timingweight 30`.
+Defaults are seed 96 and `--placer-heap-timingweight 30`.
 To reproduce explicitly, use
-`make bitstream PNR_SEED=4 PNR_FLAGS="--placer-heap-timingweight 30"`.
+`make bitstream PNR_SEED=96 PNR_FLAGS="--placer-heap-timingweight 30"`.
 
 ## Reset
 

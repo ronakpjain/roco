@@ -19,7 +19,7 @@ validation coverage.
 
 Editable source: [docs/roco_cpu.drawio](docs/roco_cpu.drawio).
 
-`roco_top` contains the 24 MHz to 48 MHz PLL and reset synchronizer, and
+`roco_top` contains the 24 MHz to 96 MHz PLL and reset synchronizer, and
 instantiates `roco_soc`. Inside the SoC:
 
 - `roco_cpu` is the five-stage pipeline (IF, ID, EX, MEM, WB), built
@@ -140,7 +140,7 @@ word request from the bootloader and single-word PTE reads from the MMU
 walker share the SDRAM controller through `mem_arbiter.sv` with
 round-robin priority.
 
-`sdram_ctrl.sv` drives the IS42S16160J at 48 MHz with BL=2 and CL=3.
+`sdram_ctrl.sv` drives the IS42S16160J at 96 MHz with BL=2 and CL=3.
 Transactions move 32-bit words (two halfword beats), reads are pipelined
 one word per two cycles, and the controller keeps a row open until a
 different row or a refresh is needed. Power-up wait, precharge, two

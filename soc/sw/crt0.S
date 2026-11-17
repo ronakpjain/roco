@@ -6,7 +6,7 @@
 _start:
   li sp, 0x100f0000
   call main
-  # Let the UART FIFO drain before halting (about 4 ms at 48 MHz).
+  # Let the UART FIFO drain before halting (about 2 ms at 96 MHz).
   li t0, 30000
 1:
   addi t0, t0, -1

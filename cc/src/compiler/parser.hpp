@@ -52,6 +52,7 @@ class Parser {
         assign_frame(function.get());
       }
     }
+    optimize_program();
     return std::move(program_);
   }
 
@@ -529,8 +530,81 @@ class Parser {
   void fold_constant(ExprPtr& expression) {
     std::int64_t value = 0;
     if (expression != nullptr && evaluate_constant(expression.get(), value)) {
+      const TypePtr type = expression->type;
       const Token token = expression->token;
-      expression = make_int(value, type_int(), token);
+      expression = make_int(value, type, token);
+    }
+  }
+
+  void optimize_expr(ExprPtr& expression) {
+    if (expression == nullptr) {
+      return;
+    }
+    optimize_expr(expression->lhs);
+    optimize_expr(expression->rhs);
+    optimize_expr(expression->third);
+    for (auto& argument : expression->args) {
+      optimize_expr(argument);
+    }
+
+    if (expression->kind == ExprKind::Conditional) {
+      std::int64_t condition = 0;
+      if (evaluate_constant(expression->lhs.get(), condition)) {
+        ExprPtr selected = std::move(condition != 0 ? expression->rhs
+                                                    : expression->third);
+        expression = std::move(selected);
+      }
+    } else if (expression->kind == ExprKind::Binary &&
+               expression->binary == BinaryOp::Comma) {
+      std::int64_t ignored = 0;
+      if (evaluate_constant(expression->lhs.get(), ignored)) {
+        ExprPtr selected = std::move(expression->rhs);
+        expression = std::move(selected);
+      }
+    }
+    fold_constant(expression);
+  }
+
+  void optimize_stmt(Stmt& statement) {
+    optimize_expr(statement.expr);
+    optimize_expr(statement.inc);
+    if (statement.init) {
+      optimize_stmt(*statement.init);
+    }
+    if (statement.then_stmt) {
+      optimize_stmt(*statement.then_stmt);
+    }
+    if (statement.else_stmt) {
+      optimize_stmt(*statement.else_stmt);
+    }
+    if (statement.body) {
+      optimize_stmt(*statement.body);
+    }
+    for (auto& child : statement.statements) {
+      optimize_stmt(*child);
+    }
+    for (auto& declaration : statement.declarations) {
+      optimize_expr(declaration->init);
+      for (auto& element : declaration->init_list) {
+        optimize_expr(element);
+      }
+    }
+  }
+
+  void optimize_program() {
+    if (optimization_ < OptimizationLevel::O1) {
+      return;
+    }
+    for (auto& global : program_.globals) {
+      optimize_expr(global->decl->init);
+      for (auto& element : global->decl->init_list) {
+        optimize_expr(element);
+      }
+    }
+    for (auto& function : program_.functions) {
+      if (function->defined && function->body) {
+        optimize_stmt(*function->body);
+      }
     }
   }
 
@@ -1324,145 +1398,285 @@ class Parser {
     return expression;
   }
 
-  bool evaluate_constant(const Expr* expression, std::int64_t& value) const {
+  static bool type_is_unsigned(const TypePtr& type) {
+    return type->is_unsigned || type->kind == TypeKind::Pointer;
+  }
+
+  static std::uint32_t normalize_bits(std::uint32_t bits,
+                                      const TypePtr& type) {
+    switch (type->kind) {
+      case TypeKind::Char:
+        return bits & 0xffu;
+      case TypeKind::Short:
+        return bits & 0xffffu;
+      default:
+        return bits;
+    }
+  }
+
+  static std::int64_t interpret_bits(std::uint32_t bits,
+                                     const TypePtr& type) {
+    switch (type->kind) {
+      case TypeKind::Char: {
+        const std::uint32_t value = bits & 0xffu;
+        if (type->is_unsigned) {
+          return static_cast<std::int64_t>(value);
+        }
+        return (value & 0x80u) != 0
+                   ? static_cast<std::int64_t>(value) - 0x100
+                   : static_cast<std::int64_t>(value);
+      }
+      case TypeKind::Short: {
+        const std::uint32_t value = bits & 0xffffu;
+        if (type->is_unsigned) {
+          return static_cast<std::int64_t>(value);
+        }
+        return (value & 0x8000u) != 0
+                   ? static_cast<std::int64_t>(value) - 0x10000
+                   : static_cast<std::int64_t>(value);
+      }
+      case TypeKind::Int:
+      case TypeKind::Long:
+      case TypeKind::Pointer:
+        return static_cast<std::int64_t>(static_cast<std::int32_t>(bits));
+      default:
+        return static_cast<std::int64_t>(static_cast<std::int32_t>(bits));
+    }
+  }
+
+  static std::uint32_t convert_bits(std::uint32_t bits, const TypePtr& from,
+                                    const TypePtr& to) {
+    const std::int64_t value = interpret_bits(bits, from);
+    return normalize_bits(static_cast<std::uint32_t>(value), to);
+  }
+
+  static bool comparison_is_unsigned(const Expr& expression) {
+    return type_is_unsigned(promote(expression.lhs->type)) ||
+           type_is_unsigned(promote(expression.rhs->type));
+  }
+
+  bool evaluate_bits(const Expr* expression, std::uint32_t& bits) const {
     if (expression == nullptr) {
       return false;
     }
     switch (expression->kind) {
       case ExprKind::Int:
-        value = expression->value;
+        bits = normalize_bits(static_cast<std::uint32_t>(expression->value),
+                              expression->type);
         return true;
       case ExprKind::Unary: {
-        std::int64_t operand = 0;
-        if (!evaluate_constant(expression->lhs.get(), operand)) {
+        std::uint32_t operand = 0;
+        if (!evaluate_bits(expression->lhs.get(), operand)) {
           return false;
         }
+        const std::int64_t value =
+            interpret_bits(operand, expression->lhs->type);
         switch (expression->unary) {
           case UnaryOp::Plus:
-            value = operand;
+            bits = normalize_bits(static_cast<std::uint32_t>(value),
+                                  expression->type);
             return true;
           case UnaryOp::Negate:
-            value = -operand;
+            bits = normalize_bits(
+                static_cast<std::uint32_t>(0u - static_cast<std::uint32_t>(value)),
+                expression->type);
             return true;
           case UnaryOp::Not:
-            value = operand == 0 ? 1 : 0;
+            bits = value == 0 ? 1u : 0u;
             return true;
           case UnaryOp::BitNot:
-            value = ~operand;
+            bits = normalize_bits(~static_cast<std::uint32_t>(value),
+                                  expression->type);
             return true;
           default:
             return false;
         }
       }
       case ExprKind::Binary: {
-        std::int64_t left = 0;
-        std::int64_t right = 0;
-        if (!evaluate_constant(expression->lhs.get(), left) ||
-            !evaluate_constant(expression->rhs.get(), right)) {
+        std::uint32_t left_bits = 0;
+        std::uint32_t right_bits = 0;
+        if (!evaluate_bits(expression->lhs.get(), left_bits) ||
+            !evaluate_bits(expression->rhs.get(), right_bits)) {
           return false;
         }
+        const std::int64_t left =
+            interpret_bits(left_bits, expression->lhs->type);
+        const std::int64_t right =
+            interpret_bits(right_bits, expression->rhs->type);
         switch (expression->binary) {
           case BinaryOp::Add:
-            value = left + right;
+            bits = static_cast<std::uint32_t>(left) +
+                   static_cast<std::uint32_t>(right);
             return true;
           case BinaryOp::Sub:
-            value = left - right;
+            bits = static_cast<std::uint32_t>(left) -
+                   static_cast<std::uint32_t>(right);
             return true;
           case BinaryOp::Mul:
-            value = left * right;
+            bits = static_cast<std::uint32_t>(left) *
+                   static_cast<std::uint32_t>(right);
             return true;
           case BinaryOp::Div:
-            if (right == 0) return false;
-            value = left / right;
+          case BinaryOp::Mod: {
+            if (right_bits == 0) {
+              return false;
+            }
+            const bool is_rem = expression->binary == BinaryOp::Mod;
+            if (type_is_unsigned(expression->type)) {
+              const std::uint32_t unsigned_left =
+                  static_cast<std::uint32_t>(left);
+              const std::uint32_t unsigned_right =
+                  static_cast<std::uint32_t>(right);
+              bits = is_rem ? unsigned_left % unsigned_right
+                            : unsigned_left / unsigned_right;
+            } else if (is_rem) {
+              bits = static_cast<std::uint32_t>(left % right);
+            } else {
+              bits = static_cast<std::uint32_t>(left / right);
+            }
             return true;
-          case BinaryOp::Mod:
-            if (right == 0) return false;
-            value = left % right;
+          }
+          case BinaryOp::Shl: {
+            const std::uint32_t amount =
+                static_cast<std::uint32_t>(right) & 31u;
+            bits = normalize_bits(
+                static_cast<std::uint32_t>(left) << amount,
+                expression->type);
             return true;
-          case BinaryOp::Shl:
-            value = left << right;
+          }
+          case BinaryOp::Shr: {
+            const std::uint32_t amount =
+                static_cast<std::uint32_t>(right) & 31u;
+            if (type_is_unsigned(expression->type)) {
+              bits = static_cast<std::uint32_t>(left) >> amount;
+            } else {
+              bits = static_cast<std::uint32_t>(left >> amount);
+            }
             return true;
-          case BinaryOp::Shr:
-            value = left >> right;
-            return true;
+          }
           case BinaryOp::Lt:
-            value = left < right;
-            return true;
           case BinaryOp::Le:
-            value = left <= right;
-            return true;
           case BinaryOp::Gt:
-            value = left > right;
-            return true;
           case BinaryOp::Ge:
-            value = left >= right;
-            return true;
           case BinaryOp::Eq:
-            value = left == right;
+          case BinaryOp::Ne: {
+            bool result = false;
+            if (comparison_is_unsigned(*expression)) {
+              const std::uint32_t unsigned_left =
+                  static_cast<std::uint32_t>(left);
+              const std::uint32_t unsigned_right =
+                  static_cast<std::uint32_t>(right);
+              switch (expression->binary) {
+                case BinaryOp::Lt:
+                  result = unsigned_left < unsigned_right;
+                  break;
+                case BinaryOp::Le:
+                  result = unsigned_left <= unsigned_right;
+                  break;
+                case BinaryOp::Gt:
+                  result = unsigned_left > unsigned_right;
+                  break;
+                case BinaryOp::Ge:
+                  result = unsigned_left >= unsigned_right;
+                  break;
+                case BinaryOp::Eq:
+                  result = unsigned_left == unsigned_right;
+                  break;
+                case BinaryOp::Ne:
+                  result = unsigned_left != unsigned_right;
+                  break;
+                default:
+                  break;
+              }
+            } else {
+              switch (expression->binary) {
+                case BinaryOp::Lt:
+                  result = left < right;
+                  break;
+                case BinaryOp::Le:
+                  result = left <= right;
+                  break;
+                case BinaryOp::Gt:
+                  result = left > right;
+                  break;
+                case BinaryOp::Ge:
+                  result = left >= right;
+                  break;
+                case BinaryOp::Eq:
+                  result = left == right;
+                  break;
+                case BinaryOp::Ne:
+                  result = left != right;
+                  break;
+                default:
+                  break;
+              }
+            }
+            bits = result ? 1u : 0u;
             return true;
-          case BinaryOp::Ne:
-            value = left != right;
-            return true;
+          }
           case BinaryOp::BitAnd:
-            value = left & right;
+            bits = static_cast<std::uint32_t>(left) &
+                   static_cast<std::uint32_t>(right);
             return true;
           case BinaryOp::BitOr:
-            value = left | right;
+            bits = static_cast<std::uint32_t>(left) |
+                   static_cast<std::uint32_t>(right);
             return true;
           case BinaryOp::BitXor:
-            value = left ^ right;
+            bits = static_cast<std::uint32_t>(left) ^
+                   static_cast<std::uint32_t>(right);
             return true;
           case BinaryOp::LogAnd:
-            value = left && right;
+            bits = left != 0 && right != 0 ? 1u : 0u;
             return true;
           case BinaryOp::LogOr:
-            value = left || right;
+            bits = left != 0 || right != 0 ? 1u : 0u;
             return true;
           case BinaryOp::Comma:
-            value = right;
+            bits = convert_bits(right_bits, expression->rhs->type,
+                                expression->type);
             return true;
         }
         return false;
       }
       case ExprKind::Cast: {
-        std::int64_t operand = 0;
-        if (!evaluate_constant(expression->lhs.get(), operand)) {
+        std::uint32_t operand = 0;
+        if (!evaluate_bits(expression->lhs.get(), operand) ||
+            !is_scalar(expression->type)) {
           return false;
         }
-        if (expression->type->kind == TypeKind::Char) {
-          operand &= 0xff;
-          if (!expression->type->is_unsigned && (operand & 0x80) != 0) {
-            operand -= 0x100;
-          }
-        } else if (expression->type->kind == TypeKind::Short) {
-          operand &= 0xffff;
-          if (!expression->type->is_unsigned && (operand & 0x8000) != 0) {
-            operand -= 0x10000;
-          }
-        } else if (expression->type->kind == TypeKind::Int ||
-                   expression->type->kind == TypeKind::Long ||
-                   expression->type->kind == TypeKind::Pointer) {
-          operand &= 0xffffffffLL;
-          if (operand & 0x80000000LL) {
-            operand -= 0x100000000LL;
-          }
-        } else {
-          return false;
-        }
-        value = operand;
+        bits = convert_bits(operand, expression->lhs->type, expression->type);
         return true;
       }
       case ExprKind::Conditional: {
-        std::int64_t condition = 0;
-        if (!evaluate_constant(expression->lhs.get(), condition)) {
+        std::uint32_t condition = 0;
+        if (!evaluate_bits(expression->lhs.get(), condition)) {
           return false;
         }
-        return evaluate_constant(
-            condition ? expression->rhs.get() : expression->third.get(), value);
+        const Expr* selected =
+            condition != 0 ? expression->rhs.get() : expression->third.get();
+        std::uint32_t selected_bits = 0;
+        if (!evaluate_bits(selected, selected_bits) ||
+            !is_scalar(expression->type)) {
+          return false;
+        }
+        bits = convert_bits(selected_bits, selected->type, expression->type);
+        return true;
       }
       default:
         return false;
     }
+  }
+
+  bool evaluate_constant(const Expr* expression, std::int64_t& value) const {
+    std::uint32_t bits = 0;
+    if (expression == nullptr || !is_scalar(expression->type) ||
+        !evaluate_bits(expression, bits)) {
+      return false;
+    }
+    value = interpret_bits(bits, expression->type);
+    return true;
   }
 
   void assign_frame(Function* function) {

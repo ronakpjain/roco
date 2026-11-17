@@ -8,8 +8,11 @@
 
 namespace {
 
-std::string compile(const std::string& source) {
-  return roco::compile_to_assembly(source, "test.c");
+std::string compile(const std::string& source,
+                     roco::OptimizationLevel level = roco::OptimizationLevel::O0) {
+  roco::CompilerOptions options;
+  options.optimization = level;
+  return roco::compile_to_assembly(source, "test.c", options);
 }
 
 TEST(CompilerTest, CompilesReturnConstant) {
@@ -104,6 +107,41 @@ TEST(CompilerTest, CompilesUnaryOperatorsAndShortInt) {
   )");
   EXPECT_NE(assembly.find("lh a0"), std::string::npos);
   EXPECT_NE(assembly.find("addi a0, a0, 1"), std::string::npos);
+}
+
+
+TEST(CompilerTest, FoldsNestedConstantsAtO1) {
+  const char* source = "int main(void) { return (2 + 3) * 4; }\n";
+  const std::string baseline = compile(source);
+  const std::string optimized = compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(optimized.find("li a0, 20"), std::string::npos);
+  EXPECT_EQ(baseline.find("li a0, 20"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+}
+
+TEST(CompilerTest, FoldsUnsignedConstantsWith32BitSemantics) {
+  const std::string assembly = compile(R"(
+    unsigned int wrap = 0xffffffffu + 1u;
+    unsigned int half = 0xffffffffu / 2u;
+    int compare = 0xffffffffu > 1u;
+    int trunc = -7 / 2;
+  )");
+  EXPECT_NE(assembly.find(".word 0"), std::string::npos);
+  EXPECT_NE(assembly.find(".word 2147483647"), std::string::npos);
+  EXPECT_NE(assembly.find(".word 1"), std::string::npos);
+  EXPECT_NE(assembly.find(".word -3"), std::string::npos);
+}
+
+TEST(CompilerTest, FoldsConstantConditionalsAtO1) {
+  const std::string assembly = compile(R"(
+    int main(void) {
+      int value = 1;
+      int dead = 0 ? (value = 2) : 3;
+      return value + dead;
+    }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("li a0, 3"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
 TEST(CompilerTest, ReportsUnsupportedConstructs) {

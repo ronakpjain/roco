@@ -304,6 +304,25 @@ TEST(CompilerTest, MaterializesConstantCallArgumentsDirectlyAtO1) {
   EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
 }
 
+
+TEST(CompilerTest, CanonicalizesConstantsToTheRightAtO1) {
+  const char* source = R"(
+    int multiply(int x) { return 3 * x; }
+    int compare(int x) {
+      if (5 > x) return 1;
+      return 0;
+    }
+  )";
+  const std::string optimized = compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(optimized.find("li a1, 5\n  bge a0, a1"),
+            std::string::npos);
+  const std::string strengthened =
+      compile(source, roco::OptimizationLevel::O2);
+  EXPECT_EQ(strengthened.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_NE(strengthened.find("slli a1, a0, 1"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(strengthened, "compiler-output.S"));
+}
+
 TEST(CompilerTest, ReportsUnsupportedConstructs) {
   EXPECT_THROW(compile("#include <stdio.h>\n"), roco::Error);
   EXPECT_THROW(compile("struct point { int x; };\n"), roco::Error);

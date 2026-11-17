@@ -547,6 +547,51 @@ class Parser {
       optimize_expr(argument);
     }
 
+    if (expression->kind == ExprKind::Binary) {
+      std::int64_t left_value = 0;
+      std::int64_t right_value = 0;
+      if (evaluate_constant(expression->lhs.get(), left_value) &&
+          !evaluate_constant(expression->rhs.get(), right_value)) {
+        BinaryOp swapped = expression->binary;
+        bool can_swap = false;
+        switch (expression->binary) {
+          case BinaryOp::Add:
+            can_swap = !is_pointer(expression->lhs->type);
+            break;
+          case BinaryOp::Mul:
+          case BinaryOp::BitAnd:
+          case BinaryOp::BitOr:
+          case BinaryOp::BitXor:
+          case BinaryOp::Eq:
+          case BinaryOp::Ne:
+            can_swap = true;
+            break;
+          case BinaryOp::Lt:
+            swapped = BinaryOp::Gt;
+            can_swap = true;
+            break;
+          case BinaryOp::Le:
+            swapped = BinaryOp::Ge;
+            can_swap = true;
+            break;
+          case BinaryOp::Gt:
+            swapped = BinaryOp::Lt;
+            can_swap = true;
+            break;
+          case BinaryOp::Ge:
+            swapped = BinaryOp::Le;
+            can_swap = true;
+            break;
+          default:
+            break;
+        }
+        if (can_swap) {
+          expression->binary = swapped;
+          std::swap(expression->lhs, expression->rhs);
+        }
+      }
+    }
+
     if (expression->kind == ExprKind::Conditional) {
       std::int64_t condition = 0;
       if (evaluate_constant(expression->lhs.get(), condition)) {

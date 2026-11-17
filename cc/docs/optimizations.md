@@ -37,6 +37,22 @@ left operands are removed so dead side effects disappear before codegen.
   li a0, 20
 ```
 
+### Canonical operand order
+
+Commutative operators are rewritten so a constant operand sits on the
+right. Relational comparisons are flipped instead (`5 > x` becomes
+`x < 5`), and pointer addition is left alone because its scaling depends on
+which side is the pointer. This exposes immediate forms, constant call
+arguments, and the `-O2` constant-multiply path.
+
+```asm
+# return 3 * x;   -O1/-O2 rewrite
+
+# if (5 > x) ...  -O1
+  li a1, 5
+  bge a0, a1, .L4       # branch when x >= 5
+```
+
 ### Direct condition branches
 
 `if`, `while`, `do`/`while`, `for`, `?:`, `&&`, and `||` branch on
@@ -222,10 +238,10 @@ startup and memory stalls, so they are not frequency claims.
 
 | Workload | `-O0` retired | `-O2` retired | `-O0` cycles | `-O2` cycles |
 | --- | ---: | ---: | ---: | ---: |
-| `tests/e2e/main.c` | 321 | 283 | 599 | 555 |
-| `tests/e2e/features.c` | 626 | 520 | 1279 | 1068 |
-| `tests/e2e/optimized.c` | 3296 | 2997 | 5778 | 5367 |
-| `soc/sw/vector/main.c` | 9045 | 7816 | 15431 | 13986 |
+| `tests/e2e/main.c` | 321 | 279 | 599 | 551 |
+| `tests/e2e/features.c` | 626 | 518 | 1279 | 1066 |
+| `tests/e2e/optimized.c` | 3296 | 2997 | 5778 | 5409 |
+| `soc/sw/vector/main.c` | 9045 | 7490 | 15431 | 13596 |
 
 `-O1` produces most of the code-size benefit; `-O2` adds the arithmetic
 instruction-selection changes and is verified separately by

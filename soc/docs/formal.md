@@ -125,6 +125,21 @@ operation when not busy. This job does not need `riscv-formal`; the core jobs
 continue to use it. This unit proof does not cover core forwarding, scoreboard
 hazards, or placing the deferred GPR write in the right RVFI retirement record.
 
+```sh
+bash formal/run.sh core-divide-cutpoint bmc-fast
+bash formal/run.sh core-divide-interlock bmc-fast
+```
+
+The cutpoint job passed 45 bounded steps for a fixed program on the core: two
+loads, divide, an independent instruction, then a dependent read and a younger
+overwrite. Operands and the divide operation are arbitrary. It substitutes a
+divider with the proved busy/done timing and an arbitrary 32-bit result, then
+checks the forwarded launch operands, deferred write destination and data seen
+by the dependents. It also asserts that the program completes in the
+always-ready environment, so the interlock checks cannot pass by hanging.
+`core-divide-interlock` keeps the real divider and compares its writeback with
+a lockstep instance; its formal run is not yet complete.
+
 ### A and the implemented vector subset
 
 ```sh

@@ -22,6 +22,11 @@ module roco_cpu_ex_stage (
   output logic rvfi_trap_entry,
   output logic rvfi_sync_exception,
   output logic [31:0] rvfi_trap_vector,
+`ifdef ROCO_RVFI_DIV_CHECKS
+  output logic rvfi_div_start,
+  output logic [31:0] rvfi_div_a,
+  rvfi_div_b,
+`endif
 `endif
   input logic clk,
   input logic rst,
@@ -348,6 +353,11 @@ module roco_cpu_ex_stage (
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
   assign div_start = idex_valid && idex_is_div && !div_busy && !fence_hold && !halt && !cancel_ex;
+`ifdef ROCO_RVFI_DIV_CHECKS
+  assign rvfi_div_start = div_start;
+  assign rvfi_div_a = rs1_fwd;
+  assign rvfi_div_b = rs2_fwd;
+`endif
 
   roco_cpu_divider u_divider (
       .clk(clk),

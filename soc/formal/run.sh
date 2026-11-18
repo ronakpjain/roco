@@ -44,6 +44,20 @@ case "$job" in
     if [[ "$job" == core-atomic ]]; then defines+=' -DROCO_RVFI_RV32A_CHECKS'; fi
     if [[ "$job" == core-gpr ]]; then defines+=' -DROCO_RVFI_GPR_CHECKS'; fi
     ;;
+  core-divide-interlock|core-divide-cutpoint)
+    top=core_divide_interlock
+    depth=45
+    sources=(rtl/core/*.sv formal/core_divide_interlock.sv)
+    defines='-DROCO_RVFI -DROCO_RVFI_DIV_CHECKS'
+    if [[ "$job" == core-divide-cutpoint ]]; then
+      cut_sources=()
+      for source in "${sources[@]}"; do
+        if [[ "$source" != rtl/core/roco_cpu_divider.sv ]]; then cut_sources+=("$source"); fi
+      done
+      sources=("${cut_sources[@]}" formal/divider_cutpoint.sv)
+      defines+=' -DROCO_FORMAL_DIV_CUTPOINT'
+    fi
+    ;;
   core-vector-copy)
     top=core_vector_copy
     depth=20
@@ -87,12 +101,14 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-divide-interlock|core-divide-cutpoint|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
 if [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
   out="${out}_${job#core-}"
+elif [[ "$job" == core-divide-cutpoint ]]; then
+  out="${out}_cutpoint"
 fi
 mkdir -p "$out"
 if [[ "$mode" == prove || "$mode" == bmc-fast ]]; then

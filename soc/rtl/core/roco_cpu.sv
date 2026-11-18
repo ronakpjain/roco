@@ -47,6 +47,15 @@ module roco_cpu (
   rvfi_mem_wdata,
   output logic [3:0] rvfi_mem_rmask,
   rvfi_mem_wmask,
+`ifdef ROCO_RVFI_DIV_CHECKS
+  output logic rvfi_div_start,
+  rvfi_div_wb_valid,
+  output logic [2:0] rvfi_div_op,
+  output logic [4:0] rvfi_div_wb_rd,
+  output logic [31:0] rvfi_div_a,
+  rvfi_div_b,
+  rvfi_div_wb_data,
+`endif
 `endif
   input logic clk,
   input logic rst,
@@ -616,6 +625,13 @@ module roco_cpu (
   assign rvfi_mem_rdata = rvfi_mem_rmask == 0 ? 32'd0 : exmem_is_amo ? commit_wdata : dmem_rsp_data;
   assign rvfi_mem_wdata = rvfi_mem_wmask == 0 ? 32'd0 : dmem_wdata;
 
+`ifdef ROCO_RVFI_DIV_CHECKS
+  assign rvfi_div_op = idex_md_op;
+  assign rvfi_div_wb_valid = div_wb_en;
+  assign rvfi_div_wb_rd = div_wb_rd;
+  assign rvfi_div_wb_data = div_wb_data;
+`endif
+
 `ifdef ROCO_RVFI_GPR_CHECKS
   // In the always-running RV32I harness, every reported GPR write arrives
   // at the physical scalar write port exactly one cycle after retirement.
@@ -652,6 +668,11 @@ module roco_cpu (
       .rvfi_trap_entry(rvfi_trap_entry),
       .rvfi_sync_exception(rvfi_sync_exception),
       .rvfi_trap_vector(rvfi_trap_vector),
+`ifdef ROCO_RVFI_DIV_CHECKS
+      .rvfi_div_start(rvfi_div_start),
+      .rvfi_div_a(rvfi_div_a),
+      .rvfi_div_b(rvfi_div_b),
+`endif
 `endif
       .clk(clk),
       .rst(rst),

@@ -2,7 +2,8 @@
 `default_nettype none
 
 module rvfi_rv32i #(
-    parameter bit AccountingOnly = 1'b0
+    parameter bit AccountingOnly = 1'b0,
+    parameter bit CoherentMemory = 1'b0
 ) (
   input logic clk
 );
@@ -13,7 +14,10 @@ module rvfi_rv32i #(
   logic imem_req, imem_rsp_valid;
   logic [31:0] imem_addr, imem_rsp_addr, imem_rsp_data;
   (* anyseq *) logic [31:0] fetch_word;
-  (* anyseq *) logic [31:0] load_word;
+  (* anyseq *) logic [31:0] other_load_word;
+  logic [31:0] load_word, dmem_addr, dmem_wdata;
+  logic [3:0] dmem_be;
+  logic dmem_req, dmem_we;
   axi4_r_t ptw_r;
   assign ptw_r = '0;
 
@@ -47,12 +51,12 @@ module rvfi_rv32i #(
       .dmem_lu_offset(),
       .dmem_lu_funct3(),
       .dmem_ready(1'b1),
-      .dmem_req(),
+      .dmem_req(dmem_req),
       .dmem_valid(),
-      .dmem_we(),
-      .dmem_addr(),
-      .dmem_wdata(),
-      .dmem_be(),
+      .dmem_we(dmem_we),
+      .dmem_addr(dmem_addr),
+      .dmem_wdata(dmem_wdata),
+      .dmem_be(dmem_be),
       .dmem_rsp_data(load_word),
       .dmem_forward_data(32'd0),
       .ptw_bus_rst(rst),
@@ -89,6 +93,51 @@ module rvfi_rv32i #(
       .rvfi_mem_rmask(rvfi_mem_rmask),
       .rvfi_mem_wmask(rvfi_mem_wmask)
   );
+
+  if (CoherentMemory) begin : g_memory
+    (* anyconst *) logic [29:0] watched_addr;
+    (* anyconst *) logic [31:0] initial_word;
+    logic [31:0] physical_word, architectural_word;
+    logic [3:0] written_lanes;
+    logic rvfi_access;
+    assign rvfi_access = rvfi_valid && !rvfi_trap && (|rvfi_mem_rmask || |rvfi_mem_wmask);
+    assign load_word = dmem_addr[31:2] == watched_addr ? physical_word : other_load_word;
+
+    always @(posedge clk) begin
+      if (rst) begin
+        physical_word <= initial_word;
+        architectural_word <= initial_word;
+        written_lanes <= 0;
+      end else begin
+        assert (physical_word == architectural_word);
+        // Check the actual side effect, not just the RVFI metadata. Bare
+        // M-mode makes the physical and architectural addresses identical.
+        assert (dmem_req == rvfi_access);
+        if (rvfi_access) begin
+          assert (dmem_addr[31:2] == rvfi_mem_addr[31:2]);
+          assert (dmem_we == (|rvfi_mem_wmask));
+          if (dmem_we) assert (dmem_be == rvfi_mem_wmask);
+        end
+        for (integer i = 0; i < 4; i = i + 1) begin
+          if (dmem_req && dmem_we && dmem_be[i]) begin
+            assert (dmem_wdata[8*i+:8] == rvfi_mem_wdata[8*i+:8]);
+            if (dmem_addr[31:2] == watched_addr) physical_word[8*i+:8] <= dmem_wdata[8*i+:8];
+          end
+          if (rvfi_access && rvfi_mem_addr[31:2] == watched_addr) begin
+            if (rvfi_mem_wmask[i]) begin
+              architectural_word[8*i+:8] <= rvfi_mem_wdata[8*i+:8];
+              written_lanes[i] <= 1;
+            end
+            if (rvfi_mem_rmask[i]) assert (rvfi_mem_rdata[8*i+:8] == architectural_word[8*i+:8]);
+          end
+        end
+        cover (rvfi_access && rvfi_mem_addr[31:2] == watched_addr &&
+               |(rvfi_mem_rmask & written_lanes) && architectural_word != initial_word);
+      end
+    end
+  end else begin : g_unconstrained_memory
+    assign load_word = other_load_word;
+  end
 
   // Restrict the *environment's fetch words*, not what the DUT retires.
   // Include a few exception cases absent from the upstream instruction model.

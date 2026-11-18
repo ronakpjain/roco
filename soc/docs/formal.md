@@ -43,8 +43,8 @@ have a valid EX/MEM packet. It does not compare architectural values against the
 ISA model. `bash formal/run.sh core prove` attempts the full RV32I check suite,
 which does not yet have a completed unbounded proof. PDR is not limited by `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
 inconclusive. Proof logs and any counterexample are under the job's `prove/`
-directory. `SOLVER` selects the SMT engine for the divider's k-induction
-or the witness reconstruction solver for PDR, not the PDR engine itself. `SBY` can override the SymbiYosys executable path.
+directory. `SOLVER` selects the SMT solver for k-induction or witness
+reconstruction for PDR, not the PDR engine itself. `SBY` can override the SymbiYosys executable path.
 
 A `PASS` proves the harness assertions for all reachable states under its
 assumptions. It does not widen the instruction or protocol scope, or prove
@@ -65,8 +65,30 @@ The harness assumes one-cycle fetch replies, always-ready data memory with
 unconstrained read data, M-mode, and no interrupts. It limits fetched words to
 instructions recognized by the upstream RV32I model plus ECALL, EBREAK and the
 all-zero illegal encoding. FENCE and privileged/CSR behavior are not checked.
-There is no coherent memory model, so this does not prove store-to-load behavior,
-instruction fetch coherence, or cache/MMU correctness.
+The default `core` job leaves read data unconstrained and is not a memory
+coherence check.
+
+### Whole-core data-port refinement
+
+```sh
+bash formal/run.sh core-memory bmc
+bash formal/run.sh core-memory cover
+bash formal/run.sh core-memory-port prove
+```
+
+`core-memory` runs the RV32I architectural assertions on the actual `roco_cpu`
+with a sparse memory model. The solver chooses an arbitrary word address and
+initial value. Only that word is stateful; reads elsewhere may vary. A physical
+copy updates from the real data-port writes, and a separate architectural copy
+updates from RVFI. The check compares address, direction, byte enables, and
+active data lanes, and checks reads after writes at the tracked address. The
+cover job asks for a store that changes the word followed by a read of a written
+byte. `core-memory-port` isolates the data-port and retirement-accounting checks
+using the same inputs, without the instruction semantics comparisons.
+
+Neither job models coherent instruction fetch, the caches, or Sv32. An
+unbounded pass for `core-memory-port` would not prove the full ISA; the combined
+`core-memory` job still needs an unbounded result.
 
 The interface is not sufficient to verify the entire implemented ISA: divides
 write back independently of in-order retirement, and vector memory operations
@@ -119,6 +141,19 @@ and `vl`/`vtype`/`vstart` state, plus per-element memory events to verify partia
 completion and restart after a trap. A single scalar RVFI memory event cannot
 express those effects. Use a separate vector reference/checker alongside the
 scalar `riscv-formal` jobs.
+
+### Remaining whole-core proof obligations
+
+- Close the RV32I instruction suite with inductive invariants for forwarding,
+  redirects, and architectural state. Then discharge the core-to-memory
+  contract with realistic fetch and memory handshakes.
+- Extend end-to-end retirement checks to M and A. In particular, associate
+  deferred divide writes and actual atomic completions with the issuing
+  instruction, and check that the upstream contracts of the unit proofs hold.
+- Check CSR transitions, trap/interrupt entry and return, then Sv32 permissions,
+  page walks and fence effects against architectural models.
+- Check the implemented vector subset against a vector reference, including
+  element order, masks and tails, and partial effects across traps/restarts.
 
 ## AXI4-to-APB4 bridge
 

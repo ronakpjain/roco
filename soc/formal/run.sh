@@ -17,10 +17,14 @@ case "$mode" in
 esac
 
 case "$job" in
-  core|core-accounting)
+  core|core-accounting|core-memory|core-memory-port)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
+    elif [[ "$job" == core-memory ]]; then
+      parameters="chparam -set CoherentMemory 1 $top;"
+    elif [[ "$job" == core-memory-port ]]; then
+      parameters="chparam -set CoherentMemory 1 -set AccountingOnly 1 $top;"
     fi
     depth=9
     if [[ "$mode" == cover ]]; then depth=18; fi
@@ -70,11 +74,13 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|divider|bridge|xbar} [bmc|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
-if [[ "$job" == core-accounting ]]; then out="${out}_accounting"; fi
+if [[ "$job" == core-* ]]; then
+  out="${out}_${job#core-}"
+fi
 mkdir -p "$out"
 if [[ "$mode" == prove ]]; then
   if ! command -v "${SBY:-sby}" >/dev/null; then

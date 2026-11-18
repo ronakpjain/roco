@@ -24,11 +24,11 @@ instantiates `roco_soc`. Inside the SoC:
 
 - `roco_cpu` is the five-stage pipeline (IF, ID, EX, MEM, WB), built
   from the stage modules listed below. It contains the Sv32 MMU.
-- `icache` and `dcache` are physically addressed and connect to
-  `mem_arbiter`, which shares `sdram_ctrl` with the UART image loader and
-  the MMU page-table walker.
-- The uncached path decodes the UART, timer, LED, button, cache-counter,
-  boot-status and `tohost` registers at physical addresses.
+- `icache` and `dcache` are physically addressed and share the SDRAM
+  controller with the UART image loader and MMU walker over AXI4.
+- Uncached data accesses reach the UART, timer, GPIO, cache counters,
+  boot status, and `tohost` through an AXI4-to-APB4 bridge.
+  See [the bus architecture](docs/bus.md) for routing and protocol limits.
 
 Pipeline: IF, ID, EX, MEM, WB. The I-cache feeds a four-entry fetch
 queue, and a 32-entry bimodal 2-bit predictor with a BTB predicts taken
@@ -98,7 +98,7 @@ The MMU has separate 16-entry direct-mapped ITLB and DTLB, tagged by
 virtual page number. The ASID field is accepted, but a `satp` write or
 `SFENCE.VMA` flushes both TLBs, so ASIDs do not tag the fast lookup
 path. A shared hardware walker reads two PTEs through a dedicated
-physical SDRAM-arbiter port. Superpages and 4 KiB pages are supported;
+physical AXI4 read master port. Superpages and 4 KiB pages are supported;
 a superpage access is cached as the specific 4 KiB translation that
 caused the walk. A/D bits are software-managed: a PTE with A=0, or D=0
 for a store, raises a page fault. Page tables must reside in the 32 MiB
@@ -137,8 +137,8 @@ block RAMs implement byte enables. A dirty victim is written back before
 the new line is fetched; a store miss fetches the line and then merges
 the store bytes so partial writes never fabricate data. A single
 word request from the bootloader and single-word PTE reads from the MMU
-walker share the SDRAM controller through `mem_arbiter.sv` with
-round-robin priority.
+walker share the SDRAM controller through `axi4_xbar.sv` with
+round-robin arbitration.
 
 `sdram_ctrl.sv` drives the IS42S16160J at 96 MHz with BL=2 and CL=3.
 Transactions move 32-bit words (two halfword beats), reads are pipelined
@@ -217,7 +217,8 @@ make test_vector_c # C workload through roco_cc
 make test_mm     # MMU unit test: translation, permissions, faults
 make test_vm     # Sv32 software test on the core and through the SoC
 make test_sdram  # SDRAM controller: bursts, refresh, retention
-make test_soc    # same program through caches, arbiter and SDRAM
+make test_soc    # same program through caches, AXI4, SDRAM, and APB
+make test_bus    # crossbar, SDRAM adapter, and APB bridge regressions
 make test_isa    # official riscv-tests rv32ui on the bare core
 make test_isa_soc # official riscv-tests rv32ui through the SoC
 make test_boot   # boot the minimal hello image over UART in simulation
@@ -289,7 +290,8 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
 | `rtl/roco_top.sv` | Board top: PLL, reset, buttons, pins |
 | `rtl/roco_soc.sv` | SoC: roco_cpu, caches, memory, peripherals, bootloader |
 | `rtl/core/` | Pipeline stages, decoder, ALU, CSR, regfile, MMU |
-| `rtl/mem/` | I/D caches, arbiter, SDRAM controller |
+| `rtl/mem/` | I/D caches and SDRAM controller |
+| `rtl/bus/` | AXI4 crossbar, memory adapters, and APB4 bridge |
 | `rtl/periph/` | UART and UART image loader |
 | `rtl/common/` | Shared RV32 control encodings |
 | `constraints/roco.lpf` | ECP5 pin locations and clock constraint |

@@ -10,7 +10,8 @@ module rvfi_rv32i #(
     parameter bit AccountingOnly = 1'b0,
     parameter bit CoherentMemory = 1'b0,
     parameter bit Atomics = 1'b0,
-    parameter bit RegisterOnly = 1'b0
+    parameter bit RegisterOnly = 1'b0,
+    parameter bit StorageOnly = 1'b0
 ) (
   input logic clk
 );
@@ -38,8 +39,16 @@ module rvfi_rv32i #(
   logic [1:0] rvfi_mode, rvfi_ixl;
   logic trace_valid;
   logic [31:0] trace_pc, trace_instr;
+  (* anyconst *) logic [4:0] tracked_reg;
+`ifdef ROCO_RVFI_GPR_STATE
+  logic [31:0] tracked_physical_value;
+`endif
 
   roco_cpu dut (
+`ifdef ROCO_RVFI_GPR_STATE
+      .rvfi_gpr_watch_addr(tracked_reg),
+      .rvfi_gpr_watch_value(tracked_physical_value),
+`endif
       .clk(clk),
       .rst(rst),
       .boot_addr(BootAddr),
@@ -233,15 +242,27 @@ module rvfi_rv32i #(
   if (!AccountingOnly || RegisterOnly) begin : g_registers
     // This check is independent of instruction semantics: every reported
     // operand must reflect the newest architectural write to that register.
-    (* anyconst *) logic [4:0] tracked_reg;
     logic [31:0] tracked_value;
     always @(posedge clk) begin
       if (rst) tracked_value <= 0;
-      else if (rvfi_valid) begin
-        if (rvfi_rs1_addr == tracked_reg) assert (rvfi_rs1_rdata == tracked_value);
-        if (rvfi_rs2_addr == tracked_reg) assert (rvfi_rs2_rdata == tracked_value);
-        if (!rvfi_trap && rvfi_rd_addr == tracked_reg && tracked_reg != 0)
-          tracked_value <= rvfi_rd_wdata;
+      else begin
+`ifdef ROCO_RVFI_GPR_STATE
+        // Retirement drives MEM/WB first; the array receives it one edge
+        // later. Writeback bypass supplies the current value before that.
+        if (!$past(rst)) begin
+          assert (tracked_physical_value == $past(tracked_value));
+        end else begin
+          assert (tracked_physical_value == 0);
+        end
+`endif
+        if (rvfi_valid) begin
+          if (!StorageOnly) begin
+            if (rvfi_rs1_addr == tracked_reg) assert (rvfi_rs1_rdata == tracked_value);
+            if (rvfi_rs2_addr == tracked_reg) assert (rvfi_rs2_rdata == tracked_value);
+          end
+          if (!rvfi_trap && rvfi_rd_addr == tracked_reg && tracked_reg != 0)
+            tracked_value <= rvfi_rd_wdata;
+        end
       end
     end
   end

@@ -7,6 +7,10 @@
 `default_nettype none
 
 module roco_cpu_regfile (
+`ifdef ROCO_RVFI_GPR_STATE
+  input logic [4:0] rvfi_gpr_watch_addr,
+  output logic [31:0] rvfi_gpr_watch_value,
+`endif
   input logic clk,
   input logic rst,
   input logic [4:0] rs1,
@@ -60,6 +64,12 @@ module roco_cpu_regfile (
     rdata2 = (rs2 == 5'd0) ? 32'd0 : (we && (rd == rs2)) ? wdata :
              valid_regs[rs2] ? regs[rs2] : 32'd0;
   end
+
+`ifdef ROCO_RVFI_GPR_STATE
+  // Observe the stored contents without the pending scalar WB bypass.
+  assign rvfi_gpr_watch_value = rvfi_gpr_watch_addr == 0 ? 32'd0 :
+      valid_regs[rvfi_gpr_watch_addr] ? regs[rvfi_gpr_watch_addr] : 32'd0;
+`endif
 
 `ifdef ROCO_REGFILE_FORMAL
   `include "scalar_regs_checks.svh"

@@ -255,6 +255,12 @@ instruction responses, occupied fetch slots, and valid ID/EX packets never
 carry a divide encoding, and that the divider stays idle. It does not assume
 anything about internal pipeline state.
 
+`core-gpr-storage` exposes one arbitrary physical GPR to check its stored
+value against the RVFI write history, allowing the one-cycle delay before
+scalar WB lands. `core-gpr` also asserts this relation while checking both
+retired operands. The combined assertions passed 12 bounded steps; an
+unbounded storage/operand proof is still open.
+
 `bash formal/run.sh scalar-regs prove` separately proved the physical GPR
 file by SMT k-induction. The one-register reference checks x0, reset,
 stored data, both read ports, scalar bypass, and divider priority for

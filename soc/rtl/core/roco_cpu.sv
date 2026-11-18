@@ -47,6 +47,10 @@ module roco_cpu (
   rvfi_mem_wdata,
   output logic [3:0] rvfi_mem_rmask,
   rvfi_mem_wmask,
+`ifdef ROCO_RVFI_GPR_STATE
+  input logic [4:0] rvfi_gpr_watch_addr,
+  output logic [31:0] rvfi_gpr_watch_value,
+`endif
 `ifdef ROCO_RVFI_DIV_CHECKS
   output logic rvfi_div_start,
   rvfi_div_wb_valid,
@@ -485,6 +489,10 @@ module roco_cpu (
   );
 
   roco_cpu_id_stage u_id (
+`ifdef ROCO_RVFI_GPR_STATE
+      .rvfi_gpr_watch_addr(rvfi_gpr_watch_addr),
+      .rvfi_gpr_watch_value(rvfi_gpr_watch_value),
+`endif
       .clk(clk),
       .rst(rst),
       .halt(halt),

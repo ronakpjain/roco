@@ -9,6 +9,10 @@
 `include "roco_cpu_defs.svh"
 
 module roco_cpu_id_stage (
+`ifdef ROCO_RVFI_GPR_STATE
+  input logic [4:0] rvfi_gpr_watch_addr,
+  output logic [31:0] rvfi_gpr_watch_value,
+`endif
   input logic clk,
   input logic rst,
   input logic halt,
@@ -206,6 +210,10 @@ module roco_cpu_id_stage (
   );
 
   roco_cpu_regfile u_regfile (
+`ifdef ROCO_RVFI_GPR_STATE
+      .rvfi_gpr_watch_addr(rvfi_gpr_watch_addr),
+      .rvfi_gpr_watch_value(rvfi_gpr_watch_value),
+`endif
       .clk(clk),
       .rst(rst),
       .rs1(dec_rs1),

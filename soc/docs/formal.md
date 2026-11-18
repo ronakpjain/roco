@@ -59,13 +59,23 @@ data/status, rejected bursts, and response beat counts. It also exercises a
 missing final `WLAST`. No fairness assumptions are imposed, so this is safety
 checking, not a promise that an unresponsive peripheral will complete.
 
-## Extending to the AXI fabric
+## AXI4 crossbar
 
-Use the same assume/assert split at each component boundary. For the crossbar,
-assume stable upstream requests and stable downstream responses; assert stable
-forwarded requests and upstream responses. Add a scoreboard for decoded target,
-master/ID, and accepted beat count, and cover simultaneous masters, simultaneous
-read/write traffic, decode errors, and stalls on each channel. For the memory
-master and SDRAM adapter, verify burst beat/address progression and response
-accounting separately. Run these component checks before composing them; the
-bridge job does **not** verify the crossbar, memory master, or SDRAM adapter.
+```sh
+bash formal/run.sh xbar bmc
+bash formal/run.sh xbar cover
+```
+
+`formal/axi_xbar_contract.sv` checks all five master ports and both slave ports.
+It assumes upstream requests and downstream responses are held stable under
+backpressure, and asserts that on the corresponding crossbar outputs. It
+checks address decode, payload preservation, and one-to-one handshakes on all
+five channels. A per-master scoreboard checks that each data or response
+transfer uses the destination of the accepted address and that writes return
+only after `WLAST`. Cover checks include both destinations accepting addresses
+in the same cycle, and concurrent read and write responses.
+
+This checks routing, not whether endpoints generate correct `LAST`, IDs, or
+burst lengths. It does not prove arbitration fairness. The AXI memory master
+and SDRAM adapter still need separate jobs for burst beat/address progression
+and response accounting before composing the checks at the SoC boundary.

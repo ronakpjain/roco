@@ -30,7 +30,13 @@ case "${1:-}" in
     sources=(rtl/bus/axi4_apb_bridge.sv formal/axi_apb_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|bridge} [bmc|cover]' >&2; exit 2 ;;
+  xbar)
+    top=axi_xbar_contract
+    depth=9
+    sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
+    defines=''
+    ;;
+  *) echo 'Usage: bash formal/run.sh {core|bridge|xbar} [bmc|cover]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

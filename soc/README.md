@@ -249,6 +249,9 @@ syntax of staged SystemVerilog.
 
 ## Verification status
 
+See [formal verification](docs/formal.md) for the RVFI/RV32I, AXI4 crossbar,
+and AXI4-to-APB4 bounded checks and how to run them.
+
 Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
 
 - Directed smoke test: 20/20 checks.

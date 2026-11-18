@@ -160,8 +160,20 @@ cover reached successful SC, failed SC, AMO and misaligned atomics. It is not
 an unbounded proof, and it does not model MMIO, other agents, or multicore
 ordering.
 
-For vector, the implementation supports a subset (128-bit VLEN, LMUL=1, and
-8/16/32-bit element widths), not all of RVV. A checker needs vector register
+For vector, a fixed whole-core program sets VL=2, loads two elements, and
+stores them back at a different address. The source data and element width are
+symbolic and the data port can stall arbitrarily. `core-vector-copy` checks
+addresses, store byte lanes and data, the `vsetivli` result, and retirement
+only on the last element. It passed 20 bounded steps and reached completion at
+all three widths. It does not prove arbitrary vector programs.
+
+```sh
+DEPTH=20 bash formal/run.sh core-vector-copy bmc-fast
+bash formal/run.sh core-vector-copy cover
+```
+
+The implementation supports a subset (128-bit VLEN, LMUL=1, and 8/16/32-bit
+element widths), not all of RVV. A complete checker needs vector register
 and `vl`/`vtype`/`vstart` state, plus per-element memory events to verify partial
 completion and restart after a trap. A single scalar RVFI memory event cannot
 express those effects. Use a separate vector reference/checker alongside the

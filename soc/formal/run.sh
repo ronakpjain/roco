@@ -44,6 +44,12 @@ case "$job" in
     if [[ "$job" == core-atomic ]]; then defines+=' -DROCO_RVFI_RV32A_CHECKS'; fi
     if [[ "$job" == core-gpr ]]; then defines+=' -DROCO_RVFI_GPR_CHECKS'; fi
     ;;
+  core-vector-copy)
+    top=core_vector_copy
+    depth=20
+    sources=(rtl/core/*.sv formal/core_vector_copy.sv)
+    defines='-DROCO_RVFI'
+    ;;
   divider)
     top=rv32m_divider_contract
     depth=24
@@ -81,7 +87,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

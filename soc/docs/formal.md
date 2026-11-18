@@ -194,6 +194,21 @@ completion and restart after a trap. A single scalar RVFI memory event cannot
 express those effects. Use a separate vector reference/checker alongside the
 scalar `riscv-formal` jobs.
 
+### CSR and machine-trap integration
+
+```sh
+bash formal/run.sh core-csr-trap bmc-fast
+bash formal/run.sh core-csr-trap cover
+```
+
+This fixed program writes and reads back a symbolic `mscratch` value, enters
+an `ECALL` trap at `mtvec`, reads `mepc` and `mcause` in the handler, rewrites
+`mepc`, and checks that `MRET` resumes at the right instruction. It checks the
+RVFI handler marker, faulting versus normal retirements, PC and writeback data,
+and bounded completion in the always-ready environment. It passed 48 bounded
+steps and reached the post-return instruction. This is not a general CSR,
+interrupt, or privilege-delegation proof.
+
 ### Remaining whole-core proof obligations
 
 - Close the RV32I instruction suite with inductive invariants for forwarding,

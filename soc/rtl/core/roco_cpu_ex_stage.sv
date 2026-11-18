@@ -11,7 +11,18 @@
 `default_nettype none
 `include "roco_cpu_defs.svh"
 
+`include "roco_rvfi.svh"
+
 module roco_cpu_ex_stage (
+`ifdef ROCO_RVFI
+  input logic [4:0] rvfi_idex_rs1,
+  input logic [4:0] rvfi_idex_rs2,
+  output roco_rvfi_meta_t rvfi_exmem,
+  output roco_rvfi_meta_t rvfi_exception,
+  output logic rvfi_trap_entry,
+  output logic rvfi_sync_exception,
+  output logic [31:0] rvfi_trap_vector,
+`endif
   input logic clk,
   input logic rst,
   input logic halt,
@@ -1148,6 +1159,43 @@ module roco_cpu_ex_stage (
       exmem_is_fence_i <= idex_is_fence_i;
     end
   end
+
+`ifdef ROCO_RVFI
+  roco_rvfi_meta_t rvfi_ex;
+  logic [31:0] rvfi_held_rs1, rvfi_held_rs2;
+
+  always_comb begin
+    rvfi_ex.instr = idex_ifault ? 32'd0 : idex_instr;
+    rvfi_ex.pc = idex_pc;
+    rvfi_ex.next_pc = idex_mret ? csr_mepc : idex_sret ? csr_sepc :
+                      idex_is_jalr ? ex_jump_target :
+                      (idex_is_jal || (idex_is_branch && ex_branch_taken)) ?
+                      ex_branch_target : idex_pc + 32'd4;
+    rvfi_ex.vaddr = mem_access_addr;
+    rvfi_ex.rs1 = rvfi_idex_rs1;
+    rvfi_ex.rs2 = rvfi_idex_rs2;
+    rvfi_ex.rs1_data = rvfi_idex_rs1 == 0 ? 32'd0 :
+                       (scalar_is_mem && scalar_mem_ready) ? rvfi_held_rs1 : rs1_fwd;
+    rvfi_ex.rs2_data = rvfi_idex_rs2 == 0 ? 32'd0 :
+                       (scalar_is_mem && scalar_mem_ready) ? rvfi_held_rs2 : rs2_fwd;
+    rvfi_ex.mode = csr_priv;
+  end
+
+  always_ff @(posedge clk) begin
+    if (!halt && !fence_hold) begin
+      rvfi_exmem <= rvfi_ex;
+      if (scalar_is_mem && !scalar_mem_ready) begin
+        rvfi_held_rs1 <= rs1_fwd;
+        rvfi_held_rs2 <= rs2_fwd;
+      end
+    end
+    if (trap_capture && ex_trap) rvfi_exception <= rvfi_ex;
+  end
+
+  assign rvfi_trap_entry = trap_commit && !halt;
+  assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;
+  assign rvfi_trap_vector = csr_trap_vector;
+`endif
 
 `ifndef SYNTHESIS
   logic [31:0] expected_trap_cause_q, expected_trap_tval_q;

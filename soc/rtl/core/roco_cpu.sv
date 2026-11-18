@@ -21,9 +21,33 @@
 // Machine timer/external and software interrupts are supported.
 
 `include "axi4_defs.svh"
+`include "roco_rvfi.svh"
 `default_nettype none
 
 module roco_cpu (
+`ifdef ROCO_RVFI
+  output logic rvfi_valid,
+  output logic [63:0] rvfi_order,
+  output logic [31:0] rvfi_insn,
+  output logic rvfi_trap,
+  rvfi_halt,
+  rvfi_intr,
+  output logic [1:0] rvfi_mode,
+  rvfi_ixl,
+  output logic [4:0] rvfi_rs1_addr,
+  rvfi_rs2_addr,
+  rvfi_rd_addr,
+  output logic [31:0] rvfi_rs1_rdata,
+  rvfi_rs2_rdata,
+  rvfi_rd_wdata,
+  output logic [31:0] rvfi_pc_rdata,
+  rvfi_pc_wdata,
+  output logic [31:0] rvfi_mem_addr,
+  rvfi_mem_rdata,
+  rvfi_mem_wdata,
+  output logic [3:0] rvfi_mem_rmask,
+  rvfi_mem_wmask,
+`endif
   input logic clk,
   input logic rst,
   input logic [31:0] boot_addr,
@@ -538,7 +562,82 @@ module roco_cpu (
       .idex_is_fence_i(idex_is_fence_i)
   );
 
+`ifdef ROCO_RVFI
+  logic [4:0] rvfi_idex_rs1, rvfi_idex_rs2;
+  logic rvfi_trap_entry, rvfi_sync_exception, rvfi_handler_pending;
+  logic [31:0] rvfi_trap_vector;
+  roco_rvfi_meta_t rvfi_exmem, rvfi_exception, rvfi_report;
+
+  // Mirror ID/EX advancement. Bubbles and flushes invalidate the payload.
+  always_ff @(posedge clk) begin
+    if (!halt && !stall) begin
+      rvfi_idex_rs1 <= dec_use_rs1 ? dec_rs1 : 5'd0;
+      rvfi_idex_rs2 <= dec_use_rs2 ? dec_rs2 : 5'd0;
+    end
+  end
+
+  // Exceptions enter after older MEM work drains. IRQ entry itself is not
+  // an instruction; flag the first subsequent event instead.
+  assign rvfi_valid = !rst && (retire || rvfi_sync_exception);
+  assign rvfi_report = rvfi_sync_exception ? rvfi_exception : rvfi_exmem;
+  assign rvfi_trap = rvfi_sync_exception;
+  assign rvfi_halt = 1'b0;  // External halt pauses, rather than terminates, execution.
+  assign rvfi_intr = rvfi_handler_pending;
+  assign rvfi_mode = rvfi_report.mode;
+  assign rvfi_ixl = 2'd1;
+  assign rvfi_insn = rvfi_report.instr;
+  assign rvfi_pc_rdata = rvfi_report.pc;
+  assign rvfi_pc_wdata = rvfi_sync_exception ? rvfi_trap_vector : rvfi_report.next_pc;
+  assign rvfi_rs1_addr = rvfi_report.rs1;
+  assign rvfi_rs2_addr = rvfi_report.rs2;
+  assign rvfi_rs1_rdata = rvfi_report.rs1_data;
+  assign rvfi_rs2_rdata = rvfi_report.rs2_data;
+  assign rvfi_rd_addr = retire && !rvfi_trap && exmem_regwrite ? commit_rd : 5'd0;
+  assign rvfi_rd_wdata = rvfi_rd_addr != 0 ? commit_wdata : 32'd0;
+
+  // Aligned RVFI convention: virtual word address with native byte lanes.
+  // Vector memory spans multiple transactions and is outside this interface's
+  // scalar memory contract. An unsuccessful SC has no memory effect.
+  assign rvfi_mem_addr = {rvfi_report.vaddr[31:2], 2'b00};
+  always_comb begin
+    rvfi_mem_rmask = 4'd0;
+    if (!rvfi_trap && dmem_req) begin
+      if (exmem_is_load) begin
+        case (exmem_funct3[1:0])
+          2'd0: rvfi_mem_rmask = 4'b0001 << rvfi_report.vaddr[1:0];
+          2'd1: rvfi_mem_rmask = 4'b0011 << rvfi_report.vaddr[1:0];
+          default: rvfi_mem_rmask = 4'b1111;
+        endcase
+      end else if (exmem_is_lr || exmem_is_amo) rvfi_mem_rmask = 4'b1111;
+    end
+  end
+  assign rvfi_mem_wmask = !rvfi_trap && dmem_req && dmem_we &&
+                         (exmem_is_store || exmem_is_sc || exmem_is_amo) ? dmem_be : 4'd0;
+  assign rvfi_mem_rdata = rvfi_mem_rmask == 0 ? 32'd0 : exmem_is_amo ? commit_wdata : dmem_rsp_data;
+  assign rvfi_mem_wdata = rvfi_mem_wmask == 0 ? 32'd0 : dmem_wdata;
+
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      rvfi_order <= 64'd0;
+      rvfi_handler_pending <= 1'b0;
+    end else begin
+      if (rvfi_valid) rvfi_order <= rvfi_order + 64'd1;
+      if (rvfi_trap_entry) rvfi_handler_pending <= 1'b1;
+      else if (rvfi_valid) rvfi_handler_pending <= 1'b0;
+    end
+  end
+`endif
+
   roco_cpu_ex_stage u_ex (
+`ifdef ROCO_RVFI
+      .rvfi_idex_rs1(rvfi_idex_rs1),
+      .rvfi_idex_rs2(rvfi_idex_rs2),
+      .rvfi_exmem(rvfi_exmem),
+      .rvfi_exception(rvfi_exception),
+      .rvfi_trap_entry(rvfi_trap_entry),
+      .rvfi_sync_exception(rvfi_sync_exception),
+      .rvfi_trap_vector(rvfi_trap_vector),
+`endif
       .clk(clk),
       .rst(rst),
       .halt(halt),

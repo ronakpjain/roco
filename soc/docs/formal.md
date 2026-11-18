@@ -246,6 +246,12 @@ for the shared GPR port. The stronger `core-gpr` job still checks the
 architectural operand scoreboard and absence of deferred writes; it passed
 12 bounded steps, not an unbounded proof.
 
+`bash formal/run.sh core-no-divide prove` discharges the deferred-write
+exclusion in the RV32I environment by k-induction. It asserts that accepted
+instruction responses, occupied fetch slots, and valid ID/EX packets never
+carry a divide encoding, and that the divider stays idle. It does not assume
+anything about internal pipeline state.
+
 `bash formal/run.sh scalar-regs prove` separately proved the physical GPR
 file by SMT k-induction. The one-register reference checks x0, reset,
 stored data, both read ports, scalar bypass, and divider priority for

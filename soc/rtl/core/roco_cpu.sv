@@ -641,12 +641,24 @@ module roco_cpu (
   always @(posedge clk) begin
     if (!rst && !$past(rst)) begin
       assert (!(wb_we && div_wb_en));
-`ifdef ROCO_RVFI_GPR_CHECKS
-      assert (!div_wb_en);
-`endif
       assert ((wb_we && wb_rd != 0) == $past(writes_gpr));
       if ($past(writes_gpr))
         assert (wb_rd == $past(rvfi_rd_addr) && wb_data == $past(rvfi_rd_wdata));
+    end
+  end
+`endif
+
+`ifdef ROCO_RVFI_NO_DIV_CHECKS
+  always @(posedge clk) begin
+    if (!rst) begin
+      if (if_imem_rsp_valid)
+        assert (!(if_imem_rsp_data[6:0] == 7'h33 && if_imem_rsp_data[31:25] == 1 &&
+                  if_imem_rsp_data[14]));
+      if (idex_valid) begin
+        assert (!(idex_instr[6:0] == 7'h33 && idex_instr[31:25] == 1 && idex_instr[14]));
+        assert (!idex_is_div);
+      end
+      assert (!div_busy && !div_wb_en);
     end
   end
 `endif

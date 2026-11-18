@@ -192,8 +192,14 @@ module rvfi_rv32i #(
     imem_rsp_valid <= !rst && imem_req;
     imem_rsp_addr <= imem_addr;
     imem_rsp_data <= fetch_word;
-    if (!rst && imem_req)
+    if (!rst && imem_req) begin
       assume (fetch_supported || extra_trap(fetch_word) || (Atomics && atomic_fetch(fetch_word)));
+`ifdef ROCO_RVFI_NO_DIV_CHECKS
+      // Redundant with the RV32I decoder above. Keep the one forbidden
+      // encoding class explicit so the frontend invariant has a small cone.
+      assume (!(fetch_word[6:0] == 7'h33 && fetch_word[31:25] == 1 && fetch_word[14]));
+`endif
+    end
   end
 
   // Keep these assertions independent of the ISA model so PDR can prove them

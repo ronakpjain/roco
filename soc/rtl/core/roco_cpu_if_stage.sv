@@ -240,4 +240,22 @@ module roco_cpu_if_stage (
     end
   end
 
+`ifdef ROCO_RVFI_NO_DIV_CHECKS
+  // A slot is live iff its distance from the circular head is below count.
+  // The payload may be arbitrary in the other slots, including after flush.
+  for (genvar slot = 0; slot < DEPTH; slot++) begin : g_no_div
+    logic [1:0] distance;
+    assign distance = 2'(slot) - q_head;
+    always @(posedge clk) begin
+      if (!rst && 3'(distance) < q_count)
+        assert (!(q_instr[slot][6:0] == 7'h33 && q_instr[slot][31:25] == 1 && q_instr[slot][14]));
+    end
+  end
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (q_count <= 3'(DEPTH) && q_tail == q_head + q_count[1:0]);
+      if (if_valid) assert (!(if_instr[6:0] == 7'h33 && if_instr[31:25] == 1 && if_instr[14]));
+    end
+  end
+`endif
 endmodule

@@ -105,7 +105,8 @@ module axi4_sdram_adapter (
             len_q <= ar.len;
             addr_q <= ar.addr[24:2];
             error_q <= !supported(ar.addr, ar.len, ar.size, ar.burst);
-            state <= supported(ar.addr, ar.len, ar.size, ar.burst) ? Issue : Read;
+            if (supported(ar.addr, ar.len, ar.size, ar.burst)) state <= Issue;
+            else state <= Read;
           end else if (aw.valid && aw_ready) begin
             prefer_write <= 1'b0;
             write_q <= 1'b1;
@@ -113,10 +114,15 @@ module axi4_sdram_adapter (
             len_q <= aw.len;
             addr_q <= aw.addr[24:2];
             error_q <= !supported(aw.addr, aw.len, aw.size, aw.burst);
-            state <= supported(aw.addr, aw.len, aw.size, aw.burst) ? Issue : Write;
+            if (supported(aw.addr, aw.len, aw.size, aw.burst)) state <= Issue;
+            else state <= Write;
           end
         end
-        Issue: if (req_ready) state <= write_q ? Write : Read;
+        Issue:
+        if (req_ready) begin
+          if (write_q) state <= Write;
+          else state <= Read;
+        end
         Read: begin
           if (rvalid && !error_q) captured <= captured + 5'd1;
           if (r_payload.valid && r_ready) begin
@@ -126,8 +132,9 @@ module axi4_sdram_adapter (
         end
         Write:
         if (w.valid && w_ready) begin
-          if (beat == len_q) state <= error_q ? Reply : WriteDrain;
-          else beat <= beat + 8'd1;
+          if (beat != len_q) beat <= beat + 8'd1;
+          else if (error_q) state <= Reply;
+          else state <= WriteDrain;
         end
         // A controller W handshake accepts a 32-bit word before its
         // second halfword reaches SDRAM. Wait for controller completion.

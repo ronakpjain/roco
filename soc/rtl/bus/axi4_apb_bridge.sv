@@ -98,7 +98,8 @@ module axi4_apb_bridge (
           read_q <= '0;
           remaining <= ar.len;
           error_q <= !supported(ar.addr[1:0], ar.size, ar.len, ar.burst);
-          state <= supported(ar.addr[1:0], ar.size, ar.len, ar.burst) ? Setup : ReadReply;
+          if (supported(ar.addr[1:0], ar.size, ar.len, ar.burst)) state <= Setup;
+          else state <= ReadReply;
         end
         AcceptWrite:
         if (aw.valid) begin
@@ -117,7 +118,8 @@ module axi4_apb_bridge (
             pwdata <= w.data;
             pstrb <= w.strb;
             error_q <= error_q || !w.last;
-            state <= error_q || !w.last ? WriteReply : Setup;
+            if (error_q || !w.last) state <= WriteReply;
+            else state <= Setup;
           end else remaining <= remaining - 8'd1;
         end
         Setup: state <= Access;
@@ -125,7 +127,8 @@ module axi4_apb_bridge (
         if (pready) begin
           error_q <= pslverr;
           read_q <= prdata;
-          state <= pwrite ? WriteReply : ReadReply;
+          if (pwrite) state <= WriteReply;
+          else state <= ReadReply;
         end
         ReadReply:
         if (r_ready) begin

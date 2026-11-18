@@ -231,6 +231,21 @@ that the handler reads the expected `mcause` and `mtval`. Both paths passed 55
 bounded steps and reached both cover statements. This does not cover
 two-level walks, TLB invalidation, or all permission combinations.
 
+### Scalar writeback correspondence
+
+```sh
+bash formal/run.sh core-gpr-writeback prove
+DEPTH=12 bash formal/run.sh core-gpr bmc-fast
+```
+
+`core-gpr-writeback` passed unbounded ABC PDR on the actual core in the
+always-ready RV32I environment. In both directions, nonzero scalar WB-stage
+writes correspond to RVFI register updates on the previous cycle, with the
+same destination and data. The divider and scalar writers cannot contend
+for the shared GPR port. The stronger `core-gpr` job still checks the
+architectural operand scoreboard and absence of deferred writes; it passed
+12 bounded steps, not an unbounded proof.
+
 ### Remaining whole-core proof obligations
 
 - Close the RV32I instruction suite with inductive invariants for forwarding,

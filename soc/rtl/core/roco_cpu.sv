@@ -632,14 +632,18 @@ module roco_cpu (
   assign rvfi_div_wb_data = div_wb_data;
 `endif
 
-`ifdef ROCO_RVFI_GPR_CHECKS
-  // In the always-running RV32I harness, every reported GPR write arrives
-  // at the physical scalar write port exactly one cycle after retirement.
+`ifdef ROCO_RVFI_GPR_WRITEBACK_CHECKS
+  // In the always-running RV32I harness, each reported write matches the
+  // scalar WB-stage output on the next cycle. Check that the divider
+  // cannot take the shared register-file port on that cycle.
   logic writes_gpr;
   assign writes_gpr = rvfi_valid && !rvfi_trap && rvfi_rd_addr != 0;
   always @(posedge clk) begin
     if (!rst && !$past(rst)) begin
+      assert (!(wb_we && div_wb_en));
+`ifdef ROCO_RVFI_GPR_CHECKS
       assert (!div_wb_en);
+`endif
       assert ((wb_we && wb_rd != 0) == $past(writes_gpr));
       if ($past(writes_gpr))
         assert (wb_rd == $past(rvfi_rd_addr) && wb_data == $past(rvfi_rd_wdata));

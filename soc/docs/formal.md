@@ -143,8 +143,11 @@ a lockstep instance; the 36-step bounded attempt timed out.
 `core-multiply` extends the mixed RV32I program stream and semantic checks
 with the upstream `MUL`, `MULH`, `MULHSU`, and `MULHU` models using their real
 arithmetic, not `RISCV_FORMAL_ALTOPS`. The cover job reached a nonzero GPR
-result for all four operations. The arithmetic equivalence check has not yet
-closed.
+result for all four operations. The full arithmetic equivalence run timed out.
+`bash formal/run.sh mul-recombine prove` passed ABC PDR for the combinational
+carry-save recombination and low/high selection on arbitrary signed cross
+terms and arbitrary low/high partial products. Both selection covers passed.
+This unit proof does not check the DSP inputs or the pipeline.
 
 ### A and the implemented vector subset
 

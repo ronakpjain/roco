@@ -158,6 +158,12 @@ result for all four operations. The full arithmetic equivalence run timed out.
 carry-save recombination and low/high selection on arbitrary signed cross
 terms and arbitrary low/high partial products. Both selection covers passed.
 This unit proof does not check the DSP inputs or the pipeline.
+`bash formal/run.sh mul-prod prove` closes that input half: the four DSP
+partial products equal the signed/unsigned half-word decomposition for all
+multiply variants, with all four sign-combination covers reached. Together
+the two jobs fix the full low/high product for arbitrary operands; the
+remaining EX/MEM wiring is structural. This still does not connect the
+product to a retired RVFI record on the core.
 
 ### A and the implemented vector subset
 

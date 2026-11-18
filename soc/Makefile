@@ -55,7 +55,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format_check syntax lint hooks clean test_core test_isa test_mm test_vm test_muldiv test_muldiv_core test_atomic test_vector test_vector_c test_irq test_sdram test_soc test_isa_soc test_boot synth timing bitstream
+.PHONY: all format format_check syntax lint hooks clean test_core test_isa test_mm test_vm test_muldiv test_muldiv_core test_atomic test_vector test_vector_c test_irq test_sdram test_bus test_soc test_isa_soc test_boot synth timing bitstream
 
 all: format_check syntax lint
 
@@ -85,6 +85,8 @@ lint:
 		--top-module sdram_ctrl $(SIM_RTL)
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module roco_soc $(SIM_RTL)
+	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
+		--top-module axi4_xbar rtl/bus/axi4_xbar.sv
 
 hooks:
 	git config core.hooksPath .githooks
@@ -234,6 +236,12 @@ $(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_
 
 $(BUILD_DIR)/tb_mem_arbiter.vvp: rtl/mem/mem_arbiter.sv sim/tb_mem_arbiter.sv | build
 	$(IVERILOG) -g2012 -s tb_mem_arbiter -o $@ $^
+
+$(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar: rtl/bus/axi4_xbar.sv sim/tb_axi4_xbar.sv rtl/common/axi4_defs.svh | build
+	$(VERILATOR) $(VL_FLAGS) --top-module tb_axi4_xbar -Mdir $(BUILD_DIR)/vl_tb_axi4_xbar $(filter %.sv,$^)
+
+test_bus: $(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar
+	$<
 
 test_sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp $(BUILD_DIR)/tb_mem_arbiter.vvp
 	$(VVP) $(BUILD_DIR)/tb_sdram_ctrl.vvp

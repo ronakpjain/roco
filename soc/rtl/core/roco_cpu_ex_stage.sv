@@ -1236,7 +1236,12 @@ module roco_cpu_ex_stage (
   // mstatus, or the interrupt/delegation registers, which keeps the core in
   // M mode with data translation disabled for the whole run.
   always @(posedge clk) begin
-    if (!rst) assert (!irq_req);
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+    // Needs the forward job's privilege and translation context: with priv
+    // pinned to M mode and the interrupt registers never written, a free
+    // mie/mip state stays quiescent.
+    if (!rst && csr_priv == `RV32_PRIV_M) assert (!irq_req);
+`endif
     if (!rst)
       assert (!(csr_wr_en && (csr_commit_addr_q == 12'h180 || csr_commit_addr_q == 12'h300 ||
                                csr_commit_addr_q == 12'h302 || csr_commit_addr_q == 12'h303 ||

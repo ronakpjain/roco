@@ -19,10 +19,17 @@ correctness.
 
 ### Unbounded safety proofs
 
-Install [SymbiYosys](https://github.com/YosysHQ/sby) and Yosys's ABC executable,
-then run `bash formal/run.sh bridge prove`. The same `prove` mode accepts `xbar`
-and `core`. It uses ABC's property-directed reachability (PDR) instead of
-checking up to `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
+Install [SymbiYosys](https://github.com/YosysHQ/sby) and Yosys's ABC executable.
+Both bus contracts passed unbounded with ABC's property-directed reachability
+(PDR):
+
+```sh
+bash formal/run.sh bridge prove
+bash formal/run.sh xbar prove
+```
+
+`bash formal/run.sh core prove` also runs PDR, but the RV32I job does not yet
+have a completed unbounded proof. PDR is not limited by `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
 inconclusive. Proof logs and any counterexample are under the job's `prove/`
 directory. `SOLVER` selects the SMT solver used to reconstruct counterexamples,
 not the PDR engine. `SBY` can override the SymbiYosys executable path.

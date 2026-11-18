@@ -33,10 +33,12 @@ jobs:
           - {job: core-accounting, mode: prove, riscv-formal: true}
           - {job: core-gpr-writeback, mode: prove, riscv-formal: true}
           - {job: core-no-divide, mode: prove, riscv-formal: true}
+          - {job: core-forward, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: divider, mode: prove}
           - {job: atomic-mem, mode: prove}
           - {job: scalar-regs, mode: prove}
           - {job: vector-regs, mode: prove}
+          - {job: mul-prod, mode: prove}
           - {job: mul-recombine, mode: prove}
           - {job: core, mode: bmc-fast, depth: 9, riscv-formal: true}
           - {job: core-gpr, mode: bmc-fast, depth: 12, riscv-formal: true}
@@ -77,6 +79,7 @@ jobs:
           JOB: ${{ matrix.job }}
           MODE: ${{ matrix.mode }}
           DEPTH: ${{ matrix.depth }}
+          SOLVER: ${{ matrix.solver }}
         run: |
           yosys -V
           sby --version

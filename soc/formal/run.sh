@@ -10,14 +10,14 @@ proof_engine='abc pdr'
 proof_depth=20
 proof_lowering='memory_map; techmap; opt; setundef -anyseq'
 case "$mode" in
-  bmc) ;;
+  bmc|bmc-fast) ;;
   cover) flags=(-c) ;;
   prove) ;;
   *) echo "Unknown formal mode: $mode" >&2; exit 2 ;;
 esac
 
 case "$job" in
-  core|core-accounting|core-memory|core-memory-port)
+  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
@@ -25,17 +25,24 @@ case "$job" in
       parameters="chparam -set CoherentMemory 1 $top;"
     elif [[ "$job" == core-memory-port ]]; then
       parameters="chparam -set CoherentMemory 1 -set AccountingOnly 1 $top;"
+    elif [[ "$job" == core-atomic ]]; then
+      parameters="chparam -set CoherentMemory 1 -set Atomics 1 $top;"
+    elif [[ "$job" == core-gpr ]]; then
+      parameters="chparam -set AccountingOnly 1 -set RegisterOnly 1 $top;"
     fi
     depth=9
+    if [[ "$job" == core-atomic ]]; then depth=10; fi
     if [[ "$mode" == cover ]]; then depth=18; fi
     ref=${RISCV_FORMAL_DIR:-third_party/riscv-formal}/insns
     if [[ ! -f "$ref/isa_rv32i.txt" ]]; then
       echo 'Set RISCV_FORMAL_DIR to a riscv-formal checkout (see docs/formal.md).' >&2
       exit 2
     fi
-    sources=(rtl/core/*.sv formal/rvfi_rv32i.sv "$ref/isa_rv32i.v")
+    sources=(rtl/core/*.sv formal/rvfi_rv32i.sv formal/rvfi_rv32a_model.sv "$ref/isa_rv32i.v")
     while read -r insn; do sources+=("$ref/insn_$insn.v"); done < "$ref/isa_rv32i.txt"
     defines='-DROCO_RVFI -DROCO_RVFI_RV32I_CHECKS -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
+    if [[ "$job" == core-atomic ]]; then defines+=' -DROCO_RVFI_RV32A_CHECKS'; fi
+    if [[ "$job" == core-gpr ]]; then defines+=' -DROCO_RVFI_GPR_CHECKS'; fi
     ;;
   divider)
     top=rv32m_divider_contract
@@ -74,17 +81,24 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
-if [[ "$job" == core-* ]]; then
+if [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
   out="${out}_${job#core-}"
 fi
 mkdir -p "$out"
-if [[ "$mode" == prove ]]; then
+if [[ "$mode" == prove || "$mode" == bmc-fast ]]; then
+  sby_mode=prove
+  if [[ "$mode" == bmc-fast ]]; then
+    sby_mode=bmc
+    proof_depth=${DEPTH:-$depth}
+    proof_engine='abc bmc3'
+    proof_lowering='memory_map; techmap; opt; setundef -anyseq'
+  fi
   if ! command -v "${SBY:-sby}" >/dev/null; then
-    echo 'Install SymbiYosys (sby) to run unbounded proofs.' >&2
+    echo 'Install SymbiYosys (sby) for prove or bmc-fast mode.' >&2
     exit 2
   fi
   # SBY executes the Yosys script in its work directory.
@@ -92,9 +106,9 @@ if [[ "$mode" == prove ]]; then
     if [[ "${sources[i]}" != /* ]]; then sources[i]="$PWD/${sources[i]}"; fi
   done
   printf -v files ' "%s"' "${sources[@]}"
-  "${SBY:-sby}" --yosys "${YOSYS:-yosys}" -f -d "$out/prove" <<EOF
+  exec "${SBY:-sby}" --yosys "${YOSYS:-yosys}" -f -d "$out/$mode" <<EOF
 [options]
-mode prove
+mode $sby_mode
 depth $proof_depth
 timeout ${PROOF_TIMEOUT:-300}
 aigsmt ${SOLVER:-z3}
@@ -115,7 +129,6 @@ rtl/common/roco_cpu_defs.svh
 rtl/common/roco_rvfi.svh
 formal/rv32m_divider_checks.svh
 EOF
-  exit
 fi
 
 # Quote source paths for Yosys, including external references with spaces.
@@ -127,5 +140,5 @@ printf -v files ' "%s"' "${sources[@]}"
   async2sync; dffunmap;
   write_smt2 -wires \"$out/design.smt2\"
 "
-"${SMTBMC:-yosys-smtbmc}" -s "${SOLVER:-z3}" -t "${DEPTH:-$depth}" "${flags[@]}" \
+exec "${SMTBMC:-yosys-smtbmc}" -s "${SOLVER:-z3}" -t "${DEPTH:-$depth}" "${flags[@]}" \
   --noprogress --dump-vcd "$out/$mode-%.vcd" "$out/design.smt2"

@@ -283,6 +283,17 @@ module roco_cpu_mem_stage (
     end
   end
 
+`ifdef ROCO_RVFI_RV32A_CHECKS
+  // Discharge the SC lookup precondition used by the standalone MEM proof
+  // when this stage is driven by the real pipeline.
+  always @(posedge clk) begin
+    if (!rst && lookup_valid && lookup_sc)
+      assert (!trap_taken && !(commit_now && (exmem_is_lr || exmem_is_sc || store_now)));
+    if (!rst && exmem_valid && exmem_is_sc)
+      assert (sc_ok == (res_valid && res_addr == exmem_alu[31:2]));
+  end
+`endif
+
 `ifndef SYNTHESIS
   always @(posedge clk) begin
     if (!rst && lookup_valid && lookup_sc &&

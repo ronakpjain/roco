@@ -3,7 +3,9 @@
 
 module rvfi_rv32i #(
     parameter bit AccountingOnly = 1'b0,
-    parameter bit CoherentMemory = 1'b0
+    parameter bit CoherentMemory = 1'b0,
+    parameter bit Atomics = 1'b0,
+    parameter bit RegisterOnly = 1'b0
 ) (
   input logic clk
 );
@@ -99,7 +101,11 @@ module rvfi_rv32i #(
     (* anyconst *) logic [31:0] initial_word;
     logic [31:0] physical_word, architectural_word;
     logic [3:0] written_lanes;
-    logic rvfi_access;
+    logic rvfi_access, failed_sc;
+    // MEM may issue a cache access for a failed SC but may not write to it.
+    assign failed_sc = Atomics && rvfi_valid && !rvfi_trap &&
+                       rvfi_insn[6:0] == 7'h2f && rvfi_insn[31:27] == 5'd3 &&
+                       rvfi_mem_wmask == 0;
     assign rvfi_access = rvfi_valid && !rvfi_trap && (|rvfi_mem_rmask || |rvfi_mem_wmask);
     assign load_word = dmem_addr[31:2] == watched_addr ? physical_word : other_load_word;
 
@@ -112,8 +118,8 @@ module rvfi_rv32i #(
         assert (physical_word == architectural_word);
         // Check the actual side effect, not just the RVFI metadata. Bare
         // M-mode makes the physical and architectural addresses identical.
-        assert (dmem_req == rvfi_access);
-        if (rvfi_access) begin
+        assert (dmem_req == (rvfi_access || failed_sc));
+        if (dmem_req) begin
           assert (dmem_addr[31:2] == rvfi_mem_addr[31:2]);
           assert (dmem_we == (|rvfi_mem_wmask));
           if (dmem_we) assert (dmem_be == rvfi_mem_wmask);
@@ -145,6 +151,17 @@ module rvfi_rv32i #(
     extra_trap = word == 32'h0000_0073 || word == 32'h0010_0073 || word == 0;
   endfunction
 
+  function automatic logic atomic_fetch(input logic [31:0] word);
+    atomic_fetch = 0;
+    if (word[6:0] == 7'h2f && word[14:12] == 3'd2) begin
+      case (word[31:27])
+        2: atomic_fetch = word[24:20] == 0;
+        0, 1, 3, 4, 8, 12, 16, 20, 24, 28: atomic_fetch = 1;
+        default: atomic_fetch = 0;
+      endcase
+    end
+  endfunction
+
   logic fetch_rv32i;
   rvfi_isa_rv32i fetch_decode (
       .rvfi_valid(1'b1),
@@ -170,7 +187,8 @@ module rvfi_rv32i #(
     imem_rsp_valid <= !rst && imem_req;
     imem_rsp_addr <= imem_addr;
     imem_rsp_data <= fetch_word;
-    if (!rst && imem_req) assume (fetch_rv32i || extra_trap(fetch_word));
+    if (!rst && imem_req)
+      assume (fetch_rv32i || extra_trap(fetch_word) || (Atomics && atomic_fetch(fetch_word)));
   end
 
   // Keep these assertions independent of the ISA model so PDR can prove them
@@ -201,11 +219,31 @@ module rvfi_rv32i #(
     end
   end
 
+  if (!AccountingOnly || RegisterOnly) begin : g_registers
+    // This check is independent of instruction semantics: every reported
+    // operand must reflect the newest architectural write to that register.
+    (* anyconst *) logic [4:0] tracked_reg;
+    logic [31:0] tracked_value;
+    always @(posedge clk) begin
+      if (rst) tracked_value <= 0;
+      else if (rvfi_valid) begin
+        if (rvfi_rs1_addr == tracked_reg) assert (rvfi_rs1_rdata == tracked_value);
+        if (rvfi_rs2_addr == tracked_reg) assert (rvfi_rs2_rdata == tracked_value);
+        if (!rvfi_trap && rvfi_rd_addr == tracked_reg && tracked_reg != 0)
+          tracked_value <= rvfi_rd_wdata;
+      end
+    end
+  end
+
   if (!AccountingOnly) begin : g_isa
-    logic spec_valid, spec_trap;
-    logic [4:0] spec_rs1, spec_rs2, spec_rd;
-    logic [31:0] spec_rd_data, spec_pc, spec_addr, spec_wdata;
-    logic [3:0] spec_rmask, spec_wmask;
+    typedef struct packed {
+      logic valid, trap;
+      logic [4:0] rs1, rs2, rd;
+      logic [31:0] rd_data, pc, addr, wdata;
+      logic [3:0] rmask, wmask;
+    } expected_t;
+    expected_t base_spec, atomic_spec, spec;
+    assign spec = atomic_spec.valid ? atomic_spec : base_spec;
     rvfi_isa_rv32i spec_model (
         .rvfi_valid(rvfi_valid),
         .rvfi_insn(rvfi_insn),
@@ -213,47 +251,70 @@ module rvfi_rv32i #(
         .rvfi_rs1_rdata(rvfi_rs1_rdata),
         .rvfi_rs2_rdata(rvfi_rs2_rdata),
         .rvfi_mem_rdata(rvfi_mem_rdata),
-        .spec_valid(spec_valid),
-        .spec_trap(spec_trap),
-        .spec_rs1_addr(spec_rs1),
-        .spec_rs2_addr(spec_rs2),
-        .spec_rd_addr(spec_rd),
-        .spec_rd_wdata(spec_rd_data),
-        .spec_pc_wdata(spec_pc),
-        .spec_mem_addr(spec_addr),
-        .spec_mem_rmask(spec_rmask),
-        .spec_mem_wmask(spec_wmask),
-        .spec_mem_wdata(spec_wdata)
+        .spec_valid(base_spec.valid),
+        .spec_trap(base_spec.trap),
+        .spec_rs1_addr(base_spec.rs1),
+        .spec_rs2_addr(base_spec.rs2),
+        .spec_rd_addr(base_spec.rd),
+        .spec_rd_wdata(base_spec.rd_data),
+        .spec_pc_wdata(base_spec.pc),
+        .spec_mem_addr(base_spec.addr),
+        .spec_mem_rmask(base_spec.rmask),
+        .spec_mem_wmask(base_spec.wmask),
+        .spec_mem_wdata(base_spec.wdata)
     );
+    if (Atomics) begin : g_atomic
+      rvfi_rv32a_model atomic_model (
+          .clk(clk),
+          .rst(rst),
+          .rvfi_valid(rvfi_valid),
+          .rvfi_trap(rvfi_trap),
+          .rvfi_insn(rvfi_insn),
+          .rvfi_pc_rdata(rvfi_pc_rdata),
+          .rvfi_rs1_rdata(rvfi_rs1_rdata),
+          .rvfi_rs2_rdata(rvfi_rs2_rdata),
+          .rvfi_mem_addr(rvfi_mem_addr),
+          .rvfi_mem_rdata(rvfi_mem_rdata),
+          .rvfi_mem_wmask(rvfi_mem_wmask),
+          .spec_valid(atomic_spec.valid),
+          .spec_trap(atomic_spec.trap),
+          .spec_rs1(atomic_spec.rs1),
+          .spec_rs2(atomic_spec.rs2),
+          .spec_rd(atomic_spec.rd),
+          .spec_rd_data(atomic_spec.rd_data),
+          .spec_pc(atomic_spec.pc),
+          .spec_addr(atomic_spec.addr),
+          .spec_wdata(atomic_spec.wdata),
+          .spec_rmask(atomic_spec.rmask),
+          .spec_wmask(atomic_spec.wmask)
+      );
+    end else begin : g_no_atomic
+      assign atomic_spec = '0;
+    end
 
-    (* anyconst *) logic [4:0] tracked_reg;
-    logic [31:0] tracked_value, expected_pc;
+    logic [31:0] expected_pc;
     logic expected_handler;
     always @(posedge clk) begin
       if (rst) begin
-        tracked_value <= 0;
         expected_pc <= BootAddr;
         expected_handler <= 0;
       end else if (rvfi_valid) begin
         assert (rvfi_pc_rdata == expected_pc);
         assert (rvfi_intr == expected_handler);
         assert (rvfi_mode == 3 && rvfi_ixl == 1);
-        assert (spec_valid || extra_trap(rvfi_insn));
-        assert (rvfi_trap == (spec_trap || extra_trap(rvfi_insn)));
-        if (rvfi_rs1_addr == tracked_reg) assert (rvfi_rs1_rdata == tracked_value);
-        if (rvfi_rs2_addr == tracked_reg) assert (rvfi_rs2_rdata == tracked_value);
+        assert (spec.valid || extra_trap(rvfi_insn));
+        assert (rvfi_trap == (spec.trap || extra_trap(rvfi_insn)));
         if (rvfi_trap) begin
           // mtvec is reset to zero, with no CSR writes or interrupts in this harness.
           assert (rvfi_pc_wdata == 0);
         end else begin
-          assert (rvfi_rs1_addr == spec_rs1 && rvfi_rs2_addr == spec_rs2);
-          assert (rvfi_rd_addr == spec_rd && rvfi_rd_wdata == spec_rd_data);
-          assert (rvfi_pc_wdata == spec_pc);
-          assert (rvfi_mem_rmask == spec_rmask && rvfi_mem_wmask == spec_wmask);
-          if (|spec_rmask || |spec_wmask) assert (rvfi_mem_addr == spec_addr);
+          assert (rvfi_rs1_addr == spec.rs1 && rvfi_rs2_addr == spec.rs2);
+          assert (rvfi_rd_addr == spec.rd && rvfi_rd_wdata == spec.rd_data);
+          assert (rvfi_pc_wdata == spec.pc);
+          assert (rvfi_mem_rmask == spec.rmask && rvfi_mem_wmask == spec.wmask);
+          if (|spec.rmask || |spec.wmask) assert (rvfi_mem_addr == spec.addr);
           for (integer i = 0; i < 4; i = i + 1)
-          if (spec_wmask[i]) assert (rvfi_mem_wdata[8*i+:8] == spec_wdata[8*i+:8]);
-          if (rvfi_rd_addr == tracked_reg && tracked_reg != 0) tracked_value <= rvfi_rd_wdata;
+          if (spec.wmask[i]) assert (rvfi_mem_wdata[8*i+:8] == spec.wdata[8*i+:8]);
         end
         expected_pc <= rvfi_pc_wdata;
         expected_handler <= rvfi_trap;

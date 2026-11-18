@@ -616,6 +616,21 @@ module roco_cpu (
   assign rvfi_mem_rdata = rvfi_mem_rmask == 0 ? 32'd0 : exmem_is_amo ? commit_wdata : dmem_rsp_data;
   assign rvfi_mem_wdata = rvfi_mem_wmask == 0 ? 32'd0 : dmem_wdata;
 
+`ifdef ROCO_RVFI_GPR_CHECKS
+  // In the always-running RV32I harness, every reported GPR write arrives
+  // at the physical scalar write port exactly one cycle after retirement.
+  logic writes_gpr;
+  assign writes_gpr = rvfi_valid && !rvfi_trap && rvfi_rd_addr != 0;
+  always @(posedge clk) begin
+    if (!rst && !$past(rst)) begin
+      assert (!div_wb_en);
+      assert ((wb_we && wb_rd != 0) == $past(writes_gpr));
+      if ($past(writes_gpr))
+        assert (wb_rd == $past(rvfi_rd_addr) && wb_data == $past(rvfi_rd_wdata));
+    end
+  end
+`endif
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       rvfi_order <= 64'd0;

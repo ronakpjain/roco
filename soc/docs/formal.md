@@ -15,7 +15,8 @@ bash formal/run.sh core cover
 SMT models, and counterexample/cover VCDs are under `build/formal/` by default.
 BMC checks the selected number of steps from reset, not arbitrary execution
 length. Cover checks that interesting cases are reachable; it does not prove
-correctness.
+correctness. With SymbiYosys installed, `bmc-fast` runs the same bounded
+assertions via ABC's bit-level `bmc3` engine; use `DEPTH` to set the bound.
 
 ### Unbounded safety proofs
 
@@ -96,6 +97,19 @@ can have multiple accesses or partial completion. Those need more trace support
 before enabling their checkers. LR/SC and AMO fields are emitted but not checked
 by this harness. CSR side effects and interrupt entry are not formally checked.
 
+### Scalar register and forwarding checks
+
+```sh
+DEPTH=12 bash formal/run.sh core-gpr bmc-fast
+bash formal/run.sh core-gpr prove
+```
+
+This isolates the whole-core architectural operand scoreboard and checks that a
+non-x0 retired write arrives at the physical scalar write port, with the same
+destination and data, on the next cycle. It also checks that the divider
+cannot write in this RV32I environment. The bounded run passed at 12 steps;
+there is no completed unbounded result for this group.
+
 ### RV32M divide and remainder
 
 ```sh
@@ -130,10 +144,21 @@ and byte, including whole-register writes, legal 8/16/32-bit element writes,
 write priority, bypass, and reset during an in-flight write. It does not check
 arithmetic, configuration, or vector memory sequencing.
 
-Neither extension has an end-to-end formal proof yet. For A, the scalar RVFI
-packet can represent a word AMO with both masks and its old/new data, and an
-unsuccessful SC with no memory effect. End-to-end A still needs a coherent
-memory and reservation checker at retirement, including ordering.
+For the end-to-end A checks on `roco_cpu`:
+
+```sh
+DEPTH=12 bash formal/run.sh core-atomic bmc-fast
+bash formal/run.sh core-atomic cover
+```
+
+This mixes RV32I and supported A encodings, keeps riscv-formal for the base
+instructions, and compares atomic retirements with a separate reservation and
+RMW model. It reuses the symbolic coherent word at the data port and checks
+that SC lookups don't race older reservation updates. Failed SC can cause a
+cache-side access, but must not write memory. The 12-step bounded run passed;
+cover reached successful SC, failed SC, AMO and misaligned atomics. It is not
+an unbounded proof, and it does not model MMIO, other agents, or multicore
+ordering.
 
 For vector, the implementation supports a subset (128-bit VLEN, LMUL=1, and
 8/16/32-bit element widths), not all of RVV. A checker needs vector register

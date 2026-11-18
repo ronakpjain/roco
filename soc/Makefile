@@ -250,10 +250,14 @@ $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter: rtl/bus/axi4_sdram
 $(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge: rtl/bus/axi4_apb_bridge.sv sim/tb_axi4_apb_bridge.sv rtl/common/axi4_defs.svh | build
 	$(VERILATOR) $(VL_FLAGS) --top-module tb_axi4_apb_bridge -Mdir $(BUILD_DIR)/vl_tb_axi4_apb_bridge $(filter %.sv,$^)
 
-test_bus: $(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter $(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge
+$(BUILD_DIR)/tb_roco_apb_peripherals.vvp: rtl/periph/roco_apb_peripherals.sv sim/tb_roco_apb_peripherals.sv | build
+	$(IVERILOG) -g2012 -s tb_roco_apb_peripherals -o $@ $^
+
+test_bus: $(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter $(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge $(BUILD_DIR)/tb_roco_apb_peripherals.vvp
 	$(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar
 	$(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter
 	$(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge
+	$(VVP) $(BUILD_DIR)/tb_roco_apb_peripherals.vvp
 
 test_sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp $(BUILD_DIR)/tb_mem_arbiter.vvp
 	$(VVP) $(BUILD_DIR)/tb_sdram_ctrl.vvp

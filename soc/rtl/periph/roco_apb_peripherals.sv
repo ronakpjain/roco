@@ -77,8 +77,8 @@ module roco_apb_peripherals (
   assign read_fire = psel && penable && pready && !pwrite;
   assign write_fire = psel && penable && pready && pwrite && (|pstrb);
 
-  function automatic logic [31:0] merge_bytes(input logic [31:0] old_word, new_word,
-                                              input logic [3:0] strobes);
+  function automatic logic [31:0] merge_bytes(
+      input logic [31:0] old_word, input logic [31:0] new_word, input logic [3:0] strobes);
     for (int lane = 0; lane < 4; lane++) begin
       merge_bytes[lane*8+:8] = strobes[lane] ? new_word[lane*8+:8] : old_word[lane*8+:8];
     end

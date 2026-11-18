@@ -7,6 +7,7 @@ flags=()
 case "$mode" in
   bmc) ;;
   cover) flags=(-c) ;;
+  prove) ;;
   *) echo "Unknown formal mode: $mode" >&2; exit 2 ;;
 esac
 
@@ -36,11 +37,47 @@ case "${1:-}" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|bridge|xbar} [bmc|cover]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|bridge|xbar} [bmc|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
 mkdir -p "$out"
+if [[ "$mode" == prove ]]; then
+  if ! command -v "${SBY:-sby}" >/dev/null; then
+    echo 'Install SymbiYosys (sby) to run unbounded proofs.' >&2
+    exit 2
+  fi
+  # SBY executes the Yosys script in its work directory.
+  for i in "${!sources[@]}"; do
+    if [[ "${sources[i]}" != /* ]]; then sources[i]="$PWD/${sources[i]}"; fi
+  done
+  printf -v files ' "%s"' "${sources[@]}"
+  "${SBY:-sby}" --yosys "${YOSYS:-yosys}" -f -d "$out/prove" <<EOF
+[options]
+mode prove
+timeout ${PROOF_TIMEOUT:-300}
+aigsmt ${SOLVER:-z3}
+
+[engines]
+abc pdr
+
+[script]
+read_verilog -formal -sv -DSYNTHESIS $defines -I. $files
+prep -top $top -flatten
+memory_map
+techmap
+opt
+# Make undefined values (including out-of-range mux inputs) symbolic, not zero.
+setundef -anyseq
+
+[files]
+rtl/common/axi4_defs.svh
+rtl/common/roco_cpu_defs.svh
+rtl/common/roco_rvfi.svh
+EOF
+  exit
+fi
+
 # Quote source paths for Yosys, including external references with spaces.
 printf -v files ' "%s"' "${sources[@]}"
 "${YOSYS:-yosys}" -Qq -l "$out/yosys.log" -p "

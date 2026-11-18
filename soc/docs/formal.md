@@ -17,6 +17,20 @@ BMC checks the selected number of steps from reset, not arbitrary execution
 length. Cover checks that interesting cases are reachable; it does not prove
 correctness.
 
+### Unbounded safety proofs
+
+Install [SymbiYosys](https://github.com/YosysHQ/sby) and Yosys's ABC executable,
+then run `bash formal/run.sh bridge prove`. The same `prove` mode accepts `xbar`
+and `core`. It uses ABC's property-directed reachability (PDR) instead of
+checking up to `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
+inconclusive. Proof logs and any counterexample are under the job's `prove/`
+directory. `SOLVER` selects the SMT solver used to reconstruct counterexamples,
+not the PDR engine. `SBY` can override the SymbiYosys executable path.
+
+A `PASS` proves the harness assertions for all reachable states under its
+assumptions. It does not widen the instruction or protocol scope, or prove
+forward progress under arbitrary stalls.
+
 ## Core
 
 Define `ROCO_RVFI` to expose the single-channel, 32-bit RVFI ports on `roco_cpu`.

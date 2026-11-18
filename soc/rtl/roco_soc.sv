@@ -23,6 +23,7 @@
 // Instruction fetch outside SDRAM returns an illegal instruction, which
 // traps through mtvec.
 
+`include "axi4_defs.svh"
 `default_nettype none
 
 module roco_soc #(
@@ -80,8 +81,9 @@ module roco_soc #(
   logic [31:0] dmem_rsp_data;
   logic [31:0] dmem_forward_data;
   logic [31:0] dc_forward_data;
-  logic ptw_req;
-  logic [22:0] ptw_word_addr;
+  axi4_ar_t ptw_ar;
+  axi4_r_t ptw_r;
+  logic unused_ptw_r_ready;
   logic ptw_ready;
   logic ptw_rvalid;
   logic [31:0] ptw_rdata;
@@ -251,12 +253,10 @@ module roco_soc #(
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
       .dmem_forward_data(dmem_forward_data),
-      .ptw_req(ptw_req),
-      .ptw_word_addr(ptw_word_addr),
+      .ptw_ar(ptw_ar),
       .ptw_ready(ptw_ready),
-      .ptw_rvalid(ptw_rvalid),
-      .ptw_rdata(ptw_rdata),
-      .ptw_rlast(ptw_rlast),
+      .ptw_r(ptw_r),
+      .ptw_r_ready(unused_ptw_r_ready),
       .fence_req(core_fence_req),
       .fence_done(fence_done),
       .trace_valid(trace_valid),
@@ -330,6 +330,7 @@ module roco_soc #(
   );
 
   // ------------------------------------------------------------- Arbiter
+  assign ptw_r = {ptw_rvalid, 4'd0, ptw_rdata, `AXI4_RESP_OKAY, ptw_rlast};
   mem_arbiter u_arbiter (
       .clk(clk),
       .rst(rst),
@@ -365,8 +366,8 @@ module roco_soc #(
       .b_wvalid(boot_mem_wvalid),
       .b_wdata(boot_mem_wdata),
       .b_wbe(boot_mem_wbe),
-      .p_req(ptw_req),
-      .p_word_addr(ptw_word_addr),
+      .p_req(ptw_ar.valid),
+      .p_word_addr(ptw_ar.addr[24:2]),
       .p_ready(ptw_ready),
       .p_rvalid(ptw_rvalid),
       .p_rdata(ptw_rdata),

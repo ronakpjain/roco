@@ -22,6 +22,7 @@
 
 `default_nettype none
 `include "roco_cpu_defs.svh"
+`include "axi4_defs.svh"
 
 module roco_cpu_mmu #(
     parameter int TLB_ENTRIES = 16
@@ -61,12 +62,10 @@ module roco_cpu_mmu #(
   output logic [3:0] d_fault_cause,
   output logic [31:0] d_paddr,
   /* Physical page-table walker port. */
-  output logic p_req,
-  output logic [22:0] p_word_addr,
+  output axi4_ar_t ptw_ar,
   input logic p_ready,
-  input logic p_rvalid,
-  input logic [31:0] p_rdata,
-  input logic p_rlast
+  input axi4_r_t ptw_r,
+  output logic ptw_r_ready
 );
 
   // Break the SDRAM/arbiter route before interpreting a PTE. Flush
@@ -74,10 +73,10 @@ module roco_cpu_mmu #(
   // bus response, so cancellation still wins over installation/faults.
   logic [31:0] pte_data_q;
   logic pte_valid_q;
-  always_ff @(posedge clk) pte_data_q <= p_rdata;
+  always_ff @(posedge clk) pte_data_q <= ptw_r.resp == `AXI4_RESP_OKAY ? ptw_r.data : 32'd0;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) pte_valid_q <= 1'b0;
-    else pte_valid_q <= p_rvalid;
+    else pte_valid_q <= ptw_r.valid && ptw_r.last;
   end
 
   localparam logic [1:0] PRIV_U = `RV32_PRIV_U;
@@ -170,11 +169,8 @@ module roco_cpu_mmu #(
   logic [31:0] i_req_vaddr;
   logic i_rsp_armed;
   logic [10:0] unused_satp_asid_ppn;
-  logic unused_p_rlast;
-  logic [8:0] unused_pte_addr_bits;
   assign unused_satp_asid_ppn = satp[30:20];
-  assign unused_p_rlast = p_rlast;
-  assign unused_pte_addr_bits = {w_pte_addr[31:25], w_pte_addr[1:0]};
+
 
   assign i_translate = satp[31] && (priv_fetch != PRIV_M);
   assign d_translate = satp[31] && (priv_data != PRIV_M);
@@ -330,8 +326,16 @@ module roco_cpu_mmu #(
                    (d_perm_fault || (d_fault_pending && d_req && (d_vpn == d_fault_vpn)));
   assign d_fault_cause = d_fault_pending ? d_fault_cause_q : (d_we ? 4'd15 : 4'd13);
 
-  assign p_req = (wstate == W_PTE1_REQ) || (wstate == W_PTE0_REQ);
-  assign p_word_addr = w_pte_addr[24:2];
+  axi4_ar_t ptw_ar_payload;
+  assign ptw_ar = ptw_ar_payload;
+  assign ptw_ar_payload.valid = (wstate == W_PTE1_REQ) || (wstate == W_PTE0_REQ);
+  assign ptw_ar_payload.addr = w_pte_addr;
+  assign ptw_ar_payload.id = '0;
+  assign ptw_ar_payload.len = '0;
+  assign ptw_ar_payload.size = 3'd2;
+  assign ptw_ar_payload.burst = `AXI4_BURST_INCR;
+  assign ptw_ar_payload.prot = 3'b001;
+  assign ptw_r_ready = 1'b1;
 
   assign pte_ppn = pte_data_q[29:10];
   assign level0_pte_addr = {pte_ppn, w_vaddr[21:12], 2'b00};
@@ -445,17 +449,14 @@ module roco_cpu_mmu #(
         if (wstate != W_IDLE) begin
           w_discard <= 1'b1;
         end
-        // A request can be accepted, or its sole response can arrive, on
-        // the flush edge. Drain accepted requests even while discarding
-        // their translations so the walker never waits for a lost beat.
+        // AXI VALID must remain asserted even if a flush arrives before
+        // acceptance. Hold the request and drain its eventual response.
         case (wstate)
           W_PTE1_REQ: begin
             if (p_ready) wstate <= W_PTE1_WAIT;
-            else wstate <= W_IDLE;
           end
           W_PTE0_REQ: begin
             if (p_ready) wstate <= W_PTE0_WAIT;
-            else wstate <= W_IDLE;
           end
           W_PTE1_WAIT, W_PTE0_WAIT: begin
             if (pte_valid_q) begin

@@ -14,6 +14,7 @@
 //   +cpi_count=<n>     require this many consecutive retirement cycles
 
 `timescale 1ns / 1ps
+`include "axi4_defs.svh"
 
 module tb_core;
 
@@ -44,12 +45,16 @@ module tb_core;
   logic [31:0] dmem_wdata;
   logic [3:0] dmem_be;
   logic [31:0] dmem_rsp_data;
-  logic ptw_req;
-  logic [22:0] ptw_word_addr;
+  axi4_ar_t ptw_ar;
+  axi4_r_t ptw_r;
+  logic ptw_r_ready;
+  wire ptw_req = ptw_ar.valid;
+  wire [22:0] ptw_word_addr = ptw_ar.addr[24:2];
   logic ptw_ready;
   logic ptw_rvalid;
   logic [31:0] ptw_rdata;
   logic ptw_rlast;
+  assign ptw_r = {ptw_rvalid, 4'd0, ptw_rdata, `AXI4_RESP_OKAY, ptw_rlast};
   logic trace_valid;
   logic [31:0] trace_pc;
   logic [31:0] trace_instr;
@@ -115,12 +120,10 @@ module tb_core;
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
       .dmem_forward_data(dmem_forward_data),
-      .ptw_req(ptw_req),
-      .ptw_word_addr(ptw_word_addr),
+      .ptw_ar(ptw_ar),
       .ptw_ready(ptw_ready),
-      .ptw_rvalid(ptw_rvalid),
-      .ptw_rdata(ptw_rdata),
-      .ptw_rlast(ptw_rlast),
+      .ptw_r(ptw_r),
+      .ptw_r_ready(ptw_r_ready),
       .trace_valid(trace_valid),
       .trace_pc(trace_pc),
       .trace_instr(trace_instr),

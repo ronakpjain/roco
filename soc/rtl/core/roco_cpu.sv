@@ -20,6 +20,7 @@
 // instructions, ECALL/EBREAK, misaligned addresses and page faults.
 // Machine timer/external and software interrupts are supported.
 
+`include "axi4_defs.svh"
 `default_nettype none
 
 module roco_cpu (
@@ -54,12 +55,10 @@ module roco_cpu (
   /* Already aligned cached-load value, registered with the EX lookup. */
   input logic [31:0] dmem_forward_data,
   /* Physical page-table walker port. */
-  output logic ptw_req,
-  output logic [22:0] ptw_word_addr,
+  output axi4_ar_t ptw_ar,
   input logic ptw_ready,
-  input logic ptw_rvalid,
-  input logic [31:0] ptw_rdata,
-  input logic ptw_rlast,
+  input axi4_r_t ptw_r,
+  output logic ptw_r_ready,
   /* Retire trace, for simulation only. */
   output logic trace_valid,
   output logic [31:0] trace_pc,
@@ -740,12 +739,10 @@ module roco_cpu (
       .d_fault(mmu_d_fault),
       .d_fault_cause(mmu_d_fault_cause),
       .d_paddr(mmu_d_paddr),
-      .p_req(ptw_req),
-      .p_word_addr(ptw_word_addr),
+      .ptw_ar(ptw_ar),
       .p_ready(ptw_ready),
-      .p_rvalid(ptw_rvalid),
-      .p_rdata(ptw_rdata),
-      .p_rlast(ptw_rlast)
+      .ptw_r(ptw_r),
+      .ptw_r_ready(ptw_r_ready)
   );
 
   // The external instruction port is physical; the MMU owns virtual

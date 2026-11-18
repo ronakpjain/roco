@@ -6,6 +6,7 @@
 // physical SDRAM at 0x1000_0000.
 
 `timescale 1ns / 1ps
+`include "axi4_defs.svh"
 
 module tb_mmu;
 
@@ -47,8 +48,11 @@ module tb_mmu;
   logic [3:0] d_fault_cause;
   logic [31:0] d_paddr;
 
-  logic p_req;
-  logic [22:0] p_word_addr;
+  axi4_ar_t ptw_ar;
+  axi4_r_t ptw_r;
+  logic ptw_r_ready;
+  wire p_req = ptw_ar.valid;
+  wire [22:0] p_word_addr = ptw_ar.addr[24:2];
   logic p_ready;
   logic p_rvalid;
   logic [31:0] p_rdata;
@@ -91,12 +95,10 @@ module tb_mmu;
       .d_fault(d_fault),
       .d_fault_cause(d_fault_cause),
       .d_paddr(d_paddr),
-      .p_req(p_req),
-      .p_word_addr(p_word_addr),
+      .ptw_ar(ptw_ar),
       .p_ready(p_ready),
-      .p_rvalid(p_rvalid),
-      .p_rdata(p_rdata),
-      .p_rlast(p_rlast)
+      .ptw_r(ptw_r),
+      .ptw_r_ready(ptw_r_ready)
   );
 
   always begin
@@ -109,6 +111,7 @@ module tb_mmu;
   // Page-table memory: one-cycle read latency.
   initial p_ready = 1'b1;
   assign p_rlast = 1'b1;
+  assign ptw_r = {p_rvalid, 4'd0, p_rdata, `AXI4_RESP_OKAY, p_rlast};
   always_ff @(posedge clk) begin
     p_rvalid <= p_req && p_ready;
     if (p_req && p_ready) begin
@@ -171,6 +174,7 @@ module tb_mmu;
   task automatic cancel_walk(input logic fetch, input logic redirect, input int target_state,
                              input logic blocked = 1'b0, input logic invalid_pte = 1'b0);
     int unsigned k;
+    axi4_ar_t held_ar;
     // Drive cancellation between clock edges, including on request
     // acceptance, each PTE response and the TLB installation edge.
     @(negedge clk);
@@ -196,6 +200,7 @@ module tb_mmu;
       k = k + 1;
     end
     check(int'(u_mmu.wstate) == target_state, "walk did not reach cancellation point");
+    held_ar = ptw_ar;
     p_ready = !blocked;
     flush = !redirect;
     iflush = redirect;
@@ -205,6 +210,12 @@ module tb_mmu;
     check(!i_fault && !d_fault, "cancellation edge reported a stale fault");
     flush = 1'b0;
     iflush = 1'b0;
+    if (blocked && held_ar.valid) begin
+      repeat (3) begin
+        check(ptw_ar === held_ar, "flush changed a stalled AXI address");
+        @(negedge clk);
+      end
+    end
     p_ready = 1'b1;
     repeat (4) begin
       @(negedge clk);

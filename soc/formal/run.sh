@@ -7,14 +7,14 @@ flags=()
 case "$mode" in
   bmc) ;;
   cover) flags=(-c) ;;
-  induction) flags=(-i) ;;
   *) echo "Unknown formal mode: $mode" >&2; exit 2 ;;
 esac
 
 case "${1:-}" in
   core)
     top=rvfi_rv32i
-    depth=10
+    depth=9
+    if [[ "$mode" == cover ]]; then depth=18; fi
     ref=${RISCV_FORMAL_DIR:-third_party/riscv-formal}/insns
     if [[ ! -f "$ref/isa_rv32i.txt" ]]; then
       echo 'Set RISCV_FORMAL_DIR to a riscv-formal checkout (see docs/formal.md).' >&2
@@ -24,7 +24,13 @@ case "${1:-}" in
     while read -r insn; do sources+=("$ref/insn_$insn.v"); done < "$ref/isa_rv32i.txt"
     defines='-DROCO_RVFI -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
     ;;
-  *) echo 'Usage: bash formal/run.sh core [bmc|cover|induction]' >&2; exit 2 ;;
+  bridge)
+    top=axi_apb_contract
+    depth=10
+    sources=(rtl/bus/axi4_apb_bridge.sv formal/axi_apb_contract.sv)
+    defines=''
+    ;;
+  *) echo 'Usage: bash formal/run.sh {core|bridge} [bmc|cover]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

@@ -8,7 +8,7 @@ git clone https://github.com/YosysHQ/riscv-formal /tmp/riscv-formal
 git -C /tmp/riscv-formal checkout c992aa61fdfe0846c5ed90324c596202a1c69b76
 export RISCV_FORMAL_DIR=/tmp/riscv-formal
 bash formal/run.sh core bmc
-DEPTH=18 bash formal/run.sh core cover
+bash formal/run.sh core cover
 ```
 
 `DEPTH` sets the number of solver time steps; `SOLVER` overrides Z3. Logs,
@@ -40,3 +40,32 @@ write back independently of in-order retirement, and vector memory operations
 can have multiple accesses or partial completion. Those need more trace support
 before enabling their checkers. LR/SC and AMO fields are emitted but not checked
 by this harness. CSR side effects and interrupt entry are not formally checked.
+
+## AXI4-to-APB4 bridge
+
+This job uses only the local RTL, with no riscv-formal dependency:
+
+```sh
+bash formal/run.sh bridge bmc
+bash formal/run.sh bridge cover
+```
+
+`formal/axi_apb_contract.sv` assumes the master holds AXI AR/AW/W payloads
+and `VALID` stable while stalled; it asserts the same for the bridge's R/B
+channels. APB can stall and return arbitrary data or errors. The harness checks
+setup/access sequencing and payload stability, then uses an independent
+handshake scoreboard to check address alignment, byte strobes, IDs, response
+data/status, rejected bursts, and response beat counts. It also exercises a
+missing final `WLAST`. No fairness assumptions are imposed, so this is safety
+checking, not a promise that an unresponsive peripheral will complete.
+
+## Extending to the AXI fabric
+
+Use the same assume/assert split at each component boundary. For the crossbar,
+assume stable upstream requests and stable downstream responses; assert stable
+forwarded requests and upstream responses. Add a scoreboard for decoded target,
+master/ID, and accepted beat count, and cover simultaneous masters, simultaneous
+read/write traffic, decode errors, and stalls on each channel. For the memory
+master and SDRAM adapter, verify burst beat/address progression and response
+accounting separately. Run these component checks before composing them; the
+bridge job does **not** verify the crossbar, memory master, or SDRAM adapter.

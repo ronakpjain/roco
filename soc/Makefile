@@ -89,6 +89,8 @@ lint:
 		--top-module axi4_xbar rtl/bus/axi4_xbar.sv
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module axi4_sdram_adapter rtl/bus/axi4_sdram_adapter.sv
+	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
+		--top-module axi4_apb_bridge rtl/bus/axi4_apb_bridge.sv
 
 hooks:
 	git config core.hooksPath .githooks
@@ -245,9 +247,13 @@ $(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar: rtl/bus/axi4_xbar.sv sim/tb_axi4_xba
 $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter: rtl/bus/axi4_sdram_adapter.sv rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_axi4_sdram_adapter.sv rtl/common/axi4_defs.svh | build
 	$(VERILATOR) $(VL_FLAGS) --top-module tb_axi4_sdram_adapter -Mdir $(BUILD_DIR)/vl_tb_axi4_sdram_adapter $(filter %.sv,$^)
 
-test_bus: $(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter
+$(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge: rtl/bus/axi4_apb_bridge.sv sim/tb_axi4_apb_bridge.sv rtl/common/axi4_defs.svh | build
+	$(VERILATOR) $(VL_FLAGS) --top-module tb_axi4_apb_bridge -Mdir $(BUILD_DIR)/vl_tb_axi4_apb_bridge $(filter %.sv,$^)
+
+test_bus: $(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter $(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge
 	$(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar
 	$(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter
+	$(BUILD_DIR)/vl_tb_axi4_apb_bridge/Vtb_axi4_apb_bridge
 
 test_sdram: $(BUILD_DIR)/tb_sdram_ctrl.vvp $(BUILD_DIR)/tb_mem_arbiter.vvp
 	$(VVP) $(BUILD_DIR)/tb_sdram_ctrl.vvp

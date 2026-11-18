@@ -63,6 +63,16 @@ module roco_cpu (
   rvfi_div_b,
   rvfi_div_wb_data,
 `endif
+`ifdef ROCO_RVFI_INSN_CHECKS
+  input logic rvfi_fwd_trap_pending,
+  output logic rvfi_fwd_if_valid,
+  output logic rvfi_fwd_idex_valid,
+  output logic rvfi_fwd_exmem_valid,
+  output logic [31:0] rvfi_fwd_if_instr,
+  rvfi_fwd_idex_instr,
+  rvfi_fwd_exmem_instr,
+  rvfi_fwd_exc_instr,
+`endif
 `endif
   input logic clk,
   input logic rst,
@@ -648,6 +658,12 @@ module roco_cpu (
   logic rvfi_fwd_cancel;
   logic rvfi_fwd_ex_trap;
   logic [31:0] rvfi_fwd_held_rs1, rvfi_fwd_held_rs2;
+`ifdef ROCO_RVFI_INSN_CHECKS
+  logic rvfi_fwd_trap_pending;
+  logic rvfi_fwd_if_valid, rvfi_fwd_idex_valid, rvfi_fwd_exmem_valid;
+  logic [31:0] rvfi_fwd_if_instr, rvfi_fwd_idex_instr, rvfi_fwd_exmem_instr;
+  logic [31:0] rvfi_fwd_exc_instr;
+`endif
 `endif
 
 `ifdef ROCO_RVFI_GPR_WRITEBACK_CHECKS
@@ -785,6 +801,19 @@ module roco_cpu (
   end
 `endif
 
+`ifdef ROCO_RVFI_INSN_CHECKS
+  // Instruction-identity chain for the semantic job: every live pipeline
+  // word stays within the fetch set the harness assumes at the response
+  // interface, so the upstream models can decode each retirement.
+  assign rvfi_fwd_if_valid = if_valid;
+  assign rvfi_fwd_idex_valid = idex_valid;
+  assign rvfi_fwd_exmem_valid = exmem_valid;
+  assign rvfi_fwd_if_instr = if_instr;
+  assign rvfi_fwd_idex_instr = idex_instr;
+  assign rvfi_fwd_exmem_instr = exmem_instr;
+  assign rvfi_fwd_exc_instr = rvfi_exception.instr;
+`endif
+
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
   always @(posedge clk) begin
     if (!rst) begin
@@ -830,6 +859,9 @@ module roco_cpu (
       .rvfi_fwd_mem_ready(rvfi_fwd_mem_ready),
       .rvfi_fwd_cancel(rvfi_fwd_cancel),
       .rvfi_fwd_ex_trap(rvfi_fwd_ex_trap),
+`ifdef ROCO_RVFI_INSN_CHECKS
+      .rvfi_fwd_trap_pending(rvfi_fwd_trap_pending),
+`endif
       .rvfi_fwd_held_rs1(rvfi_fwd_held_rs1),
       .rvfi_fwd_held_rs2(rvfi_fwd_held_rs2),
 `endif

@@ -26,6 +26,9 @@ module roco_cpu_ex_stage (
   output logic rvfi_fwd_mem_ready,
   output logic rvfi_fwd_cancel,
   output logic rvfi_fwd_ex_trap,
+`ifdef ROCO_RVFI_INSN_CHECKS
+  output logic rvfi_fwd_trap_pending,
+`endif
   output logic [31:0] rvfi_fwd_held_rs1,
   rvfi_fwd_held_rs2,
 `endif
@@ -1216,6 +1219,9 @@ module roco_cpu_ex_stage (
   assign rvfi_fwd_mem_ready = scalar_is_mem && scalar_mem_ready;
   assign rvfi_fwd_cancel = cancel_ex;
   assign rvfi_fwd_ex_trap = ex_trap;
+`ifdef ROCO_RVFI_INSN_CHECKS
+  assign rvfi_fwd_trap_pending = trap_pending;
+`endif
   assign rvfi_fwd_held_rs1 = rvfi_held_rs1;
   assign rvfi_fwd_held_rs2 = rvfi_held_rs2;
 `endif

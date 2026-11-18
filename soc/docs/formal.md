@@ -308,6 +308,25 @@ seconds where z3 timed out. This covers operand capture and reporting only:
 the ALU results, memory effects, and branch resolution that consume the
 operands are checked by the semantic jobs.
 
+### Whole-core RV32I semantics
+
+```sh
+SOLVER=bitwuzla DEPTH=12 bash formal/run.sh core-isa bmc-fast
+SOLVER=bitwuzla bash formal/run.sh core-isa prove
+```
+
+`core-isa` runs the full semantic comparison on the actual core: retired
+results, next PCs, operand addresses, and memory effects against the upstream
+RV32I models, with the operand invariants above as asserted lemmas and an
+instruction-identity chain asserting that every live pipeline word (head,
+ID/EX, EX/MEM, pending exception) stays within the assumed fetch set. It
+passes 12 bounded steps, and the k-induction now reduces to a single open
+property: retirement PC continuity. Closing it needs the fetch-queue PC
+chain: consecutive slot PCs, prediction-target breaks, redirect and flush
+restarts, and the trap-vector restart after a synchronous exception.
+Everything else in the semantic check closes inductively with the current
+invariant set.
+
 ### Remaining whole-core proof obligations
 
 - Close the RV32I instruction suite with inductive invariants for forwarding,

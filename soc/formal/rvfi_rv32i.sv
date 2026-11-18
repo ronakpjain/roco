@@ -45,6 +45,12 @@ module rvfi_rv32i #(
 `ifdef ROCO_RVFI_FORWARD_CHECKS
   logic [31:0] tracked_dut_hist;
 `endif
+`ifdef ROCO_RVFI_INSN_CHECKS
+  logic rvfi_fwd_trap_pending;
+  logic rvfi_fwd_if_valid, rvfi_fwd_idex_valid, rvfi_fwd_exmem_valid;
+  logic [31:0] rvfi_fwd_if_instr, rvfi_fwd_idex_instr, rvfi_fwd_exmem_instr;
+  logic [31:0] rvfi_fwd_exc_instr;
+`endif
 `endif
 
   roco_cpu dut (
@@ -53,6 +59,16 @@ module rvfi_rv32i #(
       .rvfi_gpr_watch_value(tracked_physical_value),
 `ifdef ROCO_RVFI_FORWARD_CHECKS
       .rvfi_gpr_hist_value(tracked_dut_hist),
+`endif
+`ifdef ROCO_RVFI_INSN_CHECKS
+      .rvfi_fwd_trap_pending(rvfi_fwd_trap_pending),
+      .rvfi_fwd_if_valid(rvfi_fwd_if_valid),
+      .rvfi_fwd_idex_valid(rvfi_fwd_idex_valid),
+      .rvfi_fwd_exmem_valid(rvfi_fwd_exmem_valid),
+      .rvfi_fwd_if_instr(rvfi_fwd_if_instr),
+      .rvfi_fwd_idex_instr(rvfi_fwd_idex_instr),
+      .rvfi_fwd_exmem_instr(rvfi_fwd_exmem_instr),
+      .rvfi_fwd_exc_instr(rvfi_fwd_exc_instr),
 `endif
 `endif
       .clk(clk),
@@ -227,6 +243,97 @@ module rvfi_rv32i #(
       .spec_mem_wmask(),
       .spec_mem_wdata()
   );
+`endif
+
+`ifdef ROCO_RVFI_INSN_CHECKS
+  // Instruction-identity chain: each live pipeline word stays inside the
+  // assumed fetch set, so the retirement checks can rely on the models.
+  typedef struct packed {logic valid;} chain_t;
+  chain_t chain_if, chain_idex, chain_exmem, chain_exc;
+  `ROCO_FORMAL_ISA_MODEL chain_decode_if (
+      .rvfi_valid(1'b1),
+      .rvfi_insn(rvfi_fwd_if_instr),
+      .rvfi_pc_rdata(32'd0),
+      .rvfi_rs1_rdata(32'd0),
+      .rvfi_rs2_rdata(32'd0),
+      .rvfi_mem_rdata(32'd0),
+      .spec_valid(chain_if.valid),
+      .spec_trap(),
+      .spec_rs1_addr(),
+      .spec_rs2_addr(),
+      .spec_rd_addr(),
+      .spec_rd_wdata(),
+      .spec_pc_wdata(),
+      .spec_mem_addr(),
+      .spec_mem_rmask(),
+      .spec_mem_wmask(),
+      .spec_mem_wdata()
+  );
+  `ROCO_FORMAL_ISA_MODEL chain_decode_idex (
+      .rvfi_valid(1'b1),
+      .rvfi_insn(rvfi_fwd_idex_instr),
+      .rvfi_pc_rdata(32'd0),
+      .rvfi_rs1_rdata(32'd0),
+      .rvfi_rs2_rdata(32'd0),
+      .rvfi_mem_rdata(32'd0),
+      .spec_valid(chain_idex.valid),
+      .spec_trap(),
+      .spec_rs1_addr(),
+      .spec_rs2_addr(),
+      .spec_rd_addr(),
+      .spec_rd_wdata(),
+      .spec_pc_wdata(),
+      .spec_mem_addr(),
+      .spec_mem_rmask(),
+      .spec_mem_wmask(),
+      .spec_mem_wdata()
+  );
+  `ROCO_FORMAL_ISA_MODEL chain_decode_exmem (
+      .rvfi_valid(1'b1),
+      .rvfi_insn(rvfi_fwd_exmem_instr),
+      .rvfi_pc_rdata(32'd0),
+      .rvfi_rs1_rdata(32'd0),
+      .rvfi_rs2_rdata(32'd0),
+      .rvfi_mem_rdata(32'd0),
+      .spec_valid(chain_exmem.valid),
+      .spec_trap(),
+      .spec_rs1_addr(),
+      .spec_rs2_addr(),
+      .spec_rd_addr(),
+      .spec_rd_wdata(),
+      .spec_pc_wdata(),
+      .spec_mem_addr(),
+      .spec_mem_rmask(),
+      .spec_mem_wmask(),
+      .spec_mem_wdata()
+  );
+  `ROCO_FORMAL_ISA_MODEL chain_decode_exc (
+      .rvfi_valid(1'b1),
+      .rvfi_insn(rvfi_fwd_exc_instr),
+      .rvfi_pc_rdata(32'd0),
+      .rvfi_rs1_rdata(32'd0),
+      .rvfi_rs2_rdata(32'd0),
+      .rvfi_mem_rdata(32'd0),
+      .spec_valid(chain_exc.valid),
+      .spec_trap(),
+      .spec_rs1_addr(),
+      .spec_rs2_addr(),
+      .spec_rd_addr(),
+      .spec_rd_wdata(),
+      .spec_pc_wdata(),
+      .spec_mem_addr(),
+      .spec_mem_rmask(),
+      .spec_mem_wmask(),
+      .spec_mem_wdata()
+  );
+  always @(posedge clk) begin
+    if (!rst) begin
+      if (rvfi_fwd_if_valid) assert (chain_if.valid || extra_trap(rvfi_fwd_if_instr));
+      if (rvfi_fwd_idex_valid) assert (chain_idex.valid || extra_trap(rvfi_fwd_idex_instr));
+      if (rvfi_fwd_exmem_valid) assert (chain_exmem.valid || extra_trap(rvfi_fwd_exmem_instr));
+      if (rvfi_fwd_trap_pending) assert (chain_exc.valid || extra_trap(rvfi_fwd_exc_instr));
+    end
+  end
 `endif
 
   always @(posedge clk) begin

@@ -60,9 +60,9 @@ case "$job" in
     if [[ "$job" == core-forward ]]; then
       defines+=' -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_FORMAL_SIMPLE_FETCH'
     elif [[ "$job" == core-isa ]]; then
-      defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_NO_DIV_CHECKS'
+      defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_INSN_CHECKS -DROCO_RVFI_NO_DIV_CHECKS'
     fi
-    if [[ "$job" == core-no-divide || "$job" == core-forward ]]; then
+    if [[ "$job" == core-no-divide || "$job" == core-forward || "$job" == core-isa ]]; then
       proof_engine="smtbmc ${SOLVER:-z3}"
       proof_depth=6
       proof_lowering=''

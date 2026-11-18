@@ -209,6 +209,22 @@ and bounded completion in the always-ready environment. It passed 48 bounded
 steps and reached the post-return instruction. This is not a general CSR,
 interrupt, or privilege-delegation proof.
 
+### Sv32 load integration
+
+```sh
+bash formal/run.sh core-sv32-load bmc-fast
+bash formal/run.sh core-sv32-load cover
+```
+
+This MPRV program leaves instruction fetch in M mode, and runs a real Sv32
+page walk for a load with U-mode permissions. The harness chooses one of two
+4 MiB leaf PTEs. For a readable page it checks the PTW address and AXI size,
+physical data address, virtual RVFI address, and symbolic load value. For an
+execute-only page with MXR off it checks that no data transaction commits and
+that the handler reads the expected `mcause` and `mtval`. Both paths passed 55
+bounded steps. This does not cover two-level walks, TLB invalidation, or all
+permission combinations.
+
 ### Remaining whole-core proof obligations
 
 - Close the RV32I instruction suite with inductive invariants for forwarding,

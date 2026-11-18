@@ -64,6 +64,12 @@ case "$job" in
     sources=(rtl/core/*.sv formal/core_csr_trap.sv)
     defines='-DROCO_RVFI'
     ;;
+  core-sv32-load)
+    top=core_sv32_load
+    depth=55
+    sources=(rtl/core/*.sv formal/core_sv32_load.sv)
+    defines='-DROCO_RVFI'
+    ;;
   core-vector-copy)
     top=core_vector_copy
     depth=20
@@ -107,7 +113,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

@@ -2,7 +2,7 @@
 //
 // RV32I core with an Sv32 MMU + I/D caches + SDRAM controller + UART +
 // bootloader + memory-mapped timer, LEDs, buttons, cache counters and
-// boot status. The MMU page-table walker is a fourth SDRAM arbiter client.
+// boot status. AXI4 connects the caches, bootloader, walker and MMIO port.
 //
 // Memory map
 //   0x1000_0000  SDRAM, 32 MiB (cached)
@@ -83,11 +83,10 @@ module roco_soc #(
   logic [31:0] dc_forward_data;
   axi4_ar_t ptw_ar;
   axi4_r_t ptw_r;
-  logic unused_ptw_r_ready;
+  logic ptw_r_ready;
   logic ptw_ready;
-  logic ptw_rvalid;
-  logic [31:0] ptw_rdata;
-  logic ptw_rlast;
+  logic mmio_done;
+  logic [31:0] mmio_rsp_data;
   logic core_fence_req;
   logic fence_done;
   logic dcache_flush;
@@ -211,7 +210,7 @@ module roco_soc #(
   end
   assign dmem_lu_in_sdram = (dmem_lu_addr[31:25] == 7'd8);
   assign i_unc_req = imem_req && !imem_in_sdram && !ic_cpu_busy;
-  assign dmem_ready = dmem_in_sdram ? dc_cm_ready : 1'b1;
+  assign dmem_ready = dmem_in_sdram ? dc_cm_ready : mmio_done;
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
   // Hold the core in reset for one extra cycle after boot_done so that
@@ -256,7 +255,7 @@ module roco_soc #(
       .ptw_ar(ptw_ar),
       .ptw_ready(ptw_ready),
       .ptw_r(ptw_r),
-      .ptw_r_ready(unused_ptw_r_ready),
+      .ptw_r_ready(ptw_r_ready),
       .fence_req(core_fence_req),
       .fence_done(fence_done),
       .trace_valid(trace_valid),
@@ -329,61 +328,261 @@ module roco_soc #(
       .miss_pulse(dc_miss)
   );
 
-  // ------------------------------------------------------------- Arbiter
-  assign ptw_r = {ptw_rvalid, 4'd0, ptw_rdata, `AXI4_RESP_OKAY, ptw_rlast};
-  mem_arbiter u_arbiter (
+  // ------------------------------------------------------------- AXI4 fabric
+  axi4_ar_t i_ar, d_ar, boot_ar, mmio_ar, ram_ar, periph_ar;
+  axi4_aw_t i_aw, d_aw, boot_aw, mmio_aw, ram_aw, periph_aw;
+  axi4_w_t i_w, d_w, boot_w, mmio_w, ram_w, periph_w;
+  axi4_b_t i_b, d_b, boot_b, mmio_b, ram_b, periph_b, unused_ptw_b;
+  axi4_r_t i_r, d_r, boot_r, mmio_r, ram_r, periph_r;
+  logic i_arready, d_arready, boot_arready, mmio_arready, ram_arready, periph_arready;
+  logic i_awready, d_awready, boot_awready, mmio_awready, ram_awready, periph_awready;
+  logic i_wready, d_wready, boot_wready, mmio_wready, ram_wready, periph_wready;
+  logic i_rready, d_rready, boot_rready, mmio_rready, ram_rready, periph_rready;
+  logic i_bready, d_bready, boot_bready, mmio_bready, ram_bready, periph_bready;
+  logic unused_i_wready, unused_i_done, unused_d_done, unused_boot_done;
+  logic unused_boot_rvalid, unused_boot_rlast, unused_ptw_awready, unused_ptw_wready;
+  logic [31:0] unused_boot_rdata;
+  logic unused_mmio_accept, mmio_read_done, mmio_write_done, unused_mmio_wready, unused_mmio_rlast;
+  logic psel, penable, pwrite, pready;
+  logic [31:0] paddr, pwdata;
+  logic [3:0] pstrb;
+  logic [2:0] unused_pprot;
+  wire apb_read = psel && penable && pready && !pwrite;
+  wire apb_write = psel && penable && pready && pwrite && (|pstrb);
+
+  axi4_mem_master u_i_axi (
       .clk(clk),
       .rst(rst),
-      .i_req(ic_mem_req),
-      .i_we(1'b0),
-      .i_word_addr(ic_mem_word_addr),
-      .i_len(ic_mem_len),
-      .i_ready(ic_mem_ready),
-      .i_wvalid(1'b0),
-      .i_wdata(32'd0),
-      .i_wbe(4'd0),
-      .i_rvalid(ic_mem_rvalid),
-      .i_rdata(ic_mem_rdata),
-      .i_rlast(ic_mem_rlast),
-      .d_req(dc_mem_req),
-      .d_we(dc_mem_we),
-      .d_word_addr(dc_mem_word_addr),
-      .d_len(dc_mem_len),
-      .d_ready(dc_mem_ready),
-      .d_wready(dc_mem_wready),
-      .d_wvalid(dc_mem_wvalid),
-      .d_wdata(dc_mem_wdata),
-      .d_wbe(dc_mem_wbe),
-      .d_rvalid(dc_mem_rvalid),
-      .d_rdata(dc_mem_rdata),
-      .d_rlast(dc_mem_rlast),
-      .b_req(boot_mem_req),
-      .b_we(1'b1),
-      .b_word_addr(boot_mem_word_addr),
-      .b_len(4'd0),
-      .b_ready(boot_mem_ready),
-      .b_wready(boot_mem_wready),
-      .b_wvalid(boot_mem_wvalid),
-      .b_wdata(boot_mem_wdata),
-      .b_wbe(boot_mem_wbe),
-      .p_req(ptw_ar.valid),
-      .p_word_addr(ptw_ar.addr[24:2]),
-      .p_ready(ptw_ready),
-      .p_rvalid(ptw_rvalid),
-      .p_rdata(ptw_rdata),
-      .p_rlast(ptw_rlast),
-      .c_req(c_req),
-      .c_ready(c_ready),
-      .c_we(c_we),
-      .c_word_addr(c_word_addr),
-      .c_len(c_len),
-      .c_wready(c_wready),
-      .c_wvalid(c_wvalid),
-      .c_wdata(c_wdata),
-      .c_wbe(c_wbe),
-      .c_rvalid(c_rvalid),
-      .c_rdata(c_rdata),
-      .c_rlast(c_rlast)
+      .req(ic_mem_req),
+      .we(1'b0),
+      .addr({7'd8, ic_mem_word_addr, 2'b00}),
+      .len(ic_mem_len),
+      .ready(ic_mem_ready),
+      .wvalid(1'b0),
+      .wready(unused_i_wready),
+      .wdata(32'd0),
+      .wbe(4'd0),
+      .rvalid(ic_mem_rvalid),
+      .rdata(ic_mem_rdata),
+      .rlast(ic_mem_rlast),
+      .write_done(unused_i_done),
+      .ar(i_ar),
+      .ar_ready(i_arready),
+      .r(i_r),
+      .r_ready(i_rready),
+      .aw(i_aw),
+      .aw_ready(i_awready),
+      .w(i_w),
+      .w_ready(i_wready),
+      .b(i_b),
+      .b_ready(i_bready)
+  );
+  axi4_mem_master u_d_axi (
+      .clk(clk),
+      .rst(rst),
+      .req(dc_mem_req),
+      .we(dc_mem_we),
+      .addr({7'd8, dc_mem_word_addr, 2'b00}),
+      .len(dc_mem_len),
+      .ready(dc_mem_ready),
+      .wvalid(dc_mem_wvalid),
+      .wready(dc_mem_wready),
+      .wdata(dc_mem_wdata),
+      .wbe(dc_mem_wbe),
+      .rvalid(dc_mem_rvalid),
+      .rdata(dc_mem_rdata),
+      .rlast(dc_mem_rlast),
+      .write_done(unused_d_done),
+      .ar(d_ar),
+      .ar_ready(d_arready),
+      .r(d_r),
+      .r_ready(d_rready),
+      .aw(d_aw),
+      .aw_ready(d_awready),
+      .w(d_w),
+      .w_ready(d_wready),
+      .b(d_b),
+      .b_ready(d_bready)
+  );
+  axi4_mem_master u_boot_axi (
+      .clk(clk),
+      .rst(rst),
+      .req(boot_mem_req),
+      .we(1'b1),
+      .addr({7'd8, boot_mem_word_addr, 2'b00}),
+      .len(4'd0),
+      .ready(boot_mem_ready),
+      .wvalid(boot_mem_wvalid),
+      .wready(boot_mem_wready),
+      .wdata(boot_mem_wdata),
+      .wbe(boot_mem_wbe),
+      .rvalid(unused_boot_rvalid),
+      .rdata(unused_boot_rdata),
+      .rlast(unused_boot_rlast),
+      .write_done(unused_boot_done),
+      .ar(boot_ar),
+      .ar_ready(boot_arready),
+      .r(boot_r),
+      .r_ready(boot_rready),
+      .aw(boot_aw),
+      .aw_ready(boot_awready),
+      .w(boot_w),
+      .w_ready(boot_wready),
+      .b(boot_b),
+      .b_ready(boot_bready)
+  );
+  axi4_mem_master u_mmio_axi (
+      .clk(clk),
+      .rst(rst),
+      .req(dmem_valid && !dmem_in_sdram),
+      .we(dmem_we),
+      .addr({dmem_addr[31:2], 2'b00}),
+      .len(4'd0),
+      .ready(unused_mmio_accept),
+      .wvalid(1'b1),
+      .wready(unused_mmio_wready),
+      .wdata(dmem_wdata),
+      .wbe(dmem_be),
+      .rvalid(mmio_read_done),
+      .rdata(mmio_rsp_data),
+      .rlast(unused_mmio_rlast),
+      .write_done(mmio_write_done),
+      .ar(mmio_ar),
+      .ar_ready(mmio_arready),
+      .r(mmio_r),
+      .r_ready(mmio_rready),
+      .aw(mmio_aw),
+      .aw_ready(mmio_awready),
+      .w(mmio_w),
+      .w_ready(mmio_wready),
+      .b(mmio_b),
+      .b_ready(mmio_bready)
+  );
+  assign mmio_done = mmio_read_done || mmio_write_done;
+
+
+  axi4_xbar u_xbar (
+      .clk(clk),
+      .rst(rst),
+      .m0_ar(i_ar),
+      .m0_ar_ready(i_arready),
+      .m0_r(i_r),
+      .m0_r_ready(i_rready),
+      .m0_aw(i_aw),
+      .m0_aw_ready(i_awready),
+      .m0_w(i_w),
+      .m0_w_ready(i_wready),
+      .m0_b(i_b),
+      .m0_b_ready(i_bready),
+      .m1_ar(d_ar),
+      .m1_ar_ready(d_arready),
+      .m1_r(d_r),
+      .m1_r_ready(d_rready),
+      .m1_aw(d_aw),
+      .m1_aw_ready(d_awready),
+      .m1_w(d_w),
+      .m1_w_ready(d_wready),
+      .m1_b(d_b),
+      .m1_b_ready(d_bready),
+      .m2_ar(boot_ar),
+      .m2_ar_ready(boot_arready),
+      .m2_r(boot_r),
+      .m2_r_ready(boot_rready),
+      .m2_aw(boot_aw),
+      .m2_aw_ready(boot_awready),
+      .m2_w(boot_w),
+      .m2_w_ready(boot_wready),
+      .m2_b(boot_b),
+      .m2_b_ready(boot_bready),
+      .m3_ar(ptw_ar),
+      .m3_ar_ready(ptw_ready),
+      .m3_r(ptw_r),
+      .m3_r_ready(ptw_r_ready),
+      .m3_aw(53'd0),
+      .m3_aw_ready(unused_ptw_awready),
+      .m3_w(38'd0),
+      .m3_w_ready(unused_ptw_wready),
+      .m3_b(unused_ptw_b),
+      .m3_b_ready(1'b1),
+      .m4_ar(mmio_ar),
+      .m4_ar_ready(mmio_arready),
+      .m4_r(mmio_r),
+      .m4_r_ready(mmio_rready),
+      .m4_aw(mmio_aw),
+      .m4_aw_ready(mmio_awready),
+      .m4_w(mmio_w),
+      .m4_w_ready(mmio_wready),
+      .m4_b(mmio_b),
+      .m4_b_ready(mmio_bready),
+      .s0_ar(ram_ar),
+      .s0_ar_ready(ram_arready),
+      .s0_r(ram_r),
+      .s0_r_ready(ram_rready),
+      .s0_aw(ram_aw),
+      .s0_aw_ready(ram_awready),
+      .s0_w(ram_w),
+      .s0_w_ready(ram_wready),
+      .s0_b(ram_b),
+      .s0_b_ready(ram_bready),
+      .s1_ar(periph_ar),
+      .s1_ar_ready(periph_arready),
+      .s1_r(periph_r),
+      .s1_r_ready(periph_rready),
+      .s1_aw(periph_aw),
+      .s1_aw_ready(periph_awready),
+      .s1_w(periph_w),
+      .s1_w_ready(periph_wready),
+      .s1_b(periph_b),
+      .s1_b_ready(periph_bready)
+  );
+  axi4_sdram_adapter u_sdram_axi (
+      .clk(clk),
+      .rst(rst),
+      .ar(ram_ar),
+      .ar_ready(ram_arready),
+      .r(ram_r),
+      .r_ready(ram_rready),
+      .aw(ram_aw),
+      .aw_ready(ram_awready),
+      .w(ram_w),
+      .w_ready(ram_wready),
+      .b(ram_b),
+      .b_ready(ram_bready),
+      .req_valid(c_req),
+      .req_ready(c_ready),
+      .req_we(c_we),
+      .req_word_addr(c_word_addr),
+      .req_len(c_len),
+      .wvalid(c_wvalid),
+      .wready(c_wready),
+      .wdata(c_wdata),
+      .wbe(c_wbe),
+      .rvalid(c_rvalid),
+      .rdata(c_rdata)
+  );
+  axi4_apb_bridge u_apb (
+      .clk(clk),
+      .rst(rst),
+      .ar(periph_ar),
+      .ar_ready(periph_arready),
+      .r(periph_r),
+      .r_ready(periph_rready),
+      .aw(periph_aw),
+      .aw_ready(periph_awready),
+      .w(periph_w),
+      .w_ready(periph_wready),
+      .b(periph_b),
+      .b_ready(periph_bready),
+      .psel(psel),
+      .penable(penable),
+      .pwrite(pwrite),
+      .paddr(paddr),
+      .pwdata(pwdata),
+      .pstrb(pstrb),
+      .pprot(unused_pprot),
+      .pready(pready),
+      .pslverr(1'b0),
+      .prdata(mmio_rdata)
   );
 
   // ------------------------------------------------------- SDRAM controller
@@ -426,7 +625,7 @@ module roco_soc #(
   assign uart_tx_data = boot_tx_valid ? boot_tx_data : mmio_tx_byte;
   assign boot_tx_ready = uart_tx_ready;
   assign uart_rx_ready = boot_rx_ready | mmio_rx_pop;
-  assign uart_rx_clear = dmem_valid && !dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0004);
+  assign uart_rx_clear = apb_read && (paddr[15:0] == 16'h0004);
 
   uart #(
       .CLK_HZ(CLK_HZ),
@@ -471,15 +670,15 @@ module roco_soc #(
   );
 
   // --------------------------------------------------------------- MMIO
-  // This region is always ready, so transaction validity is already its
-  // commit strobe. Keep the cache-ready path out of peripheral controls.
-  assign mmio_tx_push = dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0000);
-  assign mmio_tx_byte = dmem_wdata[7:0];
-  assign mmio_rx_pop = dmem_valid && !dmem_we && !dmem_in_sdram &&
-                      (dmem_addr[15:0] == 16'h0000) && uart_rx_valid;
-  assign boot_restart = dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
+  assign pready = !pwrite || (paddr[15:0] != 16'h0000) || !pstrb[0] ||
+                  (uart_tx_ready && !boot_tx_valid);
+  assign mmio_tx_push = apb_write && pstrb[0] && (paddr[15:0] == 16'h0000);
+  assign mmio_tx_byte = pwdata[7:0];
+  assign mmio_rx_pop = apb_read && (paddr[15:0] == 16'h0000) && uart_rx_valid;
+  // Restart only after the CPU receives B, not during the APB transfer.
+  assign boot_restart = dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
 
-  logic [17:0] mmio_read_select_q;
+  logic [17:0] mmio_read_select;
   function automatic logic [17:0] mmio_read_decode(input logic [15:0] address);
     mmio_read_decode = '0;
     case (address)
@@ -506,39 +705,36 @@ module roco_soc #(
     endcase
   endfunction
 
-  // Preserve read selection with the cache lookup while MEM waits.
-  always_ff @(posedge clk) begin
-    if (dmem_lu_valid) mmio_read_select_q <= mmio_read_decode({dmem_lu_addr[15:2], dmem_lu_offset});
-  end
+  assign mmio_read_select = mmio_read_decode(paddr[15:0]);
 
   always_comb begin
     mmio_rdata = '0;
-    mmio_rdata |= {32{mmio_read_select_q[0]}} & {24'd0, uart_rx_data};
-    mmio_rdata |= {32{mmio_read_select_q[1]}} & {28'd0, uart_rx_overflow, 1'b0, uart_rx_valid, uart_tx_ready};
-    mmio_rdata |= {32{mmio_read_select_q[2]}} & {28'd0, led_reg};
-    mmio_rdata |= {32{mmio_read_select_q[3]}} & {30'd0, buttons};
-    mmio_rdata |= {32{mmio_read_select_q[4]}} & mtime[31:0];
-    mmio_rdata |= {32{mmio_read_select_q[5]}} & mtime[63:32];
-    mmio_rdata |= {32{mmio_read_select_q[6]}} & mtimecmp[31:0];
-    mmio_rdata |= {32{mmio_read_select_q[7]}} & mtimecmp[63:32];
-    mmio_rdata |= {32{mmio_read_select_q[8]}} & {31'd0, (mtime >= mtimecmp)};
-    mmio_rdata |= {32{mmio_read_select_q[9]}} & ic_hits;
-    mmio_rdata |= {32{mmio_read_select_q[10]}} & ic_misses;
-    mmio_rdata |= {32{mmio_read_select_q[11]}} & dc_hits;
-    mmio_rdata |= {32{mmio_read_select_q[12]}} & dc_misses;
-    mmio_rdata |= {32{mmio_read_select_q[13]}} & dbg0;
-    mmio_rdata |= {32{mmio_read_select_q[14]}} & dbg1;
-    mmio_rdata |= {32{mmio_read_select_q[15]}} & {28'd0, sdram_init_done, boot_error, boot_busy, boot_done_eff};
-    mmio_rdata |= {32{mmio_read_select_q[16]}} & boot_addr;
-    mmio_rdata |= {32{mmio_read_select_q[17]}} & exit_code;
+    mmio_rdata |= {32{mmio_read_select[0]}} & {24'd0, uart_rx_data};
+    mmio_rdata |= {32{mmio_read_select[1]}} & {28'd0, uart_rx_overflow, 1'b0, uart_rx_valid, uart_tx_ready};
+    mmio_rdata |= {32{mmio_read_select[2]}} & {28'd0, led_reg};
+    mmio_rdata |= {32{mmio_read_select[3]}} & {30'd0, buttons};
+    mmio_rdata |= {32{mmio_read_select[4]}} & mtime[31:0];
+    mmio_rdata |= {32{mmio_read_select[5]}} & mtime[63:32];
+    mmio_rdata |= {32{mmio_read_select[6]}} & mtimecmp[31:0];
+    mmio_rdata |= {32{mmio_read_select[7]}} & mtimecmp[63:32];
+    mmio_rdata |= {32{mmio_read_select[8]}} & {31'd0, (mtime >= mtimecmp)};
+    mmio_rdata |= {32{mmio_read_select[9]}} & ic_hits;
+    mmio_rdata |= {32{mmio_read_select[10]}} & ic_misses;
+    mmio_rdata |= {32{mmio_read_select[11]}} & dc_hits;
+    mmio_rdata |= {32{mmio_read_select[12]}} & dc_misses;
+    mmio_rdata |= {32{mmio_read_select[13]}} & dbg0;
+    mmio_rdata |= {32{mmio_read_select[14]}} & dbg1;
+    mmio_rdata |= {32{mmio_read_select[15]}} & {28'd0, sdram_init_done, boot_error, boot_busy, boot_done_eff};
+    mmio_rdata |= {32{mmio_read_select[16]}} & boot_addr;
+    mmio_rdata |= {32{mmio_read_select[17]}} & exit_code;
   end
 
-`ifndef SYNTHESIS
-  always @(posedge clk) begin
-    if (!rst && dmem_valid && (mmio_read_select_q !== mmio_read_decode(dmem_addr[15:0])))
-      $fatal(1, "MMIO selector lost its MEM address association");
-  end
-`endif
+  function automatic logic [31:0] merge_bytes(input logic [31:0] old_word, new_word,
+                                              input logic [3:0] strobes);
+    for (int lane = 0; lane < 4; lane++) begin
+      merge_bytes[lane*8+:8] = strobes[lane] ? new_word[lane*8+:8] : old_word[lane*8+:8];
+    end
+  endfunction
 
   // Capture lookup events before the counter arithmetic. The MMIO value
   // includes the captured event, including when it takes priority over clear.
@@ -563,7 +759,7 @@ module roco_soc #(
       dc_misses_base <= dc_misses;
       dc_hit_q <= dc_hit;
       dc_miss_q <= dc_miss;
-      dc_clear_q <= dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0030);
+      dc_clear_q <= apb_write && (paddr[15:0] == 16'h0030);
     end
   end
 
@@ -583,7 +779,7 @@ module roco_soc #(
       ic_misses_base <= ic_misses;
       ic_hit_q <= ic_hit;
       ic_miss_q <= ic_miss;
-      ic_clear_q <= dmem_valid && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0030);
+      ic_clear_q <= apb_write && (paddr[15:0] == 16'h0030);
     end
   end
 
@@ -605,39 +801,23 @@ module roco_soc #(
       dbg1 <= '0;
     end else begin
       i_unc_rsp <= i_unc_req;
-      if (dmem_valid && !dmem_in_sdram) begin
-        if (dmem_we) begin
-          case (dmem_addr[15:0])
-            16'h0010: begin
-              led_reg <= dmem_wdata[3:0];
-            end
-            16'h0020: begin
-              mtimecmp[31:0] <= dmem_wdata;
-            end
-            16'h0024: begin
-              mtimecmp[63:32] <= dmem_wdata;
-            end
-            16'h0048: begin
-              dbg0 <= dmem_wdata;
-            end
-            16'h004c: begin
-              dbg1 <= dmem_wdata;
-            end
-            16'h0030: begin
-              // Both counter banks capture clear with their lookup events.
-            end
-            16'h0108: begin
-              halted <= 1'b0;
-              exit_code <= '0;
-            end
-            16'h1000: begin
-              halted <= 1'b1;
-              exit_code <= dmem_wdata;
-            end
-            default: begin
-            end
-          endcase
-        end
+      if (apb_write) begin
+        case (paddr[15:0])
+          16'h0010: if (pstrb[0]) led_reg <= pwdata[3:0];
+          16'h0020: mtimecmp[31:0] <= merge_bytes(mtimecmp[31:0], pwdata, pstrb);
+          16'h0024: mtimecmp[63:32] <= merge_bytes(mtimecmp[63:32], pwdata, pstrb);
+          16'h0048: dbg0 <= merge_bytes(dbg0, pwdata, pstrb);
+          16'h004c: dbg1 <= merge_bytes(dbg1, pwdata, pstrb);
+          16'h1000: exit_code <= merge_bytes(exit_code, pwdata, pstrb);
+          default: begin
+          end
+        endcase
+      end
+      if (boot_restart) begin
+        halted <= 1'b0;
+        exit_code <= '0;
+      end else if (dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h1000)) begin
+        halted <= 1'b1;
       end
       mtime <= mtime + 64'd1;
     end
@@ -696,7 +876,7 @@ module roco_soc #(
   assign imem_rsp_valid = imem_in_sdram ? ic_cpu_rsp : i_unc_rsp;
   assign imem_rsp_addr = imem_in_sdram ? ic_cpu_rsp_addr : i_unc_rsp_addr;
   assign imem_rsp_data = imem_in_sdram ? ic_cpu_rsp_data : i_unc_rsp_data;
-  assign dmem_rsp_data = dmem_in_sdram ? dc_cm_rdata : mmio_rdata;
+  assign dmem_rsp_data = dmem_in_sdram ? dc_cm_rdata : mmio_rsp_data;
   // Only cached reads use immediate MEM-to-EX forwarding. Uncached
   // dependencies wait for WB, keeping peripheral decode off the early bus.
   assign dmem_forward_data = dc_forward_data;

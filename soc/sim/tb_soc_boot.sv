@@ -68,10 +68,10 @@ module tb_soc_boot #(
   always @(posedge clk) begin
     dbg_cycles <= dbg_cycles + 1;
     if (trace_on && (dbg_cycles % 2000 == 0)) begin
-      $display("  dbg rst=%b boot=%b rel=%b pc=%08x ireq=%b icst=%0d lock=%b own=%0d cst=%0d",
+      $display("  dbg rst=%b boot=%b rel=%b pc=%08x ireq=%b icst=%0d rd=%0d wr=%0d cst=%0d",
                u_soc.core_rst, u_soc.boot_done, u_soc.boot_release, u_soc.u_cpu.u_if.pc_if,
-               u_soc.u_cpu.imem_req, u_soc.u_icache.state, u_soc.u_arbiter.locked,
-               u_soc.u_arbiter.owner, u_soc.u_sdram.state);
+               u_soc.u_cpu.imem_req, u_soc.u_icache.state, u_soc.u_xbar.rd[0], u_soc.u_xbar.wr[0],
+               u_soc.u_sdram.state);
     end
   end
 

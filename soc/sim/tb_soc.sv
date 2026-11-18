@@ -131,11 +131,11 @@ module tb_soc #(
     end
     if (trace_on && (cycles % 100 == 0)) begin
       $display(
-          "  dbg cyc=%0d pc=%08x icst=%0d dcst=%0d lock=%b own=%0d wr_rem=%0d cst=%0d dre=%b dwe=%b dwv=%b dwr=%b",
+          "  dbg cyc=%0d pc=%08x icst=%0d dcst=%0d rd=%0d wr=%0d wown=%0d cst=%0d dre=%b dwe=%b dwv=%b dwr=%b",
           cycles, u_soc.u_cpu.u_if.pc_if, u_soc.u_icache.state, u_soc.u_dcache.state,
-          u_soc.u_arbiter.locked, u_soc.u_arbiter.owner, u_soc.u_arbiter.wr_rem,
-          u_soc.u_sdram.state, u_soc.u_dcache.mem_req, u_soc.u_dcache.mem_we,
-          u_soc.u_dcache.mem_wvalid, u_soc.u_dcache.mem_wready);
+          u_soc.u_xbar.rd[0], u_soc.u_xbar.wr[0], u_soc.u_xbar.wo[0], u_soc.u_sdram.state,
+          u_soc.u_dcache.mem_req, u_soc.u_dcache.mem_we, u_soc.u_dcache.mem_wvalid,
+          u_soc.u_dcache.mem_wready);
     end
   end
 
@@ -298,8 +298,7 @@ module tb_soc #(
       counter_clear_count <= 0;
       counter_collision_count <= 0;
     end else begin
-      if (u_soc.dmem_valid && u_soc.dmem_we && !u_soc.dmem_in_sdram &&
-          u_soc.dmem_addr[15:0] == 16'h0030) begin
+      if (u_soc.apb_write && u_soc.paddr[15:0] == 16'h0030) begin
         expected_ic_hits <= '0;
         expected_ic_misses <= '0;
         counter_clear_count <= counter_clear_count + 1;
@@ -319,11 +318,18 @@ module tb_soc #(
       $fatal(1, "staged memory target differs from active MEM address");
   end
 
-  // MMIO is always ready: validity and the old commit strobe must agree
-  // before changing any peripheral, including during cache misses/traps.
-  always @(posedge clk) begin
-    if (!rst && !u_soc.dmem_in_sdram && u_soc.dmem_valid !== u_soc.dmem_req)
-      $fatal(1, "MMIO validity differs from ready-qualified commit");
+  logic apb_completed;
+  always @(posedge clk or posedge rst) begin
+    if (rst) apb_completed <= 1'b0;
+    else if (u_soc.psel && u_soc.penable && u_soc.pready) begin
+      if (apb_completed || !u_soc.dmem_valid || u_soc.dmem_in_sdram ||
+          u_soc.paddr !== {u_soc.dmem_addr[31:2], 2'b00} || u_soc.pwrite !== u_soc.dmem_we)
+        $fatal(1, "unexpected or duplicate APB transfer");
+      apb_completed <= 1'b1;
+    end else if (u_soc.dmem_req && !u_soc.dmem_in_sdram) begin
+      if (!apb_completed || !u_soc.mmio_done) $fatal(1, "MMIO committed before APB/AXI completion");
+      apb_completed <= 1'b0;
+    end
   end
 
   always @(posedge clk) begin
@@ -334,8 +340,7 @@ module tb_soc #(
                u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);
       if (exit_code == 32'd1) begin
         if ($test$plusargs("check_counter_clear")) begin
-          if (counter_clear_count < 2 || counter_collision_count < 1)
-            $fatal(1, "counter clear/event collision was not exercised");
+          if (counter_clear_count != 32) $fatal(1, "missing or duplicate APB counter clear");
           $display("counter clear: PASS (%0d clears, %0d collisions)", counter_clear_count,
                    counter_collision_count);
         end

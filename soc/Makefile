@@ -352,20 +352,20 @@ test_isa_soc: $(BUILD_DIR)/tb_soc.vvp
 	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)- --suite rv32um
 	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)- --suite rv32ua
 
-$(BUILD_DIR)/tb_soc_boot.vvp: $(RTL_SV) sim/tb_soc_boot.sv sim/sdram_model.sv | build
-	$(IVERILOG) -g2012 -I$(RTL_DIR)/common -o $@ \
-		sim/tb_soc_boot.sv sim/sdram_model.sv $(SIM_RTL)
+BOOT_SIM := $(BUILD_DIR)/vl_tb_soc_boot/Vtb_soc_boot
+$(BOOT_SIM): $(SIM_RTL) $(RTL_SVH) sim/tb_soc_boot.sv sim/sdram_model.sv | build
+	$(VERILATOR) $(VL_FLAGS) --top-module tb_soc_boot -Mdir $(BUILD_DIR)/vl_tb_soc_boot $(filter %.sv,$^)
 
 $(BUILD_DIR)/tb_uart_boot_restart.vvp: rtl/periph/uart_boot.sv sim/tb_uart_boot_restart.sv | build
 	$(IVERILOG) -g2012 -s tb_uart_boot_restart -o $@ $^
 
-test_boot: $(BUILD_DIR)/hello_boot.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp $(BUILD_DIR)/tb_uart_boot_restart.vvp
+test_boot: $(BUILD_DIR)/hello_boot.packet.hex $(BOOT_SIM) $(BUILD_DIR)/tb_uart_boot_restart.vvp
 	$(VVP) $(BUILD_DIR)/tb_uart_boot_restart.vvp
-	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello_boot.packet.hex
+	$(BOOT_SIM) +packet=$(BUILD_DIR)/hello_boot.packet.hex
 
 .PHONY: test_hello
-test_hello: $(BUILD_DIR)/hello.packet.hex $(BUILD_DIR)/tb_soc_boot.vvp
-	$(VVP) $(BUILD_DIR)/tb_soc_boot.vvp +packet=$(BUILD_DIR)/hello.packet.hex
+test_hello: $(BUILD_DIR)/hello.packet.hex $(BOOT_SIM)
+	$(BOOT_SIM) +packet=$(BUILD_DIR)/hello.packet.hex
 
 $(BUILD_DIR)/tb_compare.vvp: rtl/core/roco_cpu_compare.sv rtl/core/roco_cpu_sub_pair.sv rtl/core/roco_cpu_addsub.sv sim/tb_compare.sv | build
 	$(IVERILOG) -g2012 -s tb_compare -o $@ $^

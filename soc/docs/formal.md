@@ -138,7 +138,13 @@ checks the forwarded launch operands, deferred write destination and data seen
 by the dependents. It also asserts that the program completes in the
 always-ready environment, so the interlock checks cannot pass by hanging.
 `core-divide-interlock` keeps the real divider and compares its writeback with
-a lockstep instance; its formal run is not yet complete.
+a lockstep instance; the 36-step bounded attempt timed out.
+
+`core-multiply` extends the mixed RV32I program stream and semantic checks
+with the upstream `MUL`, `MULH`, `MULHSU`, and `MULHU` models using their real
+arithmetic, not `RISCV_FORMAL_ALTOPS`. The cover job reached a nonzero GPR
+result for all four operations. The arithmetic equivalence check has not yet
+closed.
 
 ### A and the implemented vector subset
 
@@ -222,8 +228,8 @@ page walk for a load with U-mode permissions. The harness chooses one of two
 physical data address, virtual RVFI address, and symbolic load value. For an
 execute-only page with MXR off it checks that no data transaction commits and
 that the handler reads the expected `mcause` and `mtval`. Both paths passed 55
-bounded steps. This does not cover two-level walks, TLB invalidation, or all
-permission combinations.
+bounded steps and reached both cover statements. This does not cover
+two-level walks, TLB invalidation, or all permission combinations.
 
 ### Remaining whole-core proof obligations
 

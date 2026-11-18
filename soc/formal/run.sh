@@ -17,7 +17,7 @@ case "$mode" in
 esac
 
 case "$job" in
-  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr)
+  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-multiply)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
@@ -42,7 +42,13 @@ case "$job" in
     while read -r insn; do sources+=("$ref/insn_$insn.v"); done < "$ref/isa_rv32i.txt"
     defines='-DROCO_RVFI -DROCO_RVFI_RV32I_CHECKS -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
     if [[ "$job" == core-atomic ]]; then defines+=' -DROCO_RVFI_RV32A_CHECKS'; fi
-    if [[ "$job" == core-gpr ]]; then defines+=' -DROCO_RVFI_GPR_CHECKS'; fi
+    if [[ "$job" == core-gpr ]]; then
+      defines+=' -DROCO_RVFI_GPR_CHECKS'
+    fi
+    if [[ "$job" == core-multiply ]]; then
+      defines+=' -DROCO_FORMAL_MULTIPLY'
+      sources+=(formal/rvfi_isa_rv32i_mul.sv "$ref"/insn_mul{,h,hsu,hu}.v)
+    fi
     ;;
   core-divide-interlock|core-divide-cutpoint)
     top=core_divide_interlock
@@ -113,7 +119,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

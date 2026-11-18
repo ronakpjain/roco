@@ -1,5 +1,10 @@
 `include "axi4_defs.svh"
 `default_nettype none
+`ifdef ROCO_FORMAL_MULTIPLY
+`define ROCO_FORMAL_ISA_MODEL rvfi_isa_rv32i_mul
+`else
+`define ROCO_FORMAL_ISA_MODEL rvfi_isa_rv32i
+`endif
 
 module rvfi_rv32i #(
     parameter bit AccountingOnly = 1'b0,
@@ -162,15 +167,15 @@ module rvfi_rv32i #(
     end
   endfunction
 
-  logic fetch_rv32i;
-  rvfi_isa_rv32i fetch_decode (
+  logic fetch_supported;
+  `ROCO_FORMAL_ISA_MODEL fetch_decode (
       .rvfi_valid(1'b1),
       .rvfi_insn(fetch_word),
       .rvfi_pc_rdata(32'd0),
       .rvfi_rs1_rdata(32'd0),
       .rvfi_rs2_rdata(32'd0),
       .rvfi_mem_rdata(32'd0),
-      .spec_valid(fetch_rv32i),
+      .spec_valid(fetch_supported),
       .spec_trap(),
       .spec_rs1_addr(),
       .spec_rs2_addr(),
@@ -188,7 +193,7 @@ module rvfi_rv32i #(
     imem_rsp_addr <= imem_addr;
     imem_rsp_data <= fetch_word;
     if (!rst && imem_req)
-      assume (fetch_rv32i || extra_trap(fetch_word) || (Atomics && atomic_fetch(fetch_word)));
+      assume (fetch_supported || extra_trap(fetch_word) || (Atomics && atomic_fetch(fetch_word)));
   end
 
   // Keep these assertions independent of the ISA model so PDR can prove them
@@ -244,7 +249,7 @@ module rvfi_rv32i #(
     } expected_t;
     expected_t base_spec, atomic_spec, spec;
     assign spec = atomic_spec.valid ? atomic_spec : base_spec;
-    rvfi_isa_rv32i spec_model (
+    `ROCO_FORMAL_ISA_MODEL spec_model (
         .rvfi_valid(rvfi_valid),
         .rvfi_insn(rvfi_insn),
         .rvfi_pc_rdata(rvfi_pc_rdata),
@@ -322,6 +327,17 @@ module rvfi_rv32i #(
     end
   end
 
+`ifdef ROCO_FORMAL_MULTIPLY
+  for (genvar op = 0; op < 4; op++) begin : g_mul_cover
+    always @(posedge clk) begin
+      if (!rst)
+        cover (rvfi_valid && !rvfi_trap && rvfi_insn[31:25] == 7'd1 &&
+                       rvfi_insn[6:0] == 7'h33 && rvfi_insn[14:12] == 3'(op) &&
+                       rvfi_rd_addr != 0 && rvfi_rd_wdata != 0);
+    end
+  end
+`endif
+
   always @(posedge clk) begin
     if (!rst) begin
       cover (rvfi_valid && rvfi_order == 3);
@@ -333,3 +349,4 @@ module rvfi_rv32i #(
     end
   end
 endmodule
+`undef ROCO_FORMAL_ISA_MODEL

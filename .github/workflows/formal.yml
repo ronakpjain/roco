@@ -1,0 +1,95 @@
+name: SoC formal verification
+
+on:
+  push:
+    branches: [main, "ci/**"]
+    paths:
+      - "soc/**"
+      - ".github/workflows/formal.yml"
+  pull_request:
+    paths:
+      - "soc/**"
+      - ".github/workflows/formal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soc-formal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ${{ matrix.job }} (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {job: bridge, mode: prove}
+          - {job: xbar, mode: prove}
+          - {job: core-accounting, mode: prove, riscv-formal: true}
+          - {job: core-gpr-writeback, mode: prove, riscv-formal: true}
+          - {job: core-no-divide, mode: prove, riscv-formal: true}
+          - {job: divider, mode: prove}
+          - {job: atomic-mem, mode: prove}
+          - {job: scalar-regs, mode: prove}
+          - {job: vector-regs, mode: prove}
+          - {job: mul-recombine, mode: prove}
+          - {job: core, mode: bmc-fast, depth: 9, riscv-formal: true}
+          - {job: core-gpr, mode: bmc-fast, depth: 12, riscv-formal: true}
+          - {job: core-memory-port, mode: bmc-fast, depth: 11, riscv-formal: true}
+          - {job: core-atomic, mode: bmc-fast, depth: 12, riscv-formal: true}
+          - {job: core-vector-copy, mode: bmc-fast, depth: 20}
+          - {job: core-divide-cutpoint, mode: bmc-fast, depth: 45}
+          - {job: core-csr-trap, mode: bmc-fast, depth: 48}
+          - {job: core-sv32-load, mode: bmc-fast, depth: 55}
+    env:
+      OSS_CAD_SUITE_VERSION: "2026-11-16"
+      RISCV_FORMAL_DIR: third_party/riscv-formal
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check out riscv-formal reference
+        if: matrix.riscv-formal
+        uses: actions/checkout@v5
+        with:
+          repository: YosysHQ/riscv-formal
+          ref: c992aa61fdfe0846c5ed90324c596202a1c69b76
+          path: soc/third_party/riscv-formal
+          persist-credentials: false
+
+      - name: Install OSS CAD Suite
+        uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run ${{ matrix.mode }}
+        shell: bash
+        working-directory: soc
+        env:
+          JOB: ${{ matrix.job }}
+          MODE: ${{ matrix.mode }}
+          DEPTH: ${{ matrix.depth }}
+        run: |
+          yosys -V
+          sby --version
+          z3 --version
+          bash formal/run.sh "$JOB" "$MODE" 2>&1 | tee "$RUNNER_TEMP/formal.log"
+
+      - name: Upload solver log and counterexamples
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: formal-${{ matrix.job }}-${{ matrix.mode }}
+          path: |
+            ${{ runner.temp }}/formal.log
+            soc/build/formal/**/*.vcd
+          if-no-files-found: ignore
+          retention-days: 14

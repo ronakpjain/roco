@@ -18,6 +18,16 @@ length. Cover checks that interesting cases are reachable; it does not prove
 correctness. With SymbiYosys installed, `bmc-fast` runs the same bounded
 assertions via ABC's bit-level `bmc3` engine; use `DEPTH` to set the bound.
 
+### Continuous integration
+
+The [SoC formal verification workflow](../../.github/workflows/formal.yml)
+checks SoC changes on pull requests and pushes to `main` and `ci/**`. Each
+matrix job is labeled `prove` (unbounded safety) or `bmc-fast` (bounded, with
+an explicit depth in the workflow). CI pins OSS CAD Suite and the upstream
+ISA model revision, and uploads solver logs and any counterexample VCDs.
+The matrix gates the completed checks; exploratory jobs that have not closed,
+including full-core `prove` and `core-multiply`, remain runnable locally.
+
 ### Unbounded safety proofs
 
 Install [SymbiYosys](https://github.com/YosysHQ/sby) and Yosys's ABC executable.

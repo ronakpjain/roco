@@ -2,8 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+job=${1:-}
 mode=${2:-bmc}
 flags=()
+parameters=''
 case "$mode" in
   bmc) ;;
   cover) flags=(-c) ;;
@@ -11,9 +13,12 @@ case "$mode" in
   *) echo "Unknown formal mode: $mode" >&2; exit 2 ;;
 esac
 
-case "${1:-}" in
-  core)
+case "$job" in
+  core|core-accounting)
     top=rvfi_rv32i
+    if [[ "$job" == core-accounting ]]; then
+      parameters="chparam -set AccountingOnly 1 $top;"
+    fi
     depth=9
     if [[ "$mode" == cover ]]; then depth=18; fi
     ref=${RISCV_FORMAL_DIR:-third_party/riscv-formal}/insns
@@ -23,7 +28,7 @@ case "${1:-}" in
     fi
     sources=(rtl/core/*.sv formal/rvfi_rv32i.sv "$ref/isa_rv32i.v")
     while read -r insn; do sources+=("$ref/insn_$insn.v"); done < "$ref/isa_rv32i.txt"
-    defines='-DROCO_RVFI -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
+    defines='-DROCO_RVFI -DROCO_RVFI_RV32I_CHECKS -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
     ;;
   bridge)
     top=axi_apb_contract
@@ -37,10 +42,11 @@ case "${1:-}" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|bridge|xbar} [bmc|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|bridge|xbar} [bmc|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
+if [[ "$job" == core-accounting ]]; then out="${out}_accounting"; fi
 mkdir -p "$out"
 if [[ "$mode" == prove ]]; then
   if ! command -v "${SBY:-sby}" >/dev/null; then
@@ -63,6 +69,7 @@ abc pdr
 
 [script]
 read_verilog -formal -sv -DSYNTHESIS $defines -I. $files
+$parameters
 prep -top $top -flatten
 memory_map
 techmap
@@ -82,6 +89,7 @@ fi
 printf -v files ' "%s"' "${sources[@]}"
 "${YOSYS:-yosys}" -Qq -l "$out/yosys.log" -p "
   read_verilog -formal -sv -DSYNTHESIS $defines -Irtl/common $files;
+  $parameters
   prep -top $top -flatten;
   async2sync; dffunmap;
   write_smt2 -wires \"$out/design.smt2\"

@@ -1,7 +1,9 @@
 `include "axi4_defs.svh"
 `default_nettype none
 
-module rvfi_rv32i (
+module rvfi_rv32i #(
+    parameter bit AccountingOnly = 1'b0
+) (
   input logic clk
 );
   logic rst = 1'b1;
@@ -23,6 +25,8 @@ module rvfi_rv32i (
   logic [31:0] rvfi_mem_addr, rvfi_mem_rdata, rvfi_mem_wdata;
   logic [3:0] rvfi_mem_rmask, rvfi_mem_wmask;
   logic [1:0] rvfi_mode, rvfi_ixl;
+  logic trace_valid;
+  logic [31:0] trace_pc, trace_instr;
 
   roco_cpu dut (
       .clk(clk),
@@ -56,9 +60,9 @@ module rvfi_rv32i (
       .ptw_ready(1'b0),
       .ptw_r(ptw_r),
       .ptw_r_ready(),
-      .trace_valid(),
-      .trace_pc(),
-      .trace_instr(),
+      .trace_valid(trace_valid),
+      .trace_pc(trace_pc),
+      .trace_instr(trace_instr),
       .trace_rd(),
       .trace_wdata(),
       .fence_req(),
@@ -120,68 +124,95 @@ module rvfi_rv32i (
     if (!rst && imem_req) assume (fetch_rv32i || extra_trap(fetch_word));
   end
 
-  logic spec_valid, spec_trap;
-  logic [4:0] spec_rs1, spec_rs2, spec_rd;
-  logic [31:0] spec_rd_data, spec_pc, spec_addr, spec_wdata;
-  logic [3:0] spec_rmask, spec_wmask;
-  rvfi_isa_rv32i spec_model (
-      .rvfi_valid(rvfi_valid),
-      .rvfi_insn(rvfi_insn),
-      .rvfi_pc_rdata(rvfi_pc_rdata),
-      .rvfi_rs1_rdata(rvfi_rs1_rdata),
-      .rvfi_rs2_rdata(rvfi_rs2_rdata),
-      .rvfi_mem_rdata(rvfi_mem_rdata),
-      .spec_valid(spec_valid),
-      .spec_trap(spec_trap),
-      .spec_rs1_addr(spec_rs1),
-      .spec_rs2_addr(spec_rs2),
-      .spec_rd_addr(spec_rd),
-      .spec_rd_wdata(spec_rd_data),
-      .spec_pc_wdata(spec_pc),
-      .spec_mem_addr(spec_addr),
-      .spec_mem_rmask(spec_rmask),
-      .spec_mem_wmask(spec_wmask),
-      .spec_mem_wdata(spec_wdata)
-  );
-
-  (* anyconst *) logic [4:0] tracked_reg;
-  logic [31:0] tracked_value, expected_pc;
-  logic [63:0] expected_order;
-  logic expected_handler;
+  // Keep these assertions independent of the ISA model so PDR can prove them
+  // without tracking the register file or predicting the next retired PC.
   always @(posedge clk) begin
-    if (rst) begin
-      tracked_value <= 0;
-      expected_order <= 0;
-      expected_pc <= BootAddr;
-      expected_handler <= 0;
-    end else if (rvfi_valid) begin
-      assert (rvfi_order == expected_order);
-      assert (rvfi_pc_rdata == expected_pc);
-      assert (rvfi_intr == expected_handler);
-      assert (rvfi_mode == 3 && rvfi_ixl == 1);
-      assert (spec_valid || extra_trap(rvfi_insn));
-      assert (rvfi_trap == (spec_trap || extra_trap(rvfi_insn)));
-      if (rvfi_rs1_addr == tracked_reg) assert (rvfi_rs1_rdata == tracked_value);
-      if (rvfi_rs2_addr == tracked_reg) assert (rvfi_rs2_rdata == tracked_value);
-      if (rvfi_trap) begin
+    if (!rst) begin
+      assert (!(trace_valid && rvfi_trap));
+      assert (rvfi_valid == (trace_valid || rvfi_trap));
+      if (trace_valid) assert (rvfi_pc_rdata == trace_pc && rvfi_insn == trace_instr);
+      if (rvfi_valid && rvfi_trap) begin
         assert (rvfi_rd_addr == 0 && rvfi_rd_wdata == 0);
         assert (rvfi_mem_rmask == 0 && rvfi_mem_wmask == 0);
-        // mtvec is reset to zero, with no CSR writes or interrupts in this harness.
-        assert (rvfi_pc_wdata == 0);
-      end else begin
-        assert (rvfi_rs1_addr == spec_rs1 && rvfi_rs2_addr == spec_rs2);
-        assert (rvfi_rd_addr == spec_rd && rvfi_rd_wdata == spec_rd_data);
-        assert (rvfi_pc_wdata == spec_pc);
-        assert (rvfi_mem_rmask == spec_rmask && rvfi_mem_wmask == spec_wmask);
-        if (|spec_rmask || |spec_wmask) assert (rvfi_mem_addr == spec_addr);
-        for (integer i = 0; i < 4; i = i + 1)
-        if (spec_wmask[i]) assert (rvfi_mem_wdata[8*i+:8] == spec_wdata[8*i+:8]);
-        if (rvfi_rd_addr == tracked_reg && tracked_reg != 0) tracked_value <= rvfi_rd_wdata;
       end
-      expected_pc <= rvfi_pc_wdata;
-      expected_order <= expected_order + 1;
-      expected_handler <= rvfi_trap;
+      if ($past(rst)) assert (rvfi_order == 0);
     end
+  end
+
+  // Prove the increment bitwise: bit n toggles iff all lower bits carry.
+  // This is equivalent to a 64-bit increment modulo 2**64, without asking
+  // the reachability engine to learn relationships between whole counters.
+  for (genvar bit_idx = 0; bit_idx < 64; bit_idx++) begin : g_order
+    logic toggle;
+    if (bit_idx == 0) assign toggle = rvfi_valid;
+    else assign toggle = rvfi_valid && (&rvfi_order[bit_idx-1:0]);
+    always @(posedge clk) begin
+      if (!rst && !$past(rst))
+        assert (rvfi_order[bit_idx] == ($past(rvfi_order[bit_idx]) ^ $past(toggle)));
+    end
+  end
+
+  if (!AccountingOnly) begin : g_isa
+    logic spec_valid, spec_trap;
+    logic [4:0] spec_rs1, spec_rs2, spec_rd;
+    logic [31:0] spec_rd_data, spec_pc, spec_addr, spec_wdata;
+    logic [3:0] spec_rmask, spec_wmask;
+    rvfi_isa_rv32i spec_model (
+        .rvfi_valid(rvfi_valid),
+        .rvfi_insn(rvfi_insn),
+        .rvfi_pc_rdata(rvfi_pc_rdata),
+        .rvfi_rs1_rdata(rvfi_rs1_rdata),
+        .rvfi_rs2_rdata(rvfi_rs2_rdata),
+        .rvfi_mem_rdata(rvfi_mem_rdata),
+        .spec_valid(spec_valid),
+        .spec_trap(spec_trap),
+        .spec_rs1_addr(spec_rs1),
+        .spec_rs2_addr(spec_rs2),
+        .spec_rd_addr(spec_rd),
+        .spec_rd_wdata(spec_rd_data),
+        .spec_pc_wdata(spec_pc),
+        .spec_mem_addr(spec_addr),
+        .spec_mem_rmask(spec_rmask),
+        .spec_mem_wmask(spec_wmask),
+        .spec_mem_wdata(spec_wdata)
+    );
+
+    (* anyconst *) logic [4:0] tracked_reg;
+    logic [31:0] tracked_value, expected_pc;
+    logic expected_handler;
+    always @(posedge clk) begin
+      if (rst) begin
+        tracked_value <= 0;
+        expected_pc <= BootAddr;
+        expected_handler <= 0;
+      end else if (rvfi_valid) begin
+        assert (rvfi_pc_rdata == expected_pc);
+        assert (rvfi_intr == expected_handler);
+        assert (rvfi_mode == 3 && rvfi_ixl == 1);
+        assert (spec_valid || extra_trap(rvfi_insn));
+        assert (rvfi_trap == (spec_trap || extra_trap(rvfi_insn)));
+        if (rvfi_rs1_addr == tracked_reg) assert (rvfi_rs1_rdata == tracked_value);
+        if (rvfi_rs2_addr == tracked_reg) assert (rvfi_rs2_rdata == tracked_value);
+        if (rvfi_trap) begin
+          // mtvec is reset to zero, with no CSR writes or interrupts in this harness.
+          assert (rvfi_pc_wdata == 0);
+        end else begin
+          assert (rvfi_rs1_addr == spec_rs1 && rvfi_rs2_addr == spec_rs2);
+          assert (rvfi_rd_addr == spec_rd && rvfi_rd_wdata == spec_rd_data);
+          assert (rvfi_pc_wdata == spec_pc);
+          assert (rvfi_mem_rmask == spec_rmask && rvfi_mem_wmask == spec_wmask);
+          if (|spec_rmask || |spec_wmask) assert (rvfi_mem_addr == spec_addr);
+          for (integer i = 0; i < 4; i = i + 1)
+          if (spec_wmask[i]) assert (rvfi_mem_wdata[8*i+:8] == spec_wdata[8*i+:8]);
+          if (rvfi_rd_addr == tracked_reg && tracked_reg != 0) tracked_value <= rvfi_rd_wdata;
+        end
+        expected_pc <= rvfi_pc_wdata;
+        expected_handler <= rvfi_trap;
+      end
+    end
+  end
+
+  always @(posedge clk) begin
     if (!rst) begin
       cover (rvfi_valid && rvfi_order == 3);
       cover (rvfi_valid && rvfi_trap);

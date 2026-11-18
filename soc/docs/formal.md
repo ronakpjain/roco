@@ -28,8 +28,20 @@ bash formal/run.sh bridge prove
 bash formal/run.sh xbar prove
 ```
 
-`bash formal/run.sh core prove` also runs PDR, but the RV32I job does not yet
-have a completed unbounded proof. PDR is not limited by `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
+The core's retirement-accounting contract also passed unbounded:
+
+```sh
+bash formal/run.sh core-accounting prove
+```
+
+This uses the same RV32I environment as `core`, but only checks that normal
+retirement and synchronous exceptions are mutually exclusive, the normal RVFI
+instruction and PC match the commit trace, exceptions have no reported register
+or memory writes, and the 64-bit order counter starts at zero and advances
+exactly once per event. It also checks that a pending synchronous trap cannot
+have a valid EX/MEM packet. It does not compare architectural values against the
+ISA model. `bash formal/run.sh core prove` attempts the full RV32I check suite,
+which does not yet have a completed unbounded proof. PDR is not limited by `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
 inconclusive. Proof logs and any counterexample are under the job's `prove/`
 directory. `SOLVER` selects the SMT solver used to reconstruct counterexamples,
 not the PDR engine. `SBY` can override the SymbiYosys executable path.

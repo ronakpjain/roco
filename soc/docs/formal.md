@@ -43,8 +43,8 @@ have a valid EX/MEM packet. It does not compare architectural values against the
 ISA model. `bash formal/run.sh core prove` attempts the full RV32I check suite,
 which does not yet have a completed unbounded proof. PDR is not limited by `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
 inconclusive. Proof logs and any counterexample are under the job's `prove/`
-directory. `SOLVER` selects the SMT solver used to reconstruct counterexamples,
-not the PDR engine. `SBY` can override the SymbiYosys executable path.
+directory. `SOLVER` selects the SMT engine for the divider's k-induction
+or the witness reconstruction solver for PDR, not the PDR engine itself. `SBY` can override the SymbiYosys executable path.
 
 A `PASS` proves the harness assertions for all reachable states under its
 assumptions. It does not widen the instruction or protocol scope, or prove
@@ -73,6 +73,36 @@ write back independently of in-order retirement, and vector memory operations
 can have multiple accesses or partial completion. Those need more trace support
 before enabling their checkers. LR/SC and AMO fields are emitted but not checked
 by this harness. CSR side effects and interrupt entry are not formally checked.
+
+### RV32M divide and remainder
+
+```sh
+bash formal/run.sh divider prove
+bash formal/run.sh divider cover
+```
+
+The standalone divider passes unbounded k-induction against an independent
+radix-2 restoring-division model for `DIV`, `DIVU`, `REM`, and `REMU`. It checks
+all operand values, divide by zero, signed overflow, completion timing in active
+cycles, and arbitrary `halt` pauses. The caller must only start a supported
+operation when not busy. This job does not need `riscv-formal`; the core jobs
+continue to use it. This unit proof does not cover core forwarding, scoreboard
+hazards, or placing the deferred GPR write in the right RVFI retirement record.
+
+### A and the implemented vector subset
+
+Neither has an end-to-end formal proof yet. For A, the scalar RVFI packet can
+represent a word AMO with both masks and its old/new data, and an unsuccessful
+SC with no memory effect. Proving A also requires a coherent memory reference
+and a reservation model to check LR/SC, invalidating stores and traps, and
+ordering. Seeing the fields in the trace is not that proof.
+
+For vector, the implementation supports a subset (128-bit VLEN, LMUL=1, and
+8/16/32-bit element widths), not all of RVV. A checker needs vector register
+and `vl`/`vtype`/`vstart` state, plus per-element memory events to verify partial
+completion and restart after a trap. A single scalar RVFI memory event cannot
+express those effects. Use a separate vector reference/checker alongside the
+scalar `riscv-formal` jobs.
 
 ## AXI4-to-APB4 bridge
 

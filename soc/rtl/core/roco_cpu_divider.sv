@@ -187,4 +187,7 @@ module roco_cpu_divider (
     end
   end
 
+`ifdef ROCO_DIVIDER_FORMAL
+  `include "rv32m_divider_checks.svh"
+`endif
 endmodule

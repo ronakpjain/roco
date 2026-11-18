@@ -91,11 +91,27 @@ hazards, or placing the deferred GPR write in the right RVFI retirement record.
 
 ### A and the implemented vector subset
 
-Neither has an end-to-end formal proof yet. For A, the scalar RVFI packet can
-represent a word AMO with both masks and its old/new data, and an unsuccessful
-SC with no memory effect. Proving A also requires a coherent memory reference
-and a reservation model to check LR/SC, invalidating stores and traps, and
-ordering. Seeing the fields in the trace is not that proof.
+```sh
+bash formal/run.sh atomic-mem prove
+bash formal/run.sh vector-regs prove
+```
+
+Both jobs passed unbounded. `atomic-mem` checks the actual MEM stage against a
+coherent two-word model: all nine word AMO operations, LR/SC success and
+failure, same-address invalidation, traps between operations, and arbitrary
+memory backpressure. It models upstream serialization (a new lookup is
+launched only when no older operation is pending); it does not verify that the
+core enforces that contract or that its AXI/cache path implements it.
+
+`vector-regs` checks all three read ports against an arbitrary tracked register
+and byte, including whole-register writes, legal 8/16/32-bit element writes,
+write priority, bypass, and reset during an in-flight write. It does not check
+arithmetic, configuration, or vector memory sequencing.
+
+Neither extension has an end-to-end formal proof yet. For A, the scalar RVFI
+packet can represent a word AMO with both masks and its old/new data, and an
+unsuccessful SC with no memory effect. End-to-end A still needs a coherent
+memory and reservation checker at retirement, including ordering.
 
 For vector, the implementation supports a subset (128-bit VLEN, LMUL=1, and
 8/16/32-bit element widths), not all of RVV. A checker needs vector register

@@ -42,6 +42,22 @@ case "$job" in
     proof_depth=4
     proof_lowering=''
     ;;
+  atomic-mem)
+    top=rv32a_mem_contract
+    depth=12
+    sources=(rtl/core/roco_cpu_mem_stage.sv rtl/core/roco_cpu_addsub.sv
+             rtl/core/roco_cpu_mul_sum.sv formal/rv32a_mem_contract.sv)
+    defines=''
+    ;;
+  vector-regs)
+    top=vector_regs_contract
+    depth=9
+    sources=(rtl/core/roco_cpu_vec.sv formal/vector_regs_contract.sv)
+    defines=''
+    proof_engine="smtbmc ${SOLVER:-z3}"
+    proof_depth=4
+    proof_lowering=''
+    ;;
   bridge)
     top=axi_apb_contract
     depth=10

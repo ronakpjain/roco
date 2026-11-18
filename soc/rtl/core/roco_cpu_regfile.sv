@@ -61,4 +61,7 @@ module roco_cpu_regfile (
              valid_regs[rs2] ? regs[rs2] : 32'd0;
   end
 
+`ifdef ROCO_REGFILE_FORMAL
+  `include "scalar_regs_checks.svh"
+`endif
 endmodule

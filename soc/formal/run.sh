@@ -101,6 +101,15 @@ case "$job" in
              rtl/core/roco_cpu_mul_sum.sv formal/rv32a_mem_contract.sv)
     defines=''
     ;;
+  scalar-regs)
+    top=roco_cpu_regfile
+    depth=7
+    sources=(rtl/core/roco_cpu_regfile.sv)
+    defines='-DROCO_REGFILE_FORMAL'
+    proof_engine="smtbmc ${SOLVER:-z3}"
+    proof_depth=4
+    proof_lowering=''
+    ;;
   vector-regs)
     top=vector_regs_contract
     depth=9
@@ -122,7 +131,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|divider|atomic-mem|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -171,6 +180,7 @@ rtl/common/axi4_defs.svh
 rtl/common/roco_cpu_defs.svh
 rtl/common/roco_rvfi.svh
 formal/rv32m_divider_checks.svh
+formal/scalar_regs_checks.svh
 EOF
 fi
 

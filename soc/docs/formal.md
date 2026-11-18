@@ -246,6 +246,12 @@ for the shared GPR port. The stronger `core-gpr` job still checks the
 architectural operand scoreboard and absence of deferred writes; it passed
 12 bounded steps, not an unbounded proof.
 
+`bash formal/run.sh scalar-regs prove` separately proved the physical GPR
+file by SMT k-induction. The one-register reference checks x0, reset,
+stored data, both read ports, scalar bypass, and divider priority for
+simultaneous requests. All four covers passed. This does not check the
+pipeline's operand muxes against architectural state.
+
 ### Remaining whole-core proof obligations
 
 - Close the RV32I instruction suite with inductive invariants for forwarding,

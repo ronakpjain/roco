@@ -140,9 +140,11 @@ module core_sv32_load (
       retired <= 0;
       elapsed <= 0;
     end else begin
-      if (elapsed == 52)
+      if (elapsed == 52) begin
         assert (retired == last_phase);
-        else elapsed <= elapsed + 1'b1;
+      end else begin
+        elapsed <= elapsed + 1'b1;
+      end
       if (dmem_req) begin
         assert (!dmem_we && readable && walked && rvfi_valid && retired == 9);
         assert (dmem_addr == Physical);

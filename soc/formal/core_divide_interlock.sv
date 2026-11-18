@@ -146,9 +146,11 @@ module core_divide_interlock (
 `endif
     end else begin
       // The program cannot hang in the deterministic, always-ready setup.
-      if (elapsed == 42)
+      if (elapsed == 42) begin
         assert (retired == 7);
-        else elapsed <= elapsed + 1'b1;
+      end else begin
+        elapsed <= elapsed + 1'b1;
+      end
       if (rvfi_div_start) begin
         assert (!issued && retired <= 2);
         assert ({rvfi_div_op, rvfi_div_a, rvfi_div_b} == {op, a, b});

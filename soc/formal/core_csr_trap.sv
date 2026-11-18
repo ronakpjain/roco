@@ -129,9 +129,11 @@ module core_csr_trap (
       retired <= 0;
       elapsed <= 0;
     end else begin
-      if (elapsed == 45)
+      if (elapsed == 45) begin
         assert (retired == 13);
-        else elapsed <= elapsed + 1'b1;
+      end else begin
+        elapsed <= elapsed + 1'b1;
+      end
       if (dmem_req) assert (!dmem_we && rvfi_valid && retired == 3 && dmem_addr == 32'h100);
       if (rvfi_valid) begin
         assert (rvfi_trap == (retired == 6));

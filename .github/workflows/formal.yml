@@ -32,7 +32,7 @@ jobs:
           - {job: xbar, mode: prove}
           - {job: core-accounting, mode: prove, riscv-formal: true}
           - {job: core-gpr-writeback, mode: prove, riscv-formal: true}
-          - {job: core-no-divide, mode: prove, riscv-formal: true}
+          - {job: core-no-divide, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: core-forward, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: divider, mode: prove}
           - {job: atomic-mem, mode: prove}

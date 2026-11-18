@@ -208,14 +208,19 @@ module tb_mmu;
     d_req = 1'b0;
     @(negedge clk);
     check(!i_fault && !d_fault, "cancellation edge reported a stale fault");
-    flush = 1'b0;
-    iflush = 1'b0;
     if (blocked && held_ar.valid) begin
+      // A warm reset can keep flush high through the address handshake
+      // and the response, unlike an instruction redirect pulse.
       repeat (3) begin
         check(ptw_ar === held_ar, "flush changed a stalled AXI address");
         @(negedge clk);
       end
+      p_ready = 1'b1;
+      repeat (4) @(negedge clk);
+      check(u_mmu.wstate == u_mmu.W_IDLE, "held flush did not drain the AXI read");
     end
+    flush = 1'b0;
+    iflush = 1'b0;
     p_ready = 1'b1;
     repeat (4) begin
       @(negedge clk);

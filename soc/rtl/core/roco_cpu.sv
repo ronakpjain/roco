@@ -55,6 +55,7 @@ module roco_cpu (
   /* Already aligned cached-load value, registered with the EX lookup. */
   input logic [31:0] dmem_forward_data,
   /* Physical page-table walker port. */
+  input logic ptw_bus_rst,
   output axi4_ar_t ptw_ar,
   input logic ptw_ready,
   input axi4_r_t ptw_r,
@@ -708,10 +709,12 @@ module roco_cpu (
       .mem_wdata(vec_mem_wdata)
   );
 
+  // Warm CPU reset invalidates translations but cannot withdraw an AXI
+  // address or orphan a read. Only a shared fabric reset resets the walker.
   roco_cpu_mmu u_mmu (
       .clk(clk),
-      .rst(rst),
-      .flush(mmu_flush),
+      .rst(ptw_bus_rst),
+      .flush(mmu_flush || rst),
       .iflush(ex_redirect_en || mem_redirect),
       .satp(satp),
       .priv_fetch(priv),

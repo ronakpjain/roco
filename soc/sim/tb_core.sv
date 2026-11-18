@@ -120,6 +120,7 @@ module tb_core;
       .dmem_be(dmem_be),
       .dmem_rsp_data(dmem_rsp_data),
       .dmem_forward_data(dmem_forward_data),
+      .ptw_bus_rst(rst),
       .ptw_ar(ptw_ar),
       .ptw_ready(ptw_ready),
       .ptw_r(ptw_r),

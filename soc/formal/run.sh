@@ -17,7 +17,7 @@ case "$mode" in
 esac
 
 case "$job" in
-  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-multiply)
+  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-multiply)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
@@ -58,17 +58,19 @@ case "$job" in
       defines+=' -DROCO_RVFI_GPR_STATE'
     fi
     if [[ "$job" == core-forward ]]; then
-      defines+=' -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS'
+      defines+=' -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_FORMAL_SIMPLE_FETCH'
+    elif [[ "$job" == core-isa ]]; then
+      defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_NO_DIV_CHECKS'
     fi
     if [[ "$job" == core-no-divide || "$job" == core-forward ]]; then
       proof_engine="smtbmc ${SOLVER:-z3}"
       proof_depth=6
       proof_lowering=''
-      if [[ -n "${ROCO_FORWARD_PDR:-}" ]]; then
-        proof_engine='abc pdr'
-        proof_depth=20
-        proof_lowering='memory_map; techmap; opt; setundef -anyseq'
-      fi
+    fi
+    if [[ -n "${ROCO_FORMAL_PDR:-}" ]]; then
+      proof_engine='abc pdr'
+      proof_depth=20
+      proof_lowering='memory_map; techmap; opt; setundef -anyseq'
     fi
     if [[ "$job" == core-multiply ]]; then
       defines+=' -DROCO_FORMAL_MULTIPLY'
@@ -165,7 +167,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

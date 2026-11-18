@@ -42,12 +42,18 @@ module rvfi_rv32i #(
   (* anyconst *) logic [4:0] tracked_reg;
 `ifdef ROCO_RVFI_GPR_STATE
   logic [31:0] tracked_physical_value;
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+  logic [31:0] tracked_dut_hist;
+`endif
 `endif
 
   roco_cpu dut (
 `ifdef ROCO_RVFI_GPR_STATE
       .rvfi_gpr_watch_addr(tracked_reg),
       .rvfi_gpr_watch_value(tracked_physical_value),
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+      .rvfi_gpr_hist_value(tracked_dut_hist),
+`endif
 `endif
       .clk(clk),
       .rst(rst),
@@ -177,6 +183,31 @@ module rvfi_rv32i #(
   endfunction
 
   logic fetch_supported;
+`ifdef ROCO_FORMAL_SIMPLE_FETCH
+  // A syntactic RV32I restriction for jobs that need no instruction
+  // semantics: plain RV32I opcodes, FENCE without FENCE.I, SYSTEM CSR
+  // accesses plus ECALL/EBREAK. Excludes M, A, vector, privilege returns,
+  // and the two CSR addresses that could enable data translation. This is
+  // far cheaper for the solver than instantiating the upstream models.
+  function automatic logic simple_rv32i(input logic [31:0] word);
+    simple_rv32i = 0;
+    case (word[6:0])
+      7'b0110111, 7'b0010111, 7'b1101111, 7'b1100111, 7'b1100011, 7'b0000011, 7'b0100011:
+      simple_rv32i = 1;
+      7'b0001111: simple_rv32i = word[14:12] == 3'b000;
+      7'b0110011: simple_rv32i = word[31:25] != 7'd1;
+      7'b1110011:
+      simple_rv32i =
+        (word[14:12] != 3'b000 && word[31:20] != 12'h180 &&
+         word[31:20] != 12'h300 && word[31:20] != 12'h302 &&
+         word[31:20] != 12'h303 && word[31:20] != 12'h304 &&
+         word[31:20] != 12'h344) ||
+        word == 32'h0000_0073 || word == 32'h0010_0073;
+      default: simple_rv32i = 0;
+    endcase
+  endfunction
+  assign fetch_supported = simple_rv32i(fetch_word);
+`else
   `ROCO_FORMAL_ISA_MODEL fetch_decode (
       .rvfi_valid(1'b1),
       .rvfi_insn(fetch_word),
@@ -196,6 +227,7 @@ module rvfi_rv32i #(
       .spec_mem_wmask(),
       .spec_mem_wdata()
   );
+`endif
 
   always @(posedge clk) begin
     imem_rsp_valid <= !rst && imem_req;
@@ -254,6 +286,11 @@ module rvfi_rv32i #(
         end else begin
           assert (tracked_physical_value == 0);
         end
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+        // The DUT-side history and this scoreboard update identically; the
+        // engines need the equality as a stated invariant for induction.
+        assert (tracked_dut_hist == tracked_value);
+`endif
 `endif
         if (rvfi_valid) begin
           if (!StorageOnly) begin

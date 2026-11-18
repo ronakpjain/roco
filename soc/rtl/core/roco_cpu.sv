@@ -50,6 +50,9 @@ module roco_cpu (
 `ifdef ROCO_RVFI_GPR_STATE
   input logic [4:0] rvfi_gpr_watch_addr,
   output logic [31:0] rvfi_gpr_watch_value,
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+  output logic [31:0] rvfi_gpr_hist_value,
+`endif
 `endif
 `ifdef ROCO_RVFI_DIV_CHECKS
   output logic rvfi_div_start,
@@ -640,6 +643,13 @@ module roco_cpu (
   assign rvfi_div_wb_data = div_wb_data;
 `endif
 
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+  logic rvfi_fwd_mem_ready;
+  logic rvfi_fwd_cancel;
+  logic rvfi_fwd_ex_trap;
+  logic [31:0] rvfi_fwd_held_rs1, rvfi_fwd_held_rs2;
+`endif
+
 `ifdef ROCO_RVFI_GPR_WRITEBACK_CHECKS
   // In the always-running RV32I harness, each reported write matches the
   // scalar WB-stage output on the next cycle. Check that the divider
@@ -652,6 +662,125 @@ module roco_cpu (
       assert ((wb_we && wb_rd != 0) == $past(writes_gpr));
       if ($past(writes_gpr))
         assert (wb_rd == $past(rvfi_rd_addr) && wb_data == $past(rvfi_rd_wdata));
+    end
+  end
+`endif
+
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+  // Inductive operand invariants for one watched architectural register.
+  // All are asserted, never assumed, so the reachability engine proves them
+  // together with the retirement property they support. fwd_hist0 is the
+  // value after the most recent retirement; fwd_hist1 the value before it.
+  // A live EX packet that captured its operand without the MEM-forwarding
+  // flag matches fwd_hist0, and the packet then in MEM cannot write the
+  // watched register: the ID hazard logic bubbles or flags every such pair.
+  // Held lookup operands and the EX/MEM and exception reports inherit the
+  // same relation, and the physical file lags one retirement behind WB.
+  logic [31:0] fwd_hist0, fwd_hist1;
+  logic fwd_watched_write, fwd_mem_w, fwd_watch_nonzero;
+  assign fwd_watched_write = rvfi_valid && !rvfi_trap && rvfi_rd_addr != 0 &&
+                             rvfi_rd_addr == rvfi_gpr_watch_addr;
+  assign fwd_mem_w = exmem_valid && exmem_regwrite && exmem_rd == rvfi_gpr_watch_addr;
+  assign fwd_watch_nonzero = rvfi_gpr_watch_addr != 0;
+  assign rvfi_gpr_hist_value = fwd_hist0;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      fwd_hist0 <= '0;
+      fwd_hist1 <= '0;
+    end else begin
+      fwd_hist1 <= fwd_hist0;
+      if (fwd_watched_write) fwd_hist0 <= rvfi_rd_wdata;
+    end
+  end
+  always @(posedge clk) begin
+    if (!rst) begin
+      // Under the restricted fetch set this job uses, the translation base
+      // and mode registers are never written, memory is always ready, and
+      // only plain FENCE appears. So no lookup can miss, no memory op
+      // waits on the bus, and no FENCE.I/SFENCE hold can occur. Pin that
+      // down explicitly: it removes those scenarios from induction. The
+      // ordinary one-cycle scalar prepare is not a stall and stays legal.
+      assert (!dmem_lu_stall && !mem_wait && !fence_req);
+      // The fetch set contains no privilege return and no CSR access to the
+      // translation base or mode registers, so the core stays in M mode and
+      // data translation stays disabled. The divider never launches, so its
+      // destination tag stays at zero and a stale completion cannot take the
+      // shared register-file port.
+      assert (priv == 2'b11);
+      assert (!(satp[31] && priv_data != 2'b11));
+      assert (div_rd == 0);
+      // The excluded encoding classes cannot appear in live pipeline state
+      // either: the queue invariants hold for accepted fetch words, and the
+      // stage registers inherit them one edge later.
+      if (idex_valid) begin
+        assert (!idex_is_vec && !idex_is_vset && !idex_is_vload && !idex_is_vstore);
+        assert (!idex_is_amo && !idex_is_lr && !idex_is_sc && !idex_is_mul);
+        assert (!idex_is_sfence && !idex_is_fence_i && !idex_mret && !idex_sret);
+        assert (!(idex_is_csr &&
+                  (idex_csr_addr == 12'h180 || idex_csr_addr == 12'h300 ||
+                   idex_csr_addr == 12'h302 || idex_csr_addr == 12'h303 ||
+                   idex_csr_addr == 12'h304 || idex_csr_addr == 12'h344)));
+      end
+      if (exmem_valid)
+        assert (!exmem_is_vload && !exmem_is_vstore && !exmem_is_amo && !exmem_is_lr &&
+                !exmem_is_sc && !exmem_is_mul);
+      if (wb_we && fwd_watch_nonzero && wb_rd == rvfi_gpr_watch_addr) assert (wb_data == fwd_hist0);
+      assert (rvfi_gpr_watch_value == fwd_hist1);
+      // The scoreboard advanced past hist1 only through a retirement whose
+      // write is landing at the WB port right now. This alignment closes
+      // the storage invariant's own inductive step.
+      assert (fwd_hist0 == fwd_hist1 ||
+              (wb_we && fwd_watch_nonzero && wb_rd == rvfi_gpr_watch_addr));
+      if (idex_valid && fwd_watch_nonzero && !idex_rs1_from_mem &&
+          rvfi_idex_rs1 == rvfi_gpr_watch_addr) begin
+        assert (idex_rs1_val == fwd_hist0);
+        assert (!fwd_mem_w);
+      end
+      if (idex_valid && fwd_watch_nonzero && !idex_rs2_from_mem &&
+          rvfi_idex_rs2 == rvfi_gpr_watch_addr) begin
+        assert (idex_rs2_val == fwd_hist0);
+        assert (!fwd_mem_w);
+      end
+      if (idex_valid && fwd_watch_nonzero && idex_rs1_from_mem && fwd_mem_w &&
+          rvfi_idex_rs1 == rvfi_gpr_watch_addr)
+        assert (mem_forward_data == commit_wdata);
+      if (idex_valid && fwd_watch_nonzero && idex_rs2_from_mem && fwd_mem_w &&
+          rvfi_idex_rs2 == rvfi_gpr_watch_addr)
+        assert (mem_forward_data == commit_wdata);
+      // A from-MEM capture reads its producer live out of MEM. While that
+      // consumer is not itself waiting on a data lookup, the producer is
+      // still the valid MEM packet: only the consumer's own lookup miss,
+      // which switches it to its saved operands, can let MEM drain first.
+      if (idex_valid && fwd_watch_nonzero && idex_rs1_from_mem &&
+          !rvfi_fwd_mem_ready && !rvfi_fwd_cancel &&
+          rvfi_idex_rs1 == rvfi_gpr_watch_addr)
+        assert (fwd_mem_w);
+      if (idex_valid && fwd_watch_nonzero && idex_rs2_from_mem &&
+          !rvfi_fwd_mem_ready && !rvfi_fwd_cancel &&
+          rvfi_idex_rs2 == rvfi_gpr_watch_addr)
+        assert (fwd_mem_w);
+      if (idex_valid && rvfi_fwd_mem_ready && fwd_watch_nonzero &&
+          !rvfi_fwd_cancel && !rvfi_fwd_ex_trap &&
+          rvfi_idex_rs1 == rvfi_gpr_watch_addr)
+        assert (rvfi_fwd_held_rs1 == fwd_hist0);
+      if (idex_valid && rvfi_fwd_mem_ready && fwd_watch_nonzero &&
+          !rvfi_fwd_cancel && !rvfi_fwd_ex_trap &&
+          rvfi_idex_rs2 == rvfi_gpr_watch_addr)
+        assert (rvfi_fwd_held_rs2 == fwd_hist0);
+      if (exmem_valid && fwd_watch_nonzero && rvfi_exmem.rs1 == rvfi_gpr_watch_addr)
+        assert (rvfi_exmem.rs1_data == fwd_hist0);
+      if (exmem_valid && fwd_watch_nonzero && rvfi_exmem.rs2 == rvfi_gpr_watch_addr)
+        assert (rvfi_exmem.rs2_data == fwd_hist0);
+      if (rvfi_sync_exception && fwd_watch_nonzero && rvfi_exception.rs1 == rvfi_gpr_watch_addr)
+        assert (rvfi_exception.rs1_data == fwd_hist0);
+      if (rvfi_sync_exception && fwd_watch_nonzero && rvfi_exception.rs2 == rvfi_gpr_watch_addr)
+        assert (rvfi_exception.rs2_data == fwd_hist0);
+      cover (idex_valid && idex_rs1_from_mem && rvfi_idex_rs1 == rvfi_gpr_watch_addr);
+      cover (idex_valid && !idex_rs1_from_mem && rvfi_idex_rs1 == rvfi_gpr_watch_addr &&
+             fwd_hist0 != 0);
+      cover (idex_valid && rvfi_fwd_mem_ready && rvfi_idex_rs1 == rvfi_gpr_watch_addr);
+      cover (exmem_valid && rvfi_exmem.rs1 == rvfi_gpr_watch_addr && rvfi_exmem.rs1_data != 0);
+      cover (rvfi_sync_exception && rvfi_exception.rs1 == rvfi_gpr_watch_addr);
     end
   end
 `endif
@@ -696,6 +825,13 @@ module roco_cpu (
       .rvfi_div_start(rvfi_div_start),
       .rvfi_div_a(rvfi_div_a),
       .rvfi_div_b(rvfi_div_b),
+`endif
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+      .rvfi_fwd_mem_ready(rvfi_fwd_mem_ready),
+      .rvfi_fwd_cancel(rvfi_fwd_cancel),
+      .rvfi_fwd_ex_trap(rvfi_fwd_ex_trap),
+      .rvfi_fwd_held_rs1(rvfi_fwd_held_rs1),
+      .rvfi_fwd_held_rs2(rvfi_fwd_held_rs2),
 `endif
 `endif
       .clk(clk),

@@ -22,6 +22,13 @@ module roco_cpu_ex_stage (
   output logic rvfi_trap_entry,
   output logic rvfi_sync_exception,
   output logic [31:0] rvfi_trap_vector,
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+  output logic rvfi_fwd_mem_ready,
+  output logic rvfi_fwd_cancel,
+  output logic rvfi_fwd_ex_trap,
+  output logic [31:0] rvfi_fwd_held_rs1,
+  rvfi_fwd_held_rs2,
+`endif
 `ifdef ROCO_RVFI_DIV_CHECKS
   output logic rvfi_div_start,
   output logic [31:0] rvfi_div_a,
@@ -1202,9 +1209,35 @@ module roco_cpu_ex_stage (
     if (trap_capture && ex_trap) rvfi_exception <= rvfi_ex;
   end
 
+`ifdef ROCO_RVFI_FORWARD_CHECKS
+  // Observation points for the whole-core operand invariants: the operands
+  // a scalar memory instruction saved when its lookup began, plus the
+  // phase flag that selects them over the live forwarding muxes.
+  assign rvfi_fwd_mem_ready = scalar_is_mem && scalar_mem_ready;
+  assign rvfi_fwd_cancel = cancel_ex;
+  assign rvfi_fwd_ex_trap = ex_trap;
+  assign rvfi_fwd_held_rs1 = rvfi_held_rs1;
+  assign rvfi_fwd_held_rs2 = rvfi_held_rs2;
+`endif
+
   assign rvfi_trap_entry = trap_commit && !halt;
   assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;
   assign rvfi_trap_vector = csr_trap_vector;
+`ifdef ROCO_RVFI_NO_DIV_CHECKS
+  // The fetch set contains no CSR access to the translation base or mode
+  // registers, no interrupt or delegation state, and no instruction that
+  // returns from a trap. A committed write can therefore never target satp,
+  // mstatus, or the interrupt/delegation registers, which keeps the core in
+  // M mode with data translation disabled for the whole run.
+  always @(posedge clk) begin
+    if (!rst) assert (!irq_req);
+    if (!rst)
+      assert (!(csr_wr_en && (csr_commit_addr_q == 12'h180 || csr_commit_addr_q == 12'h300 ||
+                               csr_commit_addr_q == 12'h302 || csr_commit_addr_q == 12'h303 ||
+                               csr_commit_addr_q == 12'h304 || csr_commit_addr_q == 12'h344)));
+  end
+`endif
+
 `ifdef ROCO_RVFI_RV32I_CHECKS
   // The scalar faulting instruction must never produce a MEM packet. If
   // trap entry waits for a CSR commit, cancellation must keep MEM empty.

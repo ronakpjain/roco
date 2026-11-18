@@ -243,18 +243,35 @@ module roco_cpu_if_stage (
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
   // A slot is live iff its distance from the circular head is below count.
   // The payload may be arbitrary in the other slots, including after flush.
+  // Every encoding class the harness never fetches is excluded from live
+  // slots: M, vector, AMO/LR/SC, FENCE.I/SFENCE, privilege returns, and CSR
+  // accesses that could enable data translation. Only ECALL/EBREAK remain
+  // from the SYSTEM funct3-zero space, matching both fetch restriction sets.
+  function automatic logic excluded_enc(input logic [31:0] w);
+    excluded_enc =
+        (w[6:0] == 7'h33 && w[31:25] == 7'd1) ||
+        (w[6:0] == 7'h57) ||
+        (w[6:0] == 7'h07) ||
+        (w[6:0] == 7'h27) ||
+        (w[6:0] == 7'h2f) ||
+        (w[6:0] == 7'h0f && w[14:12] != 3'b000) ||
+        (w[6:0] == 7'h73 && w[14:12] == 3'b000 &&
+         !(w == 32'h0000_0073 || w == 32'h0010_0073)) ||
+        (w[6:0] == 7'h73 && w[14:12] != 3'b000 &&
+         (w[31:20] == 12'h180 || w[31:20] == 12'h300 || w[31:20] == 12'h302 ||
+          w[31:20] == 12'h303 || w[31:20] == 12'h304 || w[31:20] == 12'h344));
+  endfunction
   for (genvar slot = 0; slot < DEPTH; slot++) begin : g_no_div
     logic [1:0] distance;
     assign distance = 2'(slot) - q_head;
     always @(posedge clk) begin
-      if (!rst && 3'(distance) < q_count)
-        assert (!(q_instr[slot][6:0] == 7'h33 && q_instr[slot][31:25] == 1 && q_instr[slot][14]));
+      if (!rst && 3'(distance) < q_count) assert (!excluded_enc(q_instr[slot]));
     end
   end
   always @(posedge clk) begin
     if (!rst) begin
       assert (q_count <= 3'(DEPTH) && q_tail == q_head + q_count[1:0]);
-      if (if_valid) assert (!(if_instr[6:0] == 7'h33 && if_instr[31:25] == 1 && if_instr[14]));
+      if (if_valid) assert (!excluded_enc(if_instr));
     end
   end
 `endif

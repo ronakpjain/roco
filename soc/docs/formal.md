@@ -283,6 +283,31 @@ stored data, both read ports, scalar bypass, and divider priority for
 simultaneous requests. All four covers passed. This does not check the
 pipeline's operand muxes against architectural state.
 
+### Operand forwarding on the whole core
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh core-forward prove
+bash formal/run.sh core-forward cover
+```
+
+`core-forward` proved unbounded by SMT k-induction: every RVFI operand read
+(`rs1`/`rs2`) at retirement or synchronous-trap report equals the value the
+architectural scoreboard holds for that register, for arbitrary programs over
+the fetch set (RV32I scalar memory, control flow, LUI/AUIPC, non-privileged
+CSR, ECALL/EBREAK/FENCE). The proof carries an asserted invariant set, never
+assumed: a two-deep per-register retirement history aligned with the WB port,
+the stored register file one retirement behind it, the EX capture muxes
+matched to that history (plain, EX/MEM-forwarded, and held lookup operands),
+the EX/MEM and exception report registers, the presence of the forwarded
+producer in MEM, and the static reachability facts that no stall, drain,
+trap-return, interrupt, translation, divider completion, or excluded
+encoding class (M, A, vector, SFENCE, FENCE.I, privileged CSR) can appear.
+Each fact was needed inductively; the queue-slot and stage exclusions match
+the restricted fetch set exactly. BitWuzla closes the induction step in
+seconds where z3 timed out. This covers operand capture and reporting only:
+the ALU results, memory effects, and branch resolution that consume the
+operands are checked by the semantic jobs.
+
 ### Remaining whole-core proof obligations
 
 - Close the RV32I instruction suite with inductive invariants for forwarding,

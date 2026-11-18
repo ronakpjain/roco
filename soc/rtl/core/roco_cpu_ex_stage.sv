@@ -1089,7 +1089,7 @@ module roco_cpu_ex_stage (
       // One element per cycle; the last cycle issues nothing.
       // VL zero still retires one no-op instruction without a memory
       // request. Nonzero vectors retire only with their final element.
-      exmem_valid <= ((vmem_issue && !lu_stall) || (vmem_noop)) && !cancel_ex;
+      exmem_valid <= ((vmem_issue && !lu_stall) || vmem_noop) && !ex_trap && !cancel_ex;
       exmem_vec_last <= vmem_noop || (vmem_idx + 5'd1 == vmem_total);
       exmem_pc <= idex_pc;
       exmem_instr <= idex_instr;
@@ -1195,6 +1195,13 @@ module roco_cpu_ex_stage (
   assign rvfi_trap_entry = trap_commit && !halt;
   assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;
   assign rvfi_trap_vector = csr_trap_vector;
+`ifdef ROCO_RVFI_RV32I_CHECKS
+  // The scalar faulting instruction must never produce a MEM packet. If
+  // trap entry waits for a CSR commit, cancellation must keep MEM empty.
+  always @(posedge clk) begin
+    if (!rst && trap_pending && !trap_is_irq_q) assert (!exmem_valid);
+  end
+`endif
 `endif
 
 `ifndef SYNTHESIS

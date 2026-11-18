@@ -585,8 +585,8 @@ module roco_cpu (
   assign rvfi_intr = rvfi_handler_pending;
   assign rvfi_mode = rvfi_report.mode;
   assign rvfi_ixl = 2'd1;
-  assign rvfi_insn = rvfi_report.instr;
-  assign rvfi_pc_rdata = rvfi_report.pc;
+  assign rvfi_insn = rvfi_sync_exception ? rvfi_exception.instr : commit_instr;
+  assign rvfi_pc_rdata = rvfi_sync_exception ? rvfi_exception.pc : commit_pc;
   assign rvfi_pc_wdata = rvfi_sync_exception ? rvfi_trap_vector : rvfi_report.next_pc;
   assign rvfi_rs1_addr = rvfi_report.rs1;
   assign rvfi_rs2_addr = rvfi_report.rs2;

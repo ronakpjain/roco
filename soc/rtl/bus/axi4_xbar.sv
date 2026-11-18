@@ -93,16 +93,21 @@ module axi4_xbar (
   logic [4:0] ar_req[2], aw_req[2];
   // Use vectors for payload arrays so the Yosys frontend preserves each
   // element's width. Named fields are accessed through scalar aliases.
-  wire [$bits(m0_ar)-1:0] mar[5], sar[2];
-  wire [$bits(m0_aw)-1:0] maw[5], saw[2];
-  wire [$bits(m0_w)-1:0] mw[5], sw[2];
-  wire [$bits(m0_r)-1:0] mr[5], sr[2];
-  wire [$bits(m0_b)-1:0] mb[5], sb[2];
-  wire [4:0] mrr = {m4_r_ready, m3_r_ready, m2_r_ready, m1_r_ready, m0_r_ready};
-  wire [4:0] mbr = {m4_b_ready, m3_b_ready, m2_b_ready, m1_b_ready, m0_b_ready};
-  wire [1:0] sar_ready = {s1_ar_ready, s0_ar_ready};
-  wire [1:0] saw_ready = {s1_aw_ready, s0_aw_ready};
-  wire [1:0] sw_ready = {s1_w_ready, s0_w_ready};
+  logic [$bits(m0_ar)-1:0] mar[5], sar[2];
+  logic [$bits(m0_aw)-1:0] maw[5], saw[2];
+  logic [$bits(m0_w)-1:0] mw[5], sw[2];
+  logic [$bits(m0_r)-1:0] mr[5], sr[2];
+  logic [$bits(m0_b)-1:0] mb[5], sb[2];
+  logic [4:0] mrr;
+  assign mrr = {m4_r_ready, m3_r_ready, m2_r_ready, m1_r_ready, m0_r_ready};
+  logic [4:0] mbr;
+  assign mbr = {m4_b_ready, m3_b_ready, m2_b_ready, m1_b_ready, m0_b_ready};
+  logic [1:0] sar_ready;
+  assign sar_ready = {s1_ar_ready, s0_ar_ready};
+  logic [1:0] saw_ready;
+  assign saw_ready = {s1_aw_ready, s0_aw_ready};
+  logic [1:0] sw_ready;
+  assign sw_ready = {s1_w_ready, s0_w_ready};
   logic [1:0] sr_ready, sb_ready;
   logic [4:0] mar_ready, maw_ready, mw_ready;
 
@@ -146,10 +151,14 @@ module axi4_xbar (
   end
 
   for (genvar m = 0; m < 5; m++) begin : g_decode
-    wire axi4_ar_t ar = mar[m];
-    wire axi4_aw_t aw = maw[m];
-    wire ar_sdram = ar.addr[31:25] == 7'd8;
-    wire aw_sdram = aw.addr[31:25] == 7'd8;
+    axi4_ar_t ar;
+    assign ar = mar[m];
+    axi4_aw_t aw;
+    assign aw = maw[m];
+    logic ar_sdram;
+    assign ar_sdram = ar.addr[31:25] == 7'd8;
+    logic aw_sdram;
+    assign aw_sdram = aw.addr[31:25] == 7'd8;
     assign ar_req[0][m] = ar.valid && ar_sdram;
     assign ar_req[1][m] = ar.valid && !ar_sdram;
     assign aw_req[0][m] = aw.valid && aw_sdram;
@@ -162,11 +171,16 @@ module axi4_xbar (
 
     // Lock the owner before asserting downstream VALID, including while
     // READY is low. The originating master holds the address payload.
-    wire axi4_ar_t ar = rd[s] == Address ? mar[ro[s]] : '0;
-    wire axi4_aw_t aw = wr[s] == Address ? maw[wo[s]] : '0;
-    wire axi4_w_t w = wr[s] == Data ? mw[wo[s]] : '0;
-    wire axi4_r_t r = sr[s];
-    wire axi4_b_t b = sb[s];
+    axi4_ar_t ar;
+    assign ar = rd[s] == Address ? mar[ro[s]] : '0;
+    axi4_aw_t aw;
+    assign aw = wr[s] == Address ? maw[wo[s]] : '0;
+    axi4_w_t w;
+    assign w = wr[s] == Data ? mw[wo[s]] : '0;
+    axi4_r_t r;
+    assign r = sr[s];
+    axi4_b_t b;
+    assign b = sb[s];
     assign sar[s] = ar;
     assign saw[s] = aw;
     assign sw[s] = w;
@@ -217,10 +231,14 @@ module axi4_xbar (
 
   for (genvar m = 0; m < 5; m++) begin : g_return
     localparam logic [2:0] Master = 3'(m);
-    wire r0 = ro[0] == Master;
-    wire r1 = ro[1] == Master;
-    wire w0 = wo[0] == Master;
-    wire w1 = wo[1] == Master;
+    logic r0;
+    assign r0 = ro[0] == Master;
+    logic r1;
+    assign r1 = ro[1] == Master;
+    logic w0;
+    assign w0 = wo[0] == Master;
+    logic w1;
+    assign w1 = wo[1] == Master;
     assign mar_ready[m] = (r0 && rd[0] == Address && sar_ready[0]) ||
                           (r1 && rd[1] == Address && sar_ready[1]);
     assign maw_ready[m] = (w0 && wr[0] == Address && saw_ready[0]) ||
@@ -231,5 +249,3 @@ module axi4_xbar (
     assign mb[m] = (w0 && wr[0] == Response) ? sb[0] : (w1 && wr[1] == Response) ? sb[1] : '0;
   end
 endmodule
-
-`default_nettype wire

@@ -5,21 +5,24 @@ module tb_if_prediction;
   always #5 clk = !clk;
   logic rst = 1, flush = 0, consume_enable = 1;
   logic [31:0] redirect = 32'h300;
-  wire req, valid, fault, pred_taken, pred_direct;
-  wire [20:0] pred_imm;
-  wire [31:0] addr, pc, instr, pred_target, fetch_pc;
-  wire rsp_valid;
-  wire [31:0] rsp_addr, rsp_data;
-  wire cache_miss, cache_busy, mem_req;
-  wire [22:0] mem_addr;
-  wire [3:0] mem_len;
+  logic req, valid, fault, pred_taken, pred_direct;
+  logic [20:0] pred_imm;
+  logic [31:0] addr, pc, instr, pred_target, fetch_pc;
+  logic rsp_valid;
+  logic [31:0] rsp_addr, rsp_data;
+  logic cache_miss, cache_busy, mem_req;
+  logic [22:0] mem_addr;
+  logic [3:0] mem_len;
   logic cache_live = 0, mem_active = 0, mem_rvalid = 0, mem_rlast = 0;
   logic [31:0] mem_rdata = 0;
   logic [22:0] mem_base;
   integer mem_delay = 0, mem_beat = 0;
-  wire lookup_taken = (fetch_pc == 32'h100 || fetch_pc == 32'h200);
-  wire [31:0] lookup_target = fetch_pc == 32'h100 ? 32'h200 : 32'h100;
-  wire consume = valid && consume_enable;
+  logic lookup_taken;
+  assign lookup_taken = (fetch_pc == 32'h100 || fetch_pc == 32'h200);
+  logic [31:0] lookup_target;
+  assign lookup_target = fetch_pc == 32'h100 ? 32'h200 : 32'h100;
+  logic consume;
+  assign consume = valid && consume_enable;
   roco_cpu_if_stage dut (
       .clk(clk),
       .rst(rst),

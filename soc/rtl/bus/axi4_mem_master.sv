@@ -86,5 +86,3 @@ module axi4_mem_master (
     end
   end
 endmodule
-
-`default_nettype wire

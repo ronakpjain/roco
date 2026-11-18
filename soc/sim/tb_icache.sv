@@ -5,10 +5,10 @@ module tb_icache;
   always #5 clk = !clk;
   logic rst = 1, flush = 0, req = 0;
   logic [31:0] addr = 0;
-  wire rsp, miss, busy, mem_req, hit_pulse, miss_pulse;
-  wire [31:0] rsp_addr, rsp_data;
-  wire [22:0] mem_addr;
-  wire [3:0] mem_len;
+  logic rsp, miss, busy, mem_req, hit_pulse, miss_pulse;
+  logic [31:0] rsp_addr, rsp_data;
+  logic [22:0] mem_addr;
+  logic [3:0] mem_len;
   logic ready = 0, rvalid = 0, rlast = 0;
   logic [31:0] rdata = 0;
   icache #(

@@ -187,5 +187,3 @@ module roco_apb_peripherals (
     end
   end
 endmodule
-
-`default_nettype wire

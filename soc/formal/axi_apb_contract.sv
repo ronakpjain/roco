@@ -51,10 +51,14 @@ module axi_apb_contract (
   logic [2:0] protection;
   logic [3:0] id, strobes;
   logic [7:0] beats_left;
-  wire accept_read = ar.valid && ar_ready;
-  wire accept_write = aw.valid && aw_ready;
-  wire accept_data = w.valid && w_ready;
-  wire apb_complete = psel && penable && pready;
+  logic accept_read;
+  assign accept_read = ar.valid && ar_ready;
+  logic accept_write;
+  assign accept_write = aw.valid && aw_ready;
+  logic accept_data;
+  assign accept_data = w.valid && w_ready;
+  logic apb_complete;
+  assign apb_complete = psel && penable && pready;
 
   always @(posedge clk) begin
     if (rst) begin

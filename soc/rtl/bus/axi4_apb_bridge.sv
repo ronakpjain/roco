@@ -141,5 +141,3 @@ module axi4_apb_bridge (
     end
   end
 endmodule
-
-`default_nettype wire

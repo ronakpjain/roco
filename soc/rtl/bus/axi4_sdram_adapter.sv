@@ -145,5 +145,3 @@ module axi4_sdram_adapter (
     end
   end
 endmodule
-
-`default_nettype wire

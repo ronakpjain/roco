@@ -172,16 +172,8 @@ module roco_soc #(
   logic mmio_rx_pop;
 
   // ---------------------------------------------------------------- MMIO
-  logic [3:0] led_reg;
-  logic [63:0] mtime;
-  logic [63:0] mtimecmp;
-  logic [31:0] ic_hits;
-  logic [31:0] ic_misses;
-  logic [31:0] dc_hits;
-  logic [31:0] dc_misses;
+  logic irq_timer;
   logic [31:0] mmio_rdata;
-  logic [31:0] dbg0;
-  logic [31:0] dbg1;
 
   // ------------------------------------------------------- SDRAM controller
   logic c_req;
@@ -230,7 +222,7 @@ module roco_soc #(
       .rst(core_rst),
       .boot_addr(BOOT_OVERRIDE ? 32'h1000_0000 : boot_addr),
       .halt(halted),
-      .irq_timer(mtime >= mtimecmp),
+      .irq_timer(irq_timer),
       .irq_external(1'b0),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
@@ -347,8 +339,6 @@ module roco_soc #(
   logic [31:0] paddr, pwdata;
   logic [3:0] pstrb;
   logic [2:0] unused_pprot;
-  wire apb_read = psel && penable && pready && !pwrite;
-  wire apb_write = psel && penable && pready && pwrite && (|pstrb);
 
   axi4_mem_master u_i_axi (
       .clk(clk),
@@ -625,7 +615,6 @@ module roco_soc #(
   assign uart_tx_data = boot_tx_valid ? boot_tx_data : mmio_tx_byte;
   assign boot_tx_ready = uart_tx_ready;
   assign uart_rx_ready = boot_rx_ready | mmio_rx_pop;
-  assign uart_rx_clear = apb_read && (paddr[15:0] == 16'h0004);
 
   uart #(
       .CLK_HZ(CLK_HZ),
@@ -670,118 +659,40 @@ module roco_soc #(
   );
 
   // --------------------------------------------------------------- MMIO
-  assign pready = !pwrite || (paddr[15:0] != 16'h0000) || !pstrb[0] ||
-                  (uart_tx_ready && !boot_tx_valid);
-  assign mmio_tx_push = apb_write && pstrb[0] && (paddr[15:0] == 16'h0000);
-  assign mmio_tx_byte = pwdata[7:0];
-  assign mmio_rx_pop = apb_read && (paddr[15:0] == 16'h0000) && uart_rx_valid;
-  // Restart only after the CPU receives B, not during the APB transfer.
-  assign boot_restart = dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h0108);
-
-  logic [17:0] mmio_read_select;
-  function automatic logic [17:0] mmio_read_decode(input logic [15:0] address);
-    mmio_read_decode = '0;
-    case (address)
-      16'h0000: mmio_read_decode[0] = 1'b1;
-      16'h0004: mmio_read_decode[1] = 1'b1;
-      16'h0010: mmio_read_decode[2] = 1'b1;
-      16'h0014: mmio_read_decode[3] = 1'b1;
-      16'h0018: mmio_read_decode[4] = 1'b1;
-      16'h001c: mmio_read_decode[5] = 1'b1;
-      16'h0020: mmio_read_decode[6] = 1'b1;
-      16'h0024: mmio_read_decode[7] = 1'b1;
-      16'h0028: mmio_read_decode[8] = 1'b1;
-      16'h0030: mmio_read_decode[9] = 1'b1;
-      16'h0034: mmio_read_decode[10] = 1'b1;
-      16'h0038: mmio_read_decode[11] = 1'b1;
-      16'h003c: mmio_read_decode[12] = 1'b1;
-      16'h0048: mmio_read_decode[13] = 1'b1;
-      16'h004c: mmio_read_decode[14] = 1'b1;
-      16'h0100: mmio_read_decode[15] = 1'b1;
-      16'h0104: mmio_read_decode[16] = 1'b1;
-      16'h1000: mmio_read_decode[17] = 1'b1;
-      default: begin
-      end
-    endcase
-  endfunction
-
-  assign mmio_read_select = mmio_read_decode(paddr[15:0]);
-
-  always_comb begin
-    mmio_rdata = '0;
-    mmio_rdata |= {32{mmio_read_select[0]}} & {24'd0, uart_rx_data};
-    mmio_rdata |= {32{mmio_read_select[1]}} & {28'd0, uart_rx_overflow, 1'b0, uart_rx_valid, uart_tx_ready};
-    mmio_rdata |= {32{mmio_read_select[2]}} & {28'd0, led_reg};
-    mmio_rdata |= {32{mmio_read_select[3]}} & {30'd0, buttons};
-    mmio_rdata |= {32{mmio_read_select[4]}} & mtime[31:0];
-    mmio_rdata |= {32{mmio_read_select[5]}} & mtime[63:32];
-    mmio_rdata |= {32{mmio_read_select[6]}} & mtimecmp[31:0];
-    mmio_rdata |= {32{mmio_read_select[7]}} & mtimecmp[63:32];
-    mmio_rdata |= {32{mmio_read_select[8]}} & {31'd0, (mtime >= mtimecmp)};
-    mmio_rdata |= {32{mmio_read_select[9]}} & ic_hits;
-    mmio_rdata |= {32{mmio_read_select[10]}} & ic_misses;
-    mmio_rdata |= {32{mmio_read_select[11]}} & dc_hits;
-    mmio_rdata |= {32{mmio_read_select[12]}} & dc_misses;
-    mmio_rdata |= {32{mmio_read_select[13]}} & dbg0;
-    mmio_rdata |= {32{mmio_read_select[14]}} & dbg1;
-    mmio_rdata |= {32{mmio_read_select[15]}} & {28'd0, sdram_init_done, boot_error, boot_busy, boot_done_eff};
-    mmio_rdata |= {32{mmio_read_select[16]}} & boot_addr;
-    mmio_rdata |= {32{mmio_read_select[17]}} & exit_code;
-  end
-
-  function automatic logic [31:0] merge_bytes(input logic [31:0] old_word, new_word,
-                                              input logic [3:0] strobes);
-    for (int lane = 0; lane < 4; lane++) begin
-      merge_bytes[lane*8+:8] = strobes[lane] ? new_word[lane*8+:8] : old_word[lane*8+:8];
-    end
-  endfunction
-
-  // Capture lookup events before the counter arithmetic. The MMIO value
-  // includes the captured event, including when it takes priority over clear.
-  logic [31:0] dc_hits_base;
-  logic [31:0] dc_misses_base;
-  logic dc_hit_q;
-  logic dc_miss_q;
-  logic dc_clear_q;
-
-  assign dc_hits = dc_hit_q ? dc_hits_base + 32'd1 : dc_clear_q ? 32'd0 : dc_hits_base;
-  assign dc_misses = dc_miss_q ? dc_misses_base + 32'd1 : dc_clear_q ? 32'd0 : dc_misses_base;
-
-  always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
-      dc_hits_base <= '0;
-      dc_misses_base <= '0;
-      dc_hit_q <= 1'b0;
-      dc_miss_q <= 1'b0;
-      dc_clear_q <= 1'b0;
-    end else begin
-      dc_hits_base <= dc_hits;
-      dc_misses_base <= dc_misses;
-      dc_hit_q <= dc_hit;
-      dc_miss_q <= dc_miss;
-      dc_clear_q <= apb_write && (paddr[15:0] == 16'h0030);
-    end
-  end
-
-  logic [31:0] ic_hits_base, ic_misses_base;
-  logic ic_hit_q, ic_miss_q, ic_clear_q;
-  assign ic_hits = ic_hit_q ? ic_hits_base + 32'd1 : ic_clear_q ? 32'd0 : ic_hits_base;
-  assign ic_misses = ic_miss_q ? ic_misses_base + 32'd1 : ic_clear_q ? 32'd0 : ic_misses_base;
-  always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
-      ic_hits_base <= '0;
-      ic_misses_base <= '0;
-      ic_hit_q <= 1'b0;
-      ic_miss_q <= 1'b0;
-      ic_clear_q <= 1'b0;
-    end else begin
-      ic_hits_base <= ic_hits;
-      ic_misses_base <= ic_misses;
-      ic_hit_q <= ic_hit;
-      ic_miss_q <= ic_miss;
-      ic_clear_q <= apb_write && (paddr[15:0] == 16'h0030);
-    end
-  end
+  roco_apb_peripherals u_peripherals (
+      .clk(clk),
+      .rst(rst),
+      .psel(psel),
+      .penable(penable),
+      .pwrite(pwrite),
+      .paddr(paddr[15:0]),
+      .pwdata(pwdata),
+      .pstrb(pstrb),
+      .pready(pready),
+      .prdata(mmio_rdata),
+      .uart_rx_data(uart_rx_data),
+      .uart_rx_valid(uart_rx_valid),
+      .uart_rx_overflow(uart_rx_overflow),
+      .uart_tx_ready(uart_tx_ready),
+      .boot_tx_valid(boot_tx_valid),
+      .uart_tx_push(mmio_tx_push),
+      .uart_rx_pop(mmio_rx_pop),
+      .uart_rx_clear(uart_rx_clear),
+      .uart_tx_byte(mmio_tx_byte),
+      .buttons(buttons),
+      .leds(leds),
+      .irq_timer(irq_timer),
+      .ic_hit(ic_hit),
+      .ic_miss(ic_miss),
+      .dc_hit(dc_hit),
+      .dc_miss(dc_miss),
+      .boot_status({sdram_init_done, boot_error, boot_busy, boot_done_eff}),
+      .boot_addr(boot_addr),
+      .mmio_commit(dmem_req && !dmem_in_sdram),
+      .boot_restart(boot_restart),
+      .halted(halted),
+      .exit_code(exit_code)
+  );
 
   // The response-valid flop publishes this payload one cycle after the
   // request. Capturing unconditionally keeps late fetch/MMU qualification
@@ -790,37 +701,8 @@ module roco_soc #(
   assign i_unc_rsp_data = 32'd0;
 
   always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
-      i_unc_rsp <= 1'b0;
-      led_reg <= 4'd0;
-      mtime <= '0;
-      mtimecmp <= '0;
-      halted <= 1'b0;
-      exit_code <= '0;
-      dbg0 <= '0;
-      dbg1 <= '0;
-    end else begin
-      i_unc_rsp <= i_unc_req;
-      if (apb_write) begin
-        case (paddr[15:0])
-          16'h0010: if (pstrb[0]) led_reg <= pwdata[3:0];
-          16'h0020: mtimecmp[31:0] <= merge_bytes(mtimecmp[31:0], pwdata, pstrb);
-          16'h0024: mtimecmp[63:32] <= merge_bytes(mtimecmp[63:32], pwdata, pstrb);
-          16'h0048: dbg0 <= merge_bytes(dbg0, pwdata, pstrb);
-          16'h004c: dbg1 <= merge_bytes(dbg1, pwdata, pstrb);
-          16'h1000: exit_code <= merge_bytes(exit_code, pwdata, pstrb);
-          default: begin
-          end
-        endcase
-      end
-      if (boot_restart) begin
-        halted <= 1'b0;
-        exit_code <= '0;
-      end else if (dmem_req && dmem_we && !dmem_in_sdram && (dmem_addr[15:0] == 16'h1000)) begin
-        halted <= 1'b1;
-      end
-      mtime <= mtime + 64'd1;
-    end
+    if (rst) i_unc_rsp <= 1'b0;
+    else i_unc_rsp <= i_unc_req;
   end
 
   // ------------------------------------------------------ FENCE.I sequence
@@ -881,6 +763,5 @@ module roco_soc #(
   // dependencies wait for WB, keeping peripheral decode off the early bus.
   assign dmem_forward_data = dc_forward_data;
 
-  assign leds = led_reg;
 
 endmodule

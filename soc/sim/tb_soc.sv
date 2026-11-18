@@ -298,7 +298,8 @@ module tb_soc #(
       counter_clear_count <= 0;
       counter_collision_count <= 0;
     end else begin
-      if (u_soc.apb_write && u_soc.paddr[15:0] == 16'h0030) begin
+      if (u_soc.psel && u_soc.penable && u_soc.pready && u_soc.pwrite &&
+          (|u_soc.pstrb) && u_soc.paddr[15:0] == 16'h0030) begin
         expected_ic_hits <= '0;
         expected_ic_misses <= '0;
         counter_clear_count <= counter_clear_count + 1;
@@ -309,7 +310,8 @@ module tb_soc #(
     end
   end
   always @(negedge clk) begin
-    if (!rst && (u_soc.ic_hits !== expected_ic_hits || u_soc.ic_misses !== expected_ic_misses))
+    if (!rst && (u_soc.u_peripherals.ic_hits !== expected_ic_hits ||
+                 u_soc.u_peripherals.ic_misses !== expected_ic_misses))
       $fatal(1, "I-cache statistics changed timing or clear priority");
   end
 
@@ -336,8 +338,9 @@ module tb_soc #(
     if (!rst && halted) begin
       if ($test$plusargs("measure_execution"))
         $display("EXECUTION cycles=%0d active_cycles=%0d", cycles, cycles - first_retire_cycle);
-      $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d", u_soc.dbg0,
-               u_soc.dbg1, push_cnt, start_cnt, full_push_cnt);
+      $display("tb_soc: bench cycles=%0d instret=%0d pushes=%0d starts=%0d full=%0d",
+               u_soc.u_peripherals.dbg0, u_soc.u_peripherals.dbg1, push_cnt, start_cnt,
+               full_push_cnt);
       if (exit_code == 32'd1) begin
         if ($test$plusargs("check_counter_clear")) begin
           if (counter_clear_count != 32) $fatal(1, "missing or duplicate APB counter clear");

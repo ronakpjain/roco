@@ -764,5 +764,8 @@ module roco_soc #(
   // dependencies wait for WB, keeping peripheral decode off the early bus.
   assign dmem_forward_data = dc_forward_data;
 
+`ifdef ROCO_SOC_CONTROL_FORMAL
+  `include "soc_control_checks.svh"
+`endif
 
 endmodule

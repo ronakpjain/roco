@@ -61,6 +61,8 @@ jobs:
           - {job: core-csr-trap, mode: bmc-fast, depth: 48}
           - {job: core-sv32-load, mode: bmc-fast, depth: 55}
           - {job: core-vector-mem-stream, mode: bmc-fast, depth: 24, riscv-formal: true}
+          - {job: soc-control, mode: prove, solver: bitwuzla}
+          - {job: soc-mmio-memory, mode: bmc-fast, depth: 422, solver: bitwuzla}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal

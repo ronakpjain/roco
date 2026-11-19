@@ -234,6 +234,22 @@ case "$job" in
     proof_depth=4
     proof_lowering=''
     ;;
+  soc-control)
+    top=roco_soc
+    depth=8
+    sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv)
+    defines='-DROCO_SOC_CONTROL_FORMAL'
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
+    proof_depth=5
+    proof_lowering='opt_clean'
+    ;;
+  soc-mmio-memory)
+    top=soc_mmio_memory
+    depth=422
+    sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv
+      formal/soc_mmio_memory.sv)
+    defines=''
+    ;;
   bridge)
     top=axi_apb_contract
     depth=10
@@ -246,7 +262,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -308,6 +324,7 @@ formal/m_stream_checks.svh
 formal/vector_mem_filter.svh
 formal/vector_mem_ex_checks.svh
 formal/vector_mem_commit_checks.svh
+formal/soc_control_checks.svh
 EOF
 fi
 

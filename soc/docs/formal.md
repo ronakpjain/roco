@@ -64,6 +64,46 @@ A `PASS` proves the harness assertions for all reachable states under its
 assumptions. It does not widen the instruction or protocol scope, or prove
 forward progress under arbitrary stalls.
 
+## Whole-SoC control safety (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-control prove
+```
+
+K-induction passes on `roco_soc` with its default parameters, no internal
+cutpoints, an initially asserted reset, and otherwise unconstrained external
+inputs and subsequent resets. The assertions cover CPU release after boot,
+retirement suppression during halt or core reset, APB setup/access sequencing
+and stalled payload stability, UART MMIO FIFO side effects, and syscon exit-code
+byte merges, halt and restart ordering. The small induction depth is not an
+execution bound. These are selected control invariants, not an architectural
+refinement proof of every path through the SoC.
+
+## Whole-SoC memory and MMIO integration (bounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-mmio-memory bmc-fast
+```
+
+This 422-step CI check instantiates the actual `roco_soc`, with no internal bus
+cutpoints. A fixed ten-instruction program reads symbolic GPIO buttons through
+AXI/APB, stores them to one byte in a symbolically initialized SDRAM word, and
+runs FENCE.I. The harness checks the byte merge at the SDRAM pins before the
+fence retires and observes an instruction refetch after the fence. A conflicting
+load evicts the clean data line; the next load must refill it from SDRAM and
+return the merged word. The program writes the buttons to the LEDs and the
+merged word to syscon. The checker verifies the retirement sequence, output
+values, and that halt takes effect on retirement of the exit store, with a
+420-cycle completion deadline to catch deadlocks.
+
+The external model implements BL2/CL3 reads and tracks writes to one word,
+including the two DQM lanes on each beat. The check uses boot override, two
+lines per cache, a reduced clock parameter to shorten SDRAM startup, and an
+idle serial input. This is a bounded integration check of one program, not a
+full SDRAM timing model or an unbounded proof of the SoC. It does not cover
+arbitrary traffic, UART boot/restart, page-walk contention, or interrupts end
+to end.
+
 ## Core
 
 Define `ROCO_RVFI` to expose the single-channel, 32-bit RVFI ports on `roco_cpu`.

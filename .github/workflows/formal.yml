@@ -103,16 +103,11 @@ jobs:
           - {job: core-accounting, mode: cover, riscv-formal: true}
           - {job: core-gpr, mode: cover, riscv-formal: true}
           - {job: core-gpr-writeback, mode: cover, riscv-formal: true}
-          - {job: core-memory, mode: cover, riscv-formal: true}
-          - {job: core-m-stream, mode: cover, riscv-formal: true}
-          - {job: core-atomic, mode: cover, riscv-formal: true}
           - {job: core-vector-copy, mode: cover, riscv-formal: true}
           - {job: core-vector-mem-stream, mode: cover, riscv-formal: true}
           - {job: core-csr-trap, mode: cover, riscv-formal: true}
-          - {job: core-irq, mode: cover, riscv-formal: true}
           - {job: core-sv32-load, mode: cover, riscv-formal: true}
           - {job: core-forward, mode: cover, riscv-formal: true}
-          - {job: core-isa-stall, mode: cover, riscv-formal: true}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal

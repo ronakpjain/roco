@@ -28,7 +28,8 @@ matrix job is labeled `prove` (unbounded safety), `bmc` or `bmc-fast`
 the states its assertions need). CI pins OSS CAD Suite and the upstream
 ISA model revision, and uploads solver logs and any counterexample VCDs.
 The matrix gates the completed checks, including `core-isa`, `core-isa-stall`
-and `csr-trap`.
+and `csr-trap`, together with the `cover` runs described under
+[cover reachability](#cover-reachability).
 Exploratory jobs such as the monolithic `core prove` and `core-multiply prove`
 remain runnable locally but are not gates.
 
@@ -87,9 +88,15 @@ proof that passes vacuously. Cover runs prove reachability only, never
 correctness, and they assume nothing: an unreached statement is either a real
 gap in the property or a bound that is too small.
 
-The whole-SoC k-induction jobs are the exception: their traffic needs the
-SDRAM power-up sequence and a boot image, and the unrolled whole-SoC model is
-too large for a word-level solver to search that deep. Their checks stay
+The larger RVFI cover searches are the same trade-off: `core-memory`,
+`core-atomic`, `core-m-stream`, `core-irq` and `core-isa-stall` reach their
+witnesses only past the bound a shared runner can afford, so their cover runs
+stay local (`bash formal/run.sh <job> cover`, with `DEPTH` when the default is
+short).
+
+The whole-SoC k-induction jobs are the bigger exception: their traffic needs
+the SDRAM power-up sequence and a boot image, and the unrolled whole-SoC model
+is too large for a word-level solver to search that deep. Their checks stay
 available at full depth from the command line:
 
 ```sh

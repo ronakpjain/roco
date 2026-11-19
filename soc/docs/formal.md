@@ -114,9 +114,10 @@ K-induction passes on `roco_soc` with its default parameters, no internal
 cutpoints, an initially asserted reset, and otherwise unconstrained external
 inputs and subsequent resets. The assertions cover CPU release after boot,
 retirement suppression during halt or core reset, APB setup/access sequencing
-and stalled payload stability, the commit-valid or atomic-read window of every
-MMIO transfer, UART MMIO FIFO side effects, and syscon exit-code byte merges,
-halt and restart ordering. The small induction depth is not an
+and stalled payload stability, UART MMIO FIFO side effects, and syscon
+exit-code byte merges, halt and restart ordering.
+`make test_atomic_mmio` holds the bench contract that an uncached atomic reads
+the old value and writes exactly once. The small induction depth is not an
 execution bound. These are selected control invariants, not an architectural
 refinement proof of every path through the SoC.
 

@@ -19,7 +19,7 @@ module rv32a_mem_contract (
   logic [31:0] current_operand;
   logic [31:0] low_word, high_word, old_word;
   logic reservation, reservation_bank;
-  logic commit, req, valid, we, wait_mem;
+  logic commit, req, valid, amo_read, we, wait_mem;
   logic [31:0] addr, data, result;
   logic [3:0] be;
   logic launch, sc_succeeds, expected_commit, expected_write;
@@ -99,6 +99,7 @@ module rv32a_mem_contract (
       .exmem_mul_carry(64'd0),
       .dmem_req(req),
       .dmem_valid(valid),
+      .dmem_amo_read(amo_read),
       .dmem_we(we),
       .dmem_addr(addr),
       .dmem_wdata(data),
@@ -122,6 +123,10 @@ module rv32a_mem_contract (
   );
 
   always @(posedge clk) begin
+    // An uncached target reads in this phase, so the port publishes the
+    // write direction only from the following cycle: no commit request and
+    // no commit validity accompany the read.
+    if (!rst && amo_read) assert (we && !valid && !req);
     if (rst) begin
       pending <= 0;
       prepared <= 0;

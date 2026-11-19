@@ -413,6 +413,7 @@ formal/axi_sdram_state.svh
 formal/axi_sdram_checks.svh
 formal/soc_sdram_memory_checks.svh
 formal/soc_icache_memory_checks.svh
+formal/soc_fetch_queue_checks.svh
 formal/soc_fetch_link_checks.svh
 EOF
 fi

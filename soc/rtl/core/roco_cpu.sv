@@ -525,6 +525,11 @@ module roco_cpu (
 
   logic [31:0] fetch_oldest_pc;
   roco_cpu_if_stage u_if (
+`ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
+      .formal_response_watch(if_imem_rsp_valid && imem_rsp_addr[31:2] == {7'd8, formal_watch_word}),
+      .formal_watch_data(formal_watch_data),
+      .formal_coherent(f_fetch_coherent),
+`endif
 `ifdef ROCO_VECTOR_MEM_STREAM
       .formal_vec_width(formal_vec_width),
 `endif

@@ -16,6 +16,11 @@
 `default_nettype none
 
 module roco_cpu_if_stage (
+`ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
+  input logic formal_response_watch,
+  input logic [31:0] formal_watch_data,
+  input logic formal_coherent,
+`endif
 `ifdef ROCO_VECTOR_MEM_STREAM
   input logic [1:0] formal_vec_width,
 `endif
@@ -386,5 +391,8 @@ module roco_cpu_if_stage (
 `endif
 `ifdef ROCO_FETCH_PROTOCOL_CHECKS
   `include "if_cache_pc_checks.svh"
+`endif
+`ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
+  `include "soc_fetch_queue_checks.svh"
 `endif
 endmodule

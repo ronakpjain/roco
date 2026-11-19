@@ -272,21 +272,21 @@ ordinary fences as well as boot maintenance.
 
 Only initial global reset and the external ideal BL2/CL3 memory device are
 assumed; no cache, CPU or internal bus state is constrained. This is a cache
-response data proof. `soc-fetch-memory` below carries it to the CPU's
-instruction port; the fetch queue, instruction retirement and the complete
-ISA semantics with this memory system remain open.
+response data proof. `soc-fetch-memory` below carries it through the MMU and
+the fetch queue; instruction retirement and the complete ISA semantics with
+this memory system remain open.
 
-## Whole-SoC instruction fetch link after FENCE.I (unbounded)
+## Whole-SoC instruction fetch after FENCE.I (unbounded)
 
 ```sh
 SOLVER=bitwuzla bash formal/run.sh soc-fetch-memory prove
 ```
 
 This retains the complete `soc-fence-memory` harness and adds the CPU's own
-instruction port. For the same arbitrary physical word, a store from the CPU
-data port ends the instruction-coherent interval, the real FENCE.I
-invalidation handshake starts the next one, and the fetched response for the
-word must carry the stored bytes in between.
+instruction port and fetch queue. For the same arbitrary physical word, a
+store from the CPU data port ends the instruction-coherent interval, the real
+FENCE.I invalidation handshake starts the next one, and the CPU's own fetch
+path must deliver the stored bytes in between.
 
 The MMU forwards a response's virtual and physical tags together, so the
 checker relates the physical response address to the fetch request that
@@ -296,9 +296,17 @@ The CPU's coherent interval closes on a store to the word and reopens only
 on the fence redirect, so the redirect and every response it admits agree
 with the SoC-level flag.
 
+Fetch-queue payloads are tagged per slot at the actual queue-RAM write,
+including speculative writes into an unoccupied tail slot; only occupied
+slots are checked. Every slot that captured a response for the word must hold
+the CPU-port value while the interval is coherent, and consuming the head
+must deliver that value rather than an instruction-page fault. Fault entries
+and tagged slots stay mutually exclusive, so fence completion clears the
+queue and a pre-fence entry cannot survive into the new interval.
+
 Only initial global reset and the external ideal BL2/CL3 memory device are
-assumed. This proves the bytes arriving at the fetch stage, not the queue
-contents or decoded instructions.
+assumed. This proves the bytes offered to the decoder, not their decode or
+architectural effect; retirement and the ISA model remain open.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

@@ -100,6 +100,10 @@ case "$job" in
       proof_depth=6
       proof_lowering=''
     fi
+    if [[ "$job" == core-no-divide ]]; then
+      defines+=' -DROCO_RVFI_NO_DIV_INDUCTION'
+      proof_lowering='memory_map -rom-only; opt'
+    fi
     if [[ "$job" == core-atomic-stream ]]; then
       # Decoder ROM constants must hold in the induction step, not only at reset.
       proof_lowering='memory_map -rom-only; opt'

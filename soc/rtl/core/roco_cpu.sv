@@ -926,6 +926,15 @@ module roco_cpu (
   assign rvfi_fwd_exc_instr = rvfi_exception.instr;
 `endif
 
+`ifdef ROCO_RVFI_NO_DIV_INDUCTION
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (!satp[31]);
+      assert (!satp_write);
+    end
+  end
+`endif
+
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
 `ifndef ROCO_M_STREAM_CHECKS
   always @(posedge clk) begin

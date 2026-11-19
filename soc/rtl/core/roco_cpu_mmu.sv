@@ -316,6 +316,17 @@ module roco_cpu_mmu #(
   assign ic_addr = i_translate ? {i_hot_ppn, i_vaddr[11:0]} : i_vaddr;
   assign i_busy = i_fault_pending || i_miss_pending || ((wstate != W_IDLE) && w_is_if) ||
                   (i_translate && i_req && !i_hot_match);
+`ifdef ROCO_RVFI_NO_DIV_INDUCTION
+  // The bare reset-to-reset fetch environment must also exclude walks
+  // that carry an arbitrary in-flight translation into the induction step.
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (!i_translate && !d_translate);
+      assert (wstate == W_IDLE && !i_miss_pending && !d_miss_pending);
+      assert (!i_fault_pending && !d_fault_pending);
+    end
+  end
+`endif
   assign i_fault = i_fault_pending;
   assign i_fault_addr = i_fault_vaddr;
   assign i_rsp_valid = ic_rsp_valid && i_rsp_armed;

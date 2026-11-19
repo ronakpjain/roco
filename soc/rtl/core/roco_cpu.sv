@@ -471,6 +471,20 @@ module roco_cpu (
   assign priv_data = mstatus_mprv ? mstatus_mpp : priv;
   assign idex_is_div = idex_is_muldiv && idex_md_op[2];
   assign idex_is_mul = idex_is_muldiv && !idex_md_op[2];
+`ifdef ROCO_SOC_FENCE_FORMAL
+  function automatic logic fence_i_word(input logic [31:0] instr);
+    fence_i_word = instr[6:0] == 7'h0f && instr[14:12] == 3'd1;
+  endfunction
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      if (idex_valid) begin
+        assert (idex_is_fence_i == fence_i_word(idex_instr));
+        if (idex_is_fence_i) assert (!(idex_is_vload || idex_is_vstore));
+      end
+      if (exmem_valid) assert (exmem_is_fence_i == fence_i_word(exmem_instr));
+    end
+  end
+`endif
   assign trace_valid = retire;
   assign trace_pc = commit_pc;
   assign trace_instr = commit_instr;

@@ -182,6 +182,23 @@ module icache #(
     end
   end
 
+`ifdef ROCO_SOC_FENCE_FORMAL
+  (* anyconst *) logic [IDX_BITS-1:0] f_flush_line;
+  logic f_flush_past;
+  initial f_flush_past = 1'b0;
+  always_ff @(posedge clk) begin
+    f_flush_past <= 1'b1;
+    if (!rst && flush_pending) begin
+      assert (!valid_ram[f_flush_line]);
+      assert (!cpu_rsp_valid);
+    end
+    if (f_flush_past && !rst && !$past(rst) && $past(flush)) begin
+      assert (!valid_ram[f_flush_line]);
+      assert (!cpu_rsp_valid);
+    end
+  end
+`endif
+
 `ifdef ROCO_FETCH_PROTOCOL_CHECKS
   `include "icache_backing_checks.svh"
 `endif

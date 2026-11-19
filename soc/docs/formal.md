@@ -79,6 +79,27 @@ byte merges, halt and restart ordering. The small induction depth is not an
 execution bound. These are selected control invariants, not an architectural
 refinement proof of every path through the SoC.
 
+## Whole-SoC FENCE.I ordering (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-fence prove
+```
+
+On the actual `roco_soc` at default parameters, with only initial reset
+assumed, a retiring FENCE.I must have reached the real fence-completion
+signal. Independent history tracks the ordering from the request through
+D-cache flush completion, SDRAM controller readiness, and I-cache
+invalidation. A pending fence request blocks retirement and both CPU data
+lookup and commit. Every D-cache dirty bit is clear when flush completes;
+every I-cache line is invalid and no cache hit is delivered after the
+invalidation, including while an old refill drains. Checks of the live
+pipeline flags connect the instruction encoding to the handshake.
+
+This verifies control and cache metadata, not that the post-fence instruction
+bytes equal a preceding CPU store for every legal program. The latter still
+requires composing the CPU/D-cache data contract, fabric coherence and
+instruction-fetch refinement.
+
 ## Whole-SoC memory and MMIO integration (bounded)
 
 ```sh

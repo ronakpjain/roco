@@ -473,6 +473,19 @@ module dcache #(
     end
   end
 
+`ifdef ROCO_SOC_FENCE_FORMAL
+  (* anyconst *) logic [IDX_BITS-1:0] f_flush_index;
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      if (state == S_FLUSH || state == S_FLUSH_REQ || state == S_FLUSH_RD || state == S_FLUSH_WR) begin
+        assert (flush && flush_active && !flush_done);
+        if (f_flush_index < flush_idx) assert (!dirty_ram[f_flush_index]);
+      end
+      if (flush_done && flush) assert (!dirty_ram[f_flush_index]);
+    end
+  end
+`endif
+
   // The tag array carries no reset value. A line is only observable once its
   // valid bit is set in the state machine above, so the tag RAM stays out of
   // the asynchronous reset cone.

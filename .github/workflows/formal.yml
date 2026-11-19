@@ -45,6 +45,7 @@ jobs:
           - {job: core-m-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: atomic-mem, mode: prove}
           - {job: core-atomic-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-vector-mem-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: scalar-regs, mode: prove}
           - {job: vector-regs, mode: prove}
           - {job: vector-execute, mode: prove, solver: bitwuzla}
@@ -59,6 +60,7 @@ jobs:
           - {job: core-divide-interlock, mode: bmc, depth: 45, solver: bitwuzla}
           - {job: core-csr-trap, mode: bmc-fast, depth: 48}
           - {job: core-sv32-load, mode: bmc-fast, depth: 55}
+          - {job: core-vector-mem-stream, mode: bmc-fast, depth: 24, riscv-formal: true}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal

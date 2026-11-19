@@ -34,6 +34,9 @@ jobs:
           - {job: core-gpr-writeback, mode: prove, riscv-formal: true}
           - {job: core-no-divide, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: core-forward, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-isa, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-isa-stall, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: csr-trap, mode: prove}
           - {job: divider, mode: prove}
           - {job: atomic-mem, mode: prove}
           - {job: scalar-regs, mode: prove}
@@ -46,6 +49,7 @@ jobs:
           - {job: core-atomic, mode: bmc-fast, depth: 12, riscv-formal: true}
           - {job: core-vector-copy, mode: bmc-fast, depth: 20}
           - {job: core-divide-cutpoint, mode: bmc-fast, depth: 45}
+          - {job: core-divide-interlock, mode: bmc, depth: 45, solver: bitwuzla}
           - {job: core-csr-trap, mode: bmc-fast, depth: 48}
           - {job: core-sv32-load, mode: bmc-fast, depth: 55}
     env:

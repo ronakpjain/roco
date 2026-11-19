@@ -22,11 +22,13 @@ assertions via ABC's bit-level `bmc3` engine; use `DEPTH` to set the bound.
 
 The [SoC formal verification workflow](../../.github/workflows/formal.yml)
 checks SoC changes on pull requests and pushes to `main` and `ci/**`. Each
-matrix job is labeled `prove` (unbounded safety) or `bmc-fast` (bounded, with
-an explicit depth in the workflow). CI pins OSS CAD Suite and the upstream
+matrix job is labeled `prove` (unbounded safety), `bmc` or `bmc-fast`
+(bounded, with an explicit depth in the workflow). CI pins OSS CAD Suite and the upstream
 ISA model revision, and uploads solver logs and any counterexample VCDs.
-The matrix gates the completed checks; exploratory jobs that have not closed,
-including full-core `prove` and `core-multiply`, remain runnable locally.
+The matrix gates the completed checks, including `core-isa`, `core-isa-stall`
+and `csr-trap`.
+Exploratory jobs such as the monolithic `core prove` and `core-multiply prove`
+remain runnable locally but are not gates.
 
 ### Unbounded safety proofs
 
@@ -51,9 +53,10 @@ instruction and PC match the commit trace, exceptions have no reported register
 or memory writes, and the 64-bit order counter starts at zero and advances
 exactly once per event. It also checks that a pending synchronous trap cannot
 have a valid EX/MEM packet. It does not compare architectural values against the
-ISA model. `bash formal/run.sh core prove` attempts the full RV32I check suite,
-which does not yet have a completed unbounded proof. PDR is not limited by `DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is
-inconclusive. Proof logs and any counterexample are under the job's `prove/`
+ISA model. Use `core-isa prove` for the unbounded scalar ISA check: it adds
+invariants that the original `core prove` PDR job lacks. PDR is not limited by
+`DEPTH`. `PROOF_TIMEOUT` defaults to 300 seconds; a timeout is inconclusive.
+Proof logs and any counterexample are under the job's `prove/`
 directory. `SOLVER` selects the SMT solver for k-induction or witness
 reconstruction for PDR, not the PDR engine itself. `SBY` can override the SymbiYosys executable path.
 
@@ -72,12 +75,13 @@ native little-endian byte lanes). External `halt` is a pause, not `rvfi_halt`.
 
 `formal/rvfi_rv32i.sv` checks RV32I instruction results against the upstream
 model, plus GPR consistency, PC continuity, order, and synchronous traps.
-The harness assumes one-cycle fetch replies, always-ready data memory with
-unconstrained read data, M-mode, and no interrupts. It limits fetched words to
-instructions recognized by the upstream RV32I model plus ECALL, EBREAK and the
-all-zero illegal encoding. FENCE and privileged/CSR behavior are not checked.
-The default `core` job leaves read data unconstrained and is not a memory
-coherence check.
+The default `core` job assumes one-cycle fetch replies, always-ready data memory
+with unconstrained read data, M-mode, and no interrupts. It limits fetched words
+to instructions recognized by the upstream RV32I model, ordinary FENCE (`fm=0`),
+ECALL, EBREAK, and the all-zero illegal encoding. FENCE is checked as a scalar
+no-op in this in-order, single-hart harness, not as a system ordering guarantee.
+FENCE.I, privilege returns, and CSR instructions are not in this fetch set. The
+`core` job is not a memory coherence check.
 
 ### Whole-core data-port refinement
 
@@ -97,15 +101,16 @@ cover job asks for a store that changes the word followed by a read of a written
 byte. `core-memory-port` isolates the data-port and retirement-accounting checks
 using the same inputs, without the instruction semantics comparisons.
 
-Neither job models coherent instruction fetch, the caches, or Sv32. An
-unbounded pass for `core-memory-port` would not prove the full ISA; the combined
-`core-memory` job still needs an unbounded result.
+Neither job models coherent instruction fetch, the caches, or Sv32. The
+unbounded `core-isa` job includes this same data-port contract together with the
+RV32I semantics checks.
 
 The interface is not sufficient to verify the entire implemented ISA: divides
 write back independently of in-order retirement, and vector memory operations
 can have multiple accesses or partial completion. Those need more trace support
-before enabling their checkers. LR/SC and AMO fields are emitted but not checked
-by this harness. CSR side effects and interrupt entry are not formally checked.
+before enabling general end-to-end checkers. The bounded `core-atomic` job
+checks the LR/SC and AMO fields; separate jobs below cover selected CSR, trap,
+interrupt and vector contracts.
 
 ### Scalar register and forwarding checks
 
@@ -117,8 +122,8 @@ bash formal/run.sh core-gpr prove
 This isolates the whole-core architectural operand scoreboard and checks that a
 non-x0 retired write arrives at the physical scalar write port, with the same
 destination and data, on the next cycle. It also checks that the divider
-cannot write in this RV32I environment. The bounded run passed at 12 steps;
-there is no completed unbounded result for this group.
+cannot write in this RV32I environment. The bounded run passed at 12 steps. `core-forward` and `core-isa` prove these
+register relations unbounded in their respective fetch environments.
 
 ### RV32M divide and remainder
 
@@ -137,7 +142,7 @@ hazards, or placing the deferred GPR write in the right RVFI retirement record.
 
 ```sh
 bash formal/run.sh core-divide-cutpoint bmc-fast
-bash formal/run.sh core-divide-interlock bmc-fast
+SOLVER=bitwuzla DEPTH=45 bash formal/run.sh core-divide-interlock bmc
 ```
 
 The cutpoint job passed 45 bounded steps for a fixed program on the core: two
@@ -148,7 +153,11 @@ checks the forwarded launch operands, deferred write destination and data seen
 by the dependents. It also asserts that the program completes in the
 always-ready environment, so the interlock checks cannot pass by hanging.
 `core-divide-interlock` keeps the real divider and compares its writeback with
-a lockstep instance; the 36-step bounded attempt timed out.
+an instance driven by the independently checked launch operands. The SMT job
+passed 45 bounded steps with Bitwuzla, including the completion deadline.
+At the same depth, cover reached program completion for all four divide and
+remainder variants. Neither job proves the interlock for arbitrary instruction
+sequences.
 
 `core-multiply` extends the mixed RV32I program stream and semantic checks
 with the upstream `MUL`, `MULH`, `MULHSU`, and `MULHU` models using their real
@@ -219,12 +228,24 @@ completion and restart after a trap. A single scalar RVFI memory event cannot
 express those effects. Use a separate vector reference/checker alongside the
 scalar `riscv-formal` jobs.
 
-### CSR and machine-trap integration
+### CSR trap and interrupt contract
 
 ```sh
+bash formal/run.sh csr-trap prove
+bash formal/run.sh csr-trap cover
 bash formal/run.sh core-csr-trap bmc-fast
 bash formal/run.sh core-csr-trap cover
 ```
+
+`csr-trap` passed unbounded ABC PDR on the actual CSR file against a separate
+M/S/U trap-state model. It checks interrupt enable and delegation, target
+privilege before interrupt cause priority, direct/vectored trap addresses,
+EPC/cause/tval, status save/restore, and clearing MPRV when xRET returns below
+M-mode. The harness supplies accepted CSR writes, synchronous trap events,
+interrupt inputs, and legal returns. It does not prove EX's CSR instruction
+checks, when the pipeline takes an interrupt, or general CSR behavior outside
+that state. Covers reach a delegated exception, a vectored supervisor interrupt,
+competing interrupt priorities, and both return paths.
 
 This fixed program writes and reads back a symbolic `mscratch` value, enters
 an `ECALL` trap at `mtvec`, reads `mepc` and `mcause` in the handler, rewrites
@@ -274,8 +295,8 @@ anything about internal pipeline state.
 `core-gpr-storage` exposes one arbitrary physical GPR to check its stored
 value against the RVFI write history, allowing the one-cycle delay before
 scalar WB lands. `core-gpr` also asserts this relation while checking both
-retired operands. The combined assertions passed 12 bounded steps; an
-unbounded storage/operand proof is still open.
+retired operands. The combined assertions passed 12 bounded steps in that
+job; `core-forward` and `core-isa` close the register relations by induction.
 
 `bash formal/run.sh scalar-regs prove` separately proved the physical GPR
 file by SMT k-induction. The one-register reference checks x0, reset,
@@ -293,15 +314,17 @@ bash formal/run.sh core-forward cover
 `core-forward` proved unbounded by SMT k-induction: every RVFI operand read
 (`rs1`/`rs2`) at retirement or synchronous-trap report equals the value the
 architectural scoreboard holds for that register, for arbitrary programs over
-the fetch set (RV32I scalar memory, control flow, LUI/AUIPC, non-privileged
-CSR, ECALL/EBREAK/FENCE). The proof carries an asserted invariant set, never
+the fetch set (syntactically restricted scalar RV32I opcodes, including OP-IMM,
+plus CSR accesses outside the excluded addresses, ECALL/EBREAK/FENCE). The
+proof checks operands, not the legality or behavior of every word this
+syntactic filter admits. It carries an asserted invariant set, never
 assumed: a two-deep per-register retirement history aligned with the WB port,
 the stored register file one retirement behind it, the EX capture muxes
 matched to that history (plain, EX/MEM-forwarded, and held lookup operands),
 the EX/MEM and exception report registers, the presence of the forwarded
-producer in MEM, and the static reachability facts that no stall, drain,
-trap-return, interrupt, translation, divider completion, or excluded
-encoding class (M, A, vector, SFENCE, FENCE.I, privileged CSR) can appear.
+producer in MEM, and reachability facts excluding trap returns, interrupts, translation,
+divider completion, and encodings for M, A, vector, SFENCE, FENCE.I and
+CSR accesses that could enable translation or interrupts.
 Each fact was needed inductively; the queue-slot and stage exclusions match
 the restricted fetch set exactly. BitWuzla closes the induction step in
 seconds where z3 timed out. This covers operand capture and reporting only:
@@ -311,32 +334,43 @@ operands are checked by the semantic jobs.
 ### Whole-core RV32I semantics
 
 ```sh
-SOLVER=bitwuzla DEPTH=12 bash formal/run.sh core-isa bmc-fast
 SOLVER=bitwuzla bash formal/run.sh core-isa prove
+SOLVER=bitwuzla bash formal/run.sh core-isa-stall prove
+SOLVER=bitwuzla bash formal/run.sh core-isa-stall cover
 ```
 
-`core-isa` runs the full semantic comparison on the actual core: retired
-results, next PCs, operand addresses, and memory effects against the upstream
-RV32I models, with the operand invariants above as asserted lemmas and an
-instruction-identity chain asserting that every live pipeline word (head,
-ID/EX, EX/MEM, pending exception) stays within the assumed fetch set. It
-passes 12 bounded steps, and the k-induction now reduces to a single open
-property: retirement PC continuity. Closing it needs the fetch-queue PC
-chain: consecutive slot PCs, prediction-target breaks, redirect and flush
-restarts, and the trap-vector restart after a synchronous exception.
-Everything else in the semantic check closes inductively with the current
-invariant set.
+`core-isa` passed unbounded k-induction with Bitwuzla on the actual core. It
+checks retirement results, GPR operands and writeback, PC continuity, selected
+synchronous traps, and physical data-port effects against the RV32I model in
+the fetch environment above. It uses the sparse memory model: the solver can
+pick any word to verify reads after writes and byte-lane updates there.
+
+The proof asserts the instruction-set restriction at every occupied fetch
+slot, ID/EX, EX/MEM, and the pending exception. It tracks the next PC through
+BTB predictions, queue entries, EX redirection, and synchronous trap restarts.
+The proof does not assume that a word fetched at a given address is stable
+across visits; the core must recover if an old taken prediction now refers to
+an ordinary instruction.
+
+`core-isa-stall` also passed unbounded k-induction, with the same assertions
+and arbitrary data-port backpressure. The additional invariants check decoded
+operands and effects even while EX or MEM is held, so an indefinitely stalled
+packet cannot hide incorrect state from induction. The harness also checks
+that a stalled transaction holds its address, direction and store payload
+until ready. Cover reached a store stalled on a stale-prediction redirect
+that later committed. These are safety proofs, not liveness guarantees or
+proofs of fetch coherence, I-cache misses, or Sv32.
 
 ### Remaining whole-core proof obligations
 
-- Close the RV32I instruction suite with inductive invariants for forwarding,
-  redirects, and architectural state. Then discharge the core-to-memory
-  contract with realistic fetch and memory handshakes.
+- Extend the scalar proof to the actual fetch/cache protocol, including
+  instruction misses, retries, coherent fetch, FENCE.I and external halt.
 - Extend end-to-end retirement checks to M and A. In particular, associate
   deferred divide writes and actual atomic completions with the issuing
   instruction, and check that the upstream contracts of the unit proofs hold.
-- Check CSR transitions, trap/interrupt entry and return, then Sv32 permissions,
-  page walks and fence effects against architectural models.
+- Compose the CSR trap/interrupt unit result with precise EX entry, CSR
+  instruction legality and return behavior. Prove Sv32 permissions, page walks
+  and fence effects against an architectural model.
 - Check the implemented vector subset against a vector reference, including
   element order, masks and tails, and partial effects across traps/restarts.
 

@@ -1236,6 +1236,10 @@ module roco_cpu_ex_stage (
   assign rvfi_fwd_held_rs1 = rvfi_held_rs1;
   assign rvfi_fwd_held_rs2 = rvfi_held_rs2;
 `endif
+
+`ifdef ROCO_M_STREAM_CHECKS
+  `include "m_ex_checks.svh"
+`endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_ex_checks.svh"
 `endif

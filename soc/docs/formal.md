@@ -159,6 +159,24 @@ At the same depth, cover reached program completion for all four divide and
 remainder variants. Neither job proves the interlock for arbitrary instruction
 sequences.
 
+```sh
+bash formal/run.sh core-m-stream prove
+SOLVER=bitwuzla bash formal/run.sh core-m-stream cover
+```
+
+`core-m-stream` passed unbounded k-induction on arbitrary scalar streams
+including all eight M operations, one-cycle fetch and arbitrary data-port
+backpressure. The independent radix-2 divider checker runs on the actual
+pipeline-launched divider. The core checks the launch's decoded operands,
+its in-order RVFI instruction event, and the separate destination-tagged
+GPR completion. The operand scoreboard checks forwarding and prevents a
+younger dependent read, overwrite or second divide from issuing early.
+Multiplication composes the separately proved product/recombination units
+with checks of operand selection, EX/MEM transfer and GPR commit. Covers
+reach a nonzero multiply, divide launch and deferred write, and a blocked
+second divide. This job is bare M-mode without IRQs; it does not claim
+that every non-M instruction's semantics are checked in this mixed stream.
+
 `core-multiply` extends the mixed RV32I program stream and semantic checks
 with the upstream `MUL`, `MULH`, `MULHSU`, and `MULHU` models using their real
 arithmetic, not `RISCV_FORMAL_ALTOPS`. The cover job reached a nonzero GPR
@@ -170,9 +188,9 @@ This unit proof does not check the DSP inputs or the pipeline.
 `bash formal/run.sh mul-prod prove` closes that input half: the four DSP
 partial products equal the signed/unsigned half-word decomposition for all
 multiply variants, with all four sign-combination covers reached. Together
-the two jobs fix the full low/high product for arbitrary operands; the
-remaining EX/MEM wiring is structural. This still does not connect the
-product to a retired RVFI record on the core.
+the two jobs fix the full low/high product for arbitrary operands.
+`core-m-stream` checks the composition through EX/MEM and writeback;
+it does not need a monolithic 32×32 arithmetic equivalence run.
 
 ### A and the implemented vector subset
 

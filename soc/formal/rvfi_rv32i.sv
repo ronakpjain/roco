@@ -50,6 +50,12 @@ module rvfi_rv32i #(
   logic trace_valid;
   logic [31:0] trace_pc, trace_instr;
   (* anyconst *) logic [4:0] tracked_reg;
+`ifdef ROCO_M_STREAM_CHECKS
+  logic div_wb_valid, div_watched_write;
+  logic [4:0] div_wb_rd;
+  logic [31:0] div_wb_data;
+  assign div_watched_write = div_wb_valid && div_wb_rd == tracked_reg;
+`endif
 `ifdef ROCO_ATOMIC_STREAM_CHECKS
   logic formal_res_valid, formal_amo_ready;
   logic [29:0] formal_res_word;
@@ -75,6 +81,15 @@ module rvfi_rv32i #(
 `endif
 
   roco_cpu dut (
+`ifdef ROCO_M_STREAM_CHECKS
+      .rvfi_div_start(),
+      .rvfi_div_op(),
+      .rvfi_div_a(),
+      .rvfi_div_b(),
+      .rvfi_div_wb_valid(div_wb_valid),
+      .rvfi_div_wb_rd(div_wb_rd),
+      .rvfi_div_wb_data(div_wb_data),
+`endif
 `ifdef ROCO_ATOMIC_STREAM_CHECKS
       .formal_res_valid(formal_res_valid),
       .formal_res_word(formal_res_word),
@@ -268,7 +283,11 @@ module rvfi_rv32i #(
     case (word[6:0])
       7'h37, 7'h17, 7'h6f, 7'h67, 7'h63, 7'h03, 7'h23, 7'h13: simple_rv32i = 1;
       7'b0001111: simple_rv32i = word[14:12] == 3'b000;
+`ifdef ROCO_M_STREAM_CHECKS
+      7'b0110011: simple_rv32i = 1;
+`else
       7'b0110011: simple_rv32i = word[31:25] != 7'd1;
+`endif
       7'b1110011:
       simple_rv32i =
         (word[14:12] != 3'b000 && word[31:20] != 12'h180 &&
@@ -361,7 +380,9 @@ module rvfi_rv32i #(
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
       // Redundant with the RV32I decoder above. Keep the one forbidden
       // encoding class explicit so the frontend invariant has a small cone.
+`ifndef ROCO_M_STREAM_CHECKS
       assume (!(fetch_word[6:0] == 7'h33 && fetch_word[31:25] == 1 && fetch_word[14]));
+`endif
 `endif
     end
   end
@@ -406,7 +427,11 @@ module rvfi_rv32i #(
         // Retirement drives MEM/WB first; the array receives it one edge
         // later. Writeback bypass supplies the current value before that.
         if (!$past(rst)) begin
+`ifdef ROCO_M_STREAM_CHECKS
+          assert (tracked_physical_value == $past(div_watched_write ? div_wb_data : tracked_value));
+`else
           assert (tracked_physical_value == $past(tracked_value));
+`endif
         end else begin
           assert (tracked_physical_value == 0);
         end
@@ -424,6 +449,9 @@ module rvfi_rv32i #(
           if (!rvfi_trap && rvfi_rd_addr == tracked_reg && tracked_reg != 0)
             tracked_value <= rvfi_rd_wdata;
         end
+`ifdef ROCO_M_STREAM_CHECKS
+        if (div_watched_write) tracked_value <= div_wb_data;
+`endif
       end
     end
   end

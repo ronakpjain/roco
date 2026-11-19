@@ -296,6 +296,13 @@ module roco_cpu_mem_stage (
     end
   end
 
+`ifdef ROCO_M_STREAM_CHECKS
+  always @(posedge clk) begin
+    if (!rst && exmem_valid && exmem_is_mul) begin
+      assert (commit_valid && !dmem_req && commit_wdata == mul_result);
+    end
+  end
+`endif
 `ifdef ROCO_RVFI_RV32A_CHECKS
   // Discharge the SC lookup precondition used by the standalone MEM proof
   // when this stage is driven by the real pipeline.

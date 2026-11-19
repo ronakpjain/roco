@@ -330,7 +330,11 @@ module roco_cpu_if_stage (
 `else
   localparam bit ExcludeAtomics = 1'b1;
 `endif
+`ifdef ROCO_M_STREAM_CHECKS
+  localparam bit ExcludeMulDiv = 1'b0;
+`else
   localparam bit ExcludeMulDiv = 1'b1;
+`endif
   function automatic logic excluded_enc(input logic [31:0] w);
     excluded_enc =
         (ExcludeMulDiv && w[6:0] == 7'h33 && w[31:25] == 7'd1) ||

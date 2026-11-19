@@ -520,6 +520,9 @@ module roco_cpu (
 `ifdef ROCO_RVFI_PC_CHECKS
       .rvfi_idex_rs1(rvfi_idex_rs1),
       .rvfi_idex_rs2(rvfi_idex_rs2),
+`elsif ROCO_M_STREAM_CHECKS
+      .rvfi_idex_rs1(rvfi_idex_rs1),
+      .rvfi_idex_rs2(rvfi_idex_rs2),
 `endif
 `ifdef ROCO_RVFI_GPR_STATE
       .rvfi_gpr_watch_addr(rvfi_gpr_watch_addr),
@@ -782,13 +785,24 @@ module roco_cpu (
   assign fwd_mem_w = exmem_valid && exmem_regwrite && exmem_rd == rvfi_gpr_watch_addr;
   assign fwd_watch_nonzero = rvfi_gpr_watch_addr != 0;
   assign rvfi_gpr_hist_value = fwd_hist0;
+`ifdef ROCO_M_STREAM_CHECKS
+  logic fwd_div_write;
+  assign fwd_div_write = div_wb_en && div_wb_rd == rvfi_gpr_watch_addr;
+  `include "m_stream_checks.svh"
+`endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       fwd_hist0 <= '0;
       fwd_hist1 <= '0;
     end else begin
+`ifdef ROCO_M_STREAM_CHECKS
+      fwd_hist1 <= fwd_div_write ? div_wb_data : fwd_hist0;
+      if (fwd_div_write) fwd_hist0 <= div_wb_data;
+      else if (fwd_watched_write) fwd_hist0 <= rvfi_rd_wdata;
+`else
       fwd_hist1 <= fwd_hist0;
       if (fwd_watched_write) fwd_hist0 <= rvfi_rd_wdata;
+`endif
     end
   end
   always @(posedge clk) begin
@@ -804,13 +818,17 @@ module roco_cpu (
       // shared register-file port.
       assert (priv == 2'b11);
       assert (!(satp[31] && priv_data != 2'b11));
+`ifndef ROCO_M_STREAM_CHECKS
       assert (div_rd == 0);
+`endif
       // The excluded encoding classes cannot appear in live pipeline state
       // either: the queue invariants hold for accepted fetch words, and the
       // stage registers inherit them one edge later.
       if (idex_valid) begin
         assert (!idex_is_vec && !idex_is_vset && !idex_is_vload && !idex_is_vstore);
+`ifndef ROCO_M_STREAM_CHECKS
         assert (!idex_is_mul);
+`endif
 `ifndef ROCO_ATOMIC_STREAM_CHECKS
         assert (!idex_is_amo && !idex_is_lr && !idex_is_sc);
 `endif
@@ -822,7 +840,9 @@ module roco_cpu (
       end
       if (exmem_valid) begin
         assert (!exmem_is_vload && !exmem_is_vstore);
+`ifndef ROCO_M_STREAM_CHECKS
         assert (!exmem_is_mul);
+`endif
 `ifndef ROCO_ATOMIC_STREAM_CHECKS
         assert (!exmem_is_amo && !exmem_is_lr && !exmem_is_sc);
 `endif
@@ -901,6 +921,7 @@ module roco_cpu (
 `endif
 
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
+`ifndef ROCO_M_STREAM_CHECKS
   always @(posedge clk) begin
     if (!rst) begin
       if (if_imem_rsp_valid)
@@ -913,6 +934,7 @@ module roco_cpu (
       assert (!div_busy && !div_wb_en);
     end
   end
+`endif
 `endif
 
   always_ff @(posedge clk or posedge rst) begin

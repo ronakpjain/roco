@@ -42,6 +42,7 @@ jobs:
           - {job: csr-trap, mode: prove}
           - {job: core-irq, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: divider, mode: prove}
+          - {job: core-m-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: atomic-mem, mode: prove}
           - {job: core-atomic-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: scalar-regs, mode: prove}

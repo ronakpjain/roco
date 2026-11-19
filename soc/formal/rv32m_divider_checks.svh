@@ -101,10 +101,12 @@ always @(posedge clk) begin
     if (ref_phase >= 3 && ref_phase <= 18)
       assert (div_triple == 34'(ref_den) + (34'(ref_den) << 1));
 
+`ifndef ROCO_M_STREAM_CHECKS
     cover (done && ref_op == `RV32_MD_DIV && ref_a == 32'h8000_0000 && ref_b == 32'hffff_ffff);
     cover (done && ref_op == `RV32_MD_DIVU && ref_b != 0);
     cover (done && ref_op == `RV32_MD_REM && ref_a[31] && ref_b != 0);
     cover (done && ref_op == `RV32_MD_REMU && ref_b == 0);
     cover (busy && !done && halt);
+`endif
   end
 end

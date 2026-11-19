@@ -64,6 +64,9 @@ module roco_cpu_mem_stage (
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
   output logic dmem_valid,
+  /* Atomic read phase: an uncached target needs a real read transaction
+     here, while a cached target already answered the EX lookup. */
+  output logic dmem_amo_read,
   output logic dmem_we,
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
@@ -215,6 +218,9 @@ module roco_cpu_mem_stage (
   // Always-ready MMIO can use validity directly without routing the
   // unrelated cache hit comparator through peripheral write enables.
   assign dmem_valid = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare;
+  // The atomic's old value comes from the cache lookup for a cached target.
+  // Any other target must read first, so name that phase for the bus side.
+  assign dmem_amo_read = !halt && !fence_req && amo_prepare;
   assign dmem_req = commit_valid && is_memory_op;
   assign mem_wait = !halt && exmem_valid && is_memory_op && (!dmem_ready || amo_prepare);
   assign commit_valid = !halt && exmem_valid && !fence_req && !mem_wait;

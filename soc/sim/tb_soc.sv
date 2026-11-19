@@ -317,14 +317,22 @@ module tb_soc #(
       $fatal(1, "staged memory target differs from active MEM address");
   end
 
-  logic apb_completed;
+  logic apb_completed, apb_last_we;
+  logic [31:0] apb_last_addr;
   always @(posedge clk or posedge rst) begin
     if (rst) apb_completed <= 1'b0;
     else if (u_soc.psel && u_soc.penable && u_soc.pready) begin
-      if (apb_completed || !u_soc.dmem_valid || u_soc.dmem_in_sdram ||
-          u_soc.paddr !== {u_soc.dmem_addr[31:2], 2'b00} || u_soc.pwrite !== u_soc.dmem_we)
-        $fatal(1, "unexpected or duplicate APB transfer");
+      // An uncached atomic reads its old value in the prepare phase, so that
+      // phase is the one MMIO transfer window outside commit validity.
+      if (!(u_soc.dmem_valid || u_soc.dmem_amo_read) || u_soc.dmem_in_sdram ||
+          u_soc.paddr !== {u_soc.dmem_addr[31:2], 2'b00} ||
+          u_soc.pwrite !== (u_soc.dmem_we && !u_soc.dmem_amo_read))
+        $fatal(1, "unexpected APB transfer");
+      if (apb_completed && apb_last_addr == u_soc.paddr && apb_last_we == u_soc.pwrite)
+        $fatal(1, "duplicate APB transfer");
       apb_completed <= 1'b1;
+      apb_last_addr <= u_soc.paddr;
+      apb_last_we <= u_soc.pwrite;
     end else if (u_soc.dmem_req && !u_soc.dmem_in_sdram) begin
       if (!apb_completed || !u_soc.mmio_done) $fatal(1, "MMIO committed before APB/AXI completion");
       apb_completed <= 1'b0;

@@ -82,6 +82,7 @@ module roco_soc #(
   logic dmem_ready;
   logic dmem_req;
   logic dmem_valid;
+  logic dmem_amo_read;
 `ifdef ROCO_SOC_RAM_FORMAL
   logic f_mem_packet;
 `endif
@@ -288,6 +289,7 @@ module roco_soc #(
       .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
       .dmem_valid(dmem_valid),
+      .dmem_amo_read(dmem_amo_read),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_mem_packet(f_mem_packet),
 `endif
@@ -530,8 +532,10 @@ module roco_soc #(
   axi4_mem_master u_mmio_axi (
       .clk(clk),
       .rst(rst),
-      .req(dmem_valid && !dmem_in_sdram),
-      .we(dmem_we),
+      // An uncached atomic reads its old value here; the cached path is
+      // already served by the EX lookup, so only this port reads first.
+      .req((dmem_valid || dmem_amo_read) && !dmem_in_sdram),
+      .we(dmem_we && !dmem_amo_read),
       .addr({dmem_addr[31:2], 2'b00}),
       .len(4'd0),
       .ready(unused_mmio_accept),

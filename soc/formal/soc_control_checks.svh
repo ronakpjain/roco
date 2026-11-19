@@ -6,6 +6,10 @@ logic f_soc_apb_access, f_soc_exit_write;
 logic [31:0] f_soc_strobe_mask;
 initial f_soc_past_valid = 1'b0;
 assign f_soc_apb_access = psel && penable && pready;
+// An uncached atomic reads its old value in the prepare phase, so that phase
+// is the only MMIO transfer window outside commit validity.
+logic f_mmio_we;
+assign f_mmio_we = dmem_we && !dmem_amo_read;
 assign f_soc_exit_write = f_soc_apb_access && pwrite && paddr[15:0] == 16'h1000;
 for (genvar i = 0; i < 4; i++) begin : gen_soc_strobe_mask
   assign f_soc_strobe_mask[8*i+:8] = {8{pstrb[i]}};
@@ -27,6 +31,11 @@ always_ff @(posedge clk) begin
       assert (pwrite && paddr[15:0] == 16'h0108 && |pstrb);
     end
     if (halted || core_rst) assert (!trace_valid);
+    if (f_soc_apb_access) begin
+      assert (dmem_valid || dmem_amo_read);
+      assert (!dmem_in_sdram);
+      assert (paddr[15:0] == dmem_addr[15:0] && pwrite == f_mmio_we);
+    end
   end
   if (f_soc_past_valid && !rst && !$past(rst)) begin
     assert (core_rst == (boot_cache_maintenance || !$past(boot_done_eff)));

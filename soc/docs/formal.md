@@ -24,7 +24,8 @@ assertions via ABC's bit-level `bmc3` engine; use `DEPTH` to set the bound.
 The [SoC formal verification workflow](../../.github/workflows/formal.yml)
 checks SoC changes on pull requests and pushes to `main` and `ci/**`. Each
 matrix job is labeled `prove` (unbounded safety), `bmc` or `bmc-fast`
-(bounded, with an explicit depth in the workflow). CI pins OSS CAD Suite and the upstream
+(bounded, with an explicit depth in the workflow), or `cover` (reachability of
+the states its assertions need). CI pins OSS CAD Suite and the upstream
 ISA model revision, and uploads solver logs and any counterexample VCDs.
 The matrix gates the completed checks, including `core-isa`, `core-isa-stall`
 and `csr-trap`.
@@ -82,8 +83,9 @@ K-induction passes on `roco_soc` with its default parameters, no internal
 cutpoints, an initially asserted reset, and otherwise unconstrained external
 inputs and subsequent resets. The assertions cover CPU release after boot,
 retirement suppression during halt or core reset, APB setup/access sequencing
-and stalled payload stability, UART MMIO FIFO side effects, and syscon exit-code
-byte merges, halt and restart ordering. The small induction depth is not an
+and stalled payload stability, the commit-valid or atomic-read window of every
+MMIO transfer, UART MMIO FIFO side effects, and syscon exit-code byte merges,
+halt and restart ordering. The small induction depth is not an
 execution bound. These are selected control invariants, not an architectural
 refinement proof of every path through the SoC.
 

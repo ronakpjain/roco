@@ -137,6 +137,7 @@ module roco_soc #(
   logic dmem_lu_in_sdram;
   logic i_unc_req;
   logic i_unc_rsp;
+  logic imem_rsp_in_sdram;
   logic [31:0] i_unc_rsp_addr;
   logic [31:0] i_unc_rsp_data;
   logic dc_cm_ready;
@@ -836,7 +837,10 @@ module roco_soc #(
   // The response-valid flop publishes this payload one cycle after the
   // request. Capturing unconditionally keeps late fetch/MMU qualification
   // off the address register enables; invalid responses are ignored.
-  always_ff @(posedge clk) i_unc_rsp_addr <= imem_addr;
+  always_ff @(posedge clk) begin
+    i_unc_rsp_addr <= imem_addr;
+    imem_rsp_in_sdram <= imem_in_sdram;
+  end
   assign i_unc_rsp_data = 32'd0;
 
   always_ff @(posedge clk or posedge rst) begin
@@ -903,9 +907,11 @@ module roco_soc #(
   end
 
   // ------------------------------------------------------- Response muxing
-  assign imem_rsp_valid = imem_in_sdram ? ic_cpu_rsp : i_unc_rsp;
-  assign imem_rsp_addr = imem_in_sdram ? ic_cpu_rsp_addr : i_unc_rsp_addr;
-  assign imem_rsp_data = imem_in_sdram ? ic_cpu_rsp_data : i_unc_rsp_data;
+  // Both paths reply to the previous cycle's lookup. A new speculative
+  // address may already select the other region while that reply arrives.
+  assign imem_rsp_valid = imem_rsp_in_sdram ? ic_cpu_rsp : i_unc_rsp;
+  assign imem_rsp_addr = imem_rsp_in_sdram ? ic_cpu_rsp_addr : i_unc_rsp_addr;
+  assign imem_rsp_data = imem_rsp_in_sdram ? ic_cpu_rsp_data : i_unc_rsp_data;
   assign dmem_rsp_data = dmem_in_sdram ? dc_cm_rdata : mmio_rsp_data;
   // Only cached reads use immediate MEM-to-EX forwarding. Uncached
   // dependencies wait for WB, keeping peripheral decode off the early bus.

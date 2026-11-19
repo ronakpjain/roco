@@ -4,6 +4,8 @@ initial assume (rst);
 logic f_ram_past, f_ram_write_is_boot;
 logic [4:0] f_ram_write_left;
 logic [31:2] f_last_lookup_word;
+logic [31:0] f_instruction_addr;
+logic f_instruction_sdram;
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
 logic f_dc_pending;
 logic [22:0] f_dc_word;
@@ -20,6 +22,8 @@ endfunction
 
 always_ff @(posedge clk) begin
   f_ram_past <= 1'b1;
+  f_instruction_addr <= imem_addr;
+  f_instruction_sdram <= imem_in_sdram;
   if (rst) begin
     {f_ram_write_left, f_ram_write_is_boot, f_last_lookup_word} <= '0;
   end else begin
@@ -52,6 +56,11 @@ always_ff @(posedge clk) begin
     end
     if (dc_mem_req) assert (dc_mem_len == 7 && dc_mem_word_addr[2:0] == 0);
     if (f_ram_past && !$past(rst)) begin
+      assert (imem_rsp_valid == (f_instruction_sdram ? ic_cpu_rsp : i_unc_rsp));
+      if (imem_rsp_valid) begin
+        assert (imem_rsp_addr == f_instruction_addr);
+        assert (imem_rsp_data == (f_instruction_sdram ? ic_cpu_rsp_data : 32'd0));
+      end
       if ($past(dc_mem_req && !dc_mem_ready))
         assert ($stable({dc_mem_req, dc_mem_we, dc_mem_word_addr, dc_mem_len}));
       if ($past(dc_mem_wvalid && !dc_mem_wready))

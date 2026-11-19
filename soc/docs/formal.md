@@ -33,6 +33,7 @@ remain runnable locally but are not gates.
 The workflow also runs a simulation matrix for `test_core`, `test_soc`,
 `test_boot` and `test_dcache`, building the sibling `cc` toolchain from source.
 `test_boot` includes parser restart and two-image cache-coherence reload.
+`test_soc` includes the cached/uncached instruction-fetch boundary regression.
 Program failures, timeouts and SDRAM model errors fail the test process and
 the CI job. Changes to either `soc/` or `cc/` trigger this workflow.
 
@@ -138,9 +139,16 @@ At the CPU boundary, every live memory packet retains the physical word
 address and SDRAM/MMIO selection of its EX lookup, including while halt or
 AMO preparation suppresses `dmem_valid`. A newer lookup cannot replace the
 selection before the older live packet commits. These results discharge the
-AXI input assumptions of `sdram-memory` on the real slave wires. They do
-not yet discharge the D-cache contract's held address/format and backing
-read-data assumptions at its native ports.
+AXI input assumptions of `sdram-memory` on the real slave wires. The complete
+CPU data-port contract is composed in `soc-dcache-memory` below.
+
+Physical instruction responses retain the address and region selection of
+the preceding lookup, even when the next speculative request crosses out of
+SDRAM. Validity and data must come from that earlier request's cached or
+uncached response path. `sw/tests/fetch_boundary.S`, run by `make test_soc`,
+stores and fences an instruction at `0x11fffffc`, executes it, then checks the
+illegal-instruction trap at `0x12000000`. It reproduced a dropped final cached
+instruction when the response mux used the current request's region.
 
 ## Whole-SoC SDRAM memory coherence (unbounded)
 

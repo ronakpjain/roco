@@ -344,11 +344,12 @@ $(BUILD_DIR)/tb_soc.vvp: $(RTL_SV) sim/tb_soc.sv sim/cpi_monitor.sv sim/sdram_mo
 $(BUILD_DIR)/tb_icache.vvp: rtl/mem/icache.sv sim/tb_icache.sv | build
 	$(IVERILOG) -g2012 -s tb_icache -o $@ $^
 
-test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(BUILD_DIR)/csr_irq_order.hex $(SOC_SIM_DEP) $(BUILD_DIR)/tb_icache.vvp
+test_soc: $(BUILD_DIR)/basic.hex $(BUILD_DIR)/counter_clear.hex $(BUILD_DIR)/csr_irq_order.hex $(BUILD_DIR)/fetch_boundary.hex $(SOC_SIM_DEP) $(BUILD_DIR)/tb_icache.vvp
 	$(VVP) $(BUILD_DIR)/tb_icache.vvp
 	$(SOC_SIM) +hex=$(BUILD_DIR)/basic.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/counter_clear.hex +check_counter_clear
 	$(SOC_SIM) +hex=$(BUILD_DIR)/csr_irq_order.hex
+	$(SOC_SIM) +hex=$(BUILD_DIR)/fetch_boundary.hex
 
 test_isa_soc: $(BUILD_DIR)/tb_soc.vvp
 	./scripts/get_riscv_tests.sh

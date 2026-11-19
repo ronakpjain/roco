@@ -99,6 +99,20 @@ jobs:
           - {job: sdram-adapter, mode: cover}
           - {job: sdram-memory, mode: cover}
           - {job: sdram-pins, mode: cover}
+          - {job: core, mode: cover}
+          - {job: core-accounting, mode: cover}
+          - {job: core-gpr, mode: cover}
+          - {job: core-gpr-writeback, mode: cover}
+          - {job: core-memory, mode: cover}
+          - {job: core-m-stream, mode: cover}
+          - {job: core-atomic, mode: cover}
+          - {job: core-vector-copy, mode: cover}
+          - {job: core-vector-mem-stream, mode: cover}
+          - {job: core-csr-trap, mode: cover}
+          - {job: core-irq, mode: cover}
+          - {job: core-sv32-load, mode: cover}
+          - {job: core-forward, mode: cover}
+          - {job: core-isa-stall, mode: cover}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal

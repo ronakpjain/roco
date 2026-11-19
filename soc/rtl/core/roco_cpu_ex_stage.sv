@@ -14,6 +14,9 @@
 `include "roco_rvfi.svh"
 
 module roco_cpu_ex_stage (
+`ifdef ROCO_VECTOR_MEM_STREAM
+  input logic [1:0] formal_vec_width,
+`endif
 `ifdef ROCO_RVFI
   input logic [4:0] rvfi_idex_rs1,
   input logic [4:0] rvfi_idex_rs2,
@@ -1237,6 +1240,9 @@ module roco_cpu_ex_stage (
   assign rvfi_fwd_held_rs2 = rvfi_held_rs2;
 `endif
 
+`ifdef ROCO_VECTOR_MEM_STREAM
+  `include "vector_mem_ex_checks.svh"
+`endif
 `ifdef ROCO_M_STREAM_CHECKS
   `include "m_ex_checks.svh"
 `endif

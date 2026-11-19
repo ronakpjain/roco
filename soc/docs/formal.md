@@ -250,6 +250,43 @@ DEPTH=20 bash formal/run.sh core-vector-copy bmc-fast
 bash formal/run.sh core-vector-copy cover
 ```
 
+### Whole-core vector memory streams
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh core-vector-mem-stream prove
+SOLVER=bitwuzla bash formal/run.sh core-vector-mem-stream cover
+DEPTH=24 bash formal/run.sh core-vector-mem-stream bmc-fast
+```
+
+`core-vector-mem-stream` passed unbounded k-induction with Bitwuzla for
+arbitrary instruction streams over the implemented vector memory subset:
+unmasked unit-stride loads and stores, `vsetivli` restricted to the tracked
+element width, plus `LUI` and `OP-IMM` filler. One of the three element
+widths is chosen per proof; VL, register choices and data are arbitrary.
+The environment is bare M-mode with one-cycle fetch, no interrupts or
+translation, and arbitrary data-port backpressure.
+
+A per-element reference tracks `vl` capture from `vsetivli`, activation,
+base and per-element addresses, byte lanes, the final-element retirement
+and the zero-VL no-op retirement, and the misaligned-address trap at the
+first element. The checks compare the EX/MEM packet (class, address, byte
+enables, element index, SEW, destination), the data-port handshake and
+stability under backpressure, the store payload selected from the vector
+register file, the element write of load data into the vector register file,
+retirement only on the last element, and the `vsetivli` GPR result.
+
+The induction step needed explicit ties between registered decode state and
+the instruction word: the vector store/load class bits and `funct3` at ID,
+the vector class bits, class/word consistency and exclusivity at EX/MEM, the
+`vsetivli` writeback select, and the fact that ID zeroes the captured rs1
+when the live MEM producer forwards. Without them induction could freeze a
+fabricated EX/MEM or operand state across a held cycle, including a vset
+encoding carrying the load class or a stale captured rs1 diverging from the
+registered element address. Covers reach a second element at all three
+widths, a misaligned trap, the zero-VL retirement, and a store committing
+after a stall. This proves vector memory sequencing, not vector arithmetic
+streams, element masking, or restart after a mid-stream trap.
+
 The implementation supports a subset (128-bit VLEN, LMUL=1, and 8/16/32-bit
 element widths), not all of RVV. A complete checker needs vector register
 and `vl`/`vtype`/`vstart` state, plus per-element memory events to verify partial
@@ -489,8 +526,10 @@ the tracked word.
 - Compose the CSR trap/interrupt unit result with precise EX entry, CSR
   instruction legality and return behavior. Prove Sv32 permissions, page walks
   and fence effects against an architectural model.
-- Check the implemented vector subset against a vector reference, including
-  element order, masks and tails, and partial effects across traps/restarts.
+- Check the remaining implemented vector subset against a vector reference:
+  arbitrary arithmetic streams beyond the fixed copy program, masked
+  elements, and partial effects and restart across mid-stream traps.
+  Arbitrary vector memory sequencing is closed by `core-vector-mem-stream`.
 
 ## AXI4-to-APB4 bridge
 

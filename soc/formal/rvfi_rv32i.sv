@@ -80,7 +80,14 @@ module rvfi_rv32i #(
 `endif
 `endif
 
+`ifdef ROCO_VECTOR_MEM_STREAM
+  (* anyconst *) logic [1:0] formal_vec_width;
+  always @(posedge clk) assume (formal_vec_width <= 2);
+`endif
   roco_cpu dut (
+`ifdef ROCO_VECTOR_MEM_STREAM
+      .formal_vec_width(formal_vec_width),
+`endif
 `ifdef ROCO_M_STREAM_CHECKS
       .rvfi_div_start(),
       .rvfi_div_op(),
@@ -269,7 +276,10 @@ module rvfi_rv32i #(
   endfunction
 
   logic fetch_supported;
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
+`ifdef ROCO_VECTOR_MEM_STREAM
+  `include "vector_mem_filter.svh"
+  assign fetch_supported = stream_vector_word(fetch_word, formal_vec_width);
+`elsif ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_fetch_filter.svh"
   assign fetch_supported = irq_fetch_allowed(fetch_word);
 `elsif ROCO_FORMAL_SIMPLE_FETCH
@@ -370,13 +380,12 @@ module rvfi_rv32i #(
     imem_rsp_addr <= imem_addr;
     imem_rsp_data <= fetch_word;
     if (!rst && imem_req) begin
-      assume (fetch_supported || extra_trap(
-          fetch_word
-      ) || plain_fence(
-          fetch_word
-      ) || (Atomics && atomic_fetch(
-          fetch_word
-      )));
+`ifdef ROCO_VECTOR_MEM_STREAM
+      assume (fetch_supported);
+`else
+      assume (fetch_supported || extra_trap(fetch_word) || plain_fence(fetch_word) ||
+              (Atomics && atomic_fetch(fetch_word)));
+`endif
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
       // Redundant with the RV32I decoder above. Keep the one forbidden
       // encoding class explicit so the frontend invariant has a small cone.
@@ -604,6 +613,7 @@ module rvfi_rv32i #(
   end
 `endif
 
+`ifndef ROCO_VECTOR_MEM_STREAM
   always @(posedge clk) begin
     if (!rst) begin
       cover (rvfi_valid && rvfi_order == 3);
@@ -616,5 +626,6 @@ module rvfi_rv32i #(
       cover (rvfi_valid && !rvfi_trap && rvfi_insn[6:0] == 7'h13 && rvfi_rd_addr != 0);
     end
   end
+`endif
 endmodule
 `undef ROCO_FORMAL_ISA_MODEL

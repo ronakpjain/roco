@@ -17,7 +17,7 @@ case "$mode" in
 esac
 
 case "$job" in
-  core|core-accounting|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply)
+  core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
@@ -27,7 +27,7 @@ case "$job" in
       parameters="chparam -set CoherentMemory 1 $top;"
     elif [[ "$job" == core-m-stream ]]; then
       parameters="chparam -set AccountingOnly 1 -set RegisterOnly 1 -set StallMemory 1 $top;"
-    elif [[ "$job" == core-irq ]]; then
+    elif [[ "$job" == core-irq || "$job" == core-vector-mem-stream ]]; then
       parameters="chparam -set AccountingOnly 1 -set StallMemory 1 $top;"
     elif [[ "$job" == core-memory-port ]]; then
       parameters="chparam -set CoherentMemory 1 -set AccountingOnly 1 $top;"
@@ -76,6 +76,13 @@ case "$job" in
       defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_NO_DIV_CHECKS -DROCO_FORMAL_SIMPLE_FETCH'
       proof_engine="smtbmc ${SOLVER:-bitwuzla}"
       proof_depth=7
+      proof_lowering='memory_map -rom-only; opt'
+    fi
+    if [[ "$job" == core-vector-mem-stream ]]; then
+      depth=24
+      defines+=' -DROCO_VECTOR_MEM_STREAM'
+      proof_engine="smtbmc ${SOLVER:-bitwuzla}"
+      proof_depth=6
       proof_lowering='memory_map -rom-only; opt'
     fi
     if [[ "$job" == core-irq ]]; then
@@ -236,7 +243,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -295,6 +302,9 @@ formal/irq_fetch_filter.svh
 formal/irq_pipeline_checks.svh
 formal/m_ex_checks.svh
 formal/m_stream_checks.svh
+formal/vector_mem_filter.svh
+formal/vector_mem_ex_checks.svh
+formal/vector_mem_commit_checks.svh
 EOF
 fi
 

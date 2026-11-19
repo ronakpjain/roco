@@ -16,6 +16,9 @@
 `default_nettype none
 
 module roco_cpu_if_stage (
+`ifdef ROCO_VECTOR_MEM_STREAM
+  input logic [1:0] formal_vec_width,
+`endif
 `ifdef ROCO_FETCH_PROTOCOL_CHECKS
   input logic [29:0] formal_watch_word,
   input logic [31:0] formal_watch_data,
@@ -360,6 +363,24 @@ module roco_cpu_if_stage (
     if (!rst) begin
       assert (q_count <= 3'(DEPTH) && q_tail == q_head + q_count[1:0]);
       if (if_valid) assert (!excluded_enc(if_instr));
+    end
+  end
+`endif
+`ifdef ROCO_VECTOR_MEM_STREAM
+  `include "vector_mem_filter.svh"
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (q_count <= 3'(DEPTH) && q_tail == q_head + q_count[1:0]);
+      if (imem_rsp_valid) assert (stream_vector_word(imem_rsp_data, formal_vec_width));
+    end
+  end
+  for (genvar slot = 0; slot < DEPTH; slot++) begin : g_vector_stream
+    logic [1:0] distance;
+    assign distance = 2'(slot) - q_head;
+    always @(posedge clk) begin
+      if (!rst && 3'(distance) < q_count) begin
+        assert (!q_fault[slot] && stream_vector_word(q_instr[slot], formal_vec_width));
+      end
     end
   end
 `endif

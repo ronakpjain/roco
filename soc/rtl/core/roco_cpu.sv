@@ -25,6 +25,9 @@
 `default_nettype none
 
 module roco_cpu (
+`ifdef ROCO_VECTOR_MEM_STREAM
+  input logic [1:0] formal_vec_width,
+`endif
 `ifdef ROCO_RVFI
   output logic rvfi_valid,
   output logic [63:0] rvfi_order,
@@ -476,6 +479,9 @@ module roco_cpu (
 
   logic [31:0] fetch_oldest_pc;
   roco_cpu_if_stage u_if (
+`ifdef ROCO_VECTOR_MEM_STREAM
+      .formal_vec_width(formal_vec_width),
+`endif
       .oldest_pc(fetch_oldest_pc),
 `ifdef ROCO_RVFI_INSN_CHECKS
       .rvfi_queue_live(rvfi_queue_live),
@@ -954,7 +960,13 @@ module roco_cpu (
   logic [31:0] formal_irq_epc;
   `include "irq_pipeline_checks.svh"
 `endif
+`ifdef ROCO_VECTOR_MEM_STREAM
+  `include "vector_mem_commit_checks.svh"
+`endif
   roco_cpu_ex_stage u_ex (
+`ifdef ROCO_VECTOR_MEM_STREAM
+      .formal_vec_width(formal_vec_width),
+`endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
       .formal_irq_pending(formal_irq_pending),
       .formal_trap_pending(formal_trap_pending),

@@ -255,6 +255,26 @@ and bounded completion in the always-ready environment. It passed 48 bounded
 steps and reached the post-return instruction. This is not a general CSR,
 interrupt, or privilege-delegation proof.
 
+### Sv32 walker and TLBs
+
+```sh
+bash formal/run.sh sv32 prove
+SOLVER=bitwuzla bash formal/run.sh sv32 cover
+```
+
+`sv32` passed unbounded k-induction on the production MMU. The reference
+checks the root and second-level PTE addresses, SDRAM bounds, single-beat
+AXI ownership and stall stability, 4 KiB and 4 MiB leaf decoding, reserved
+non-leaf bits, U/S permissions (including SUM and MXR), software-managed
+A/D bits, fault results, and cancellation/draining on flush or redirect.
+It tracks an arbitrary TLB row in each TLB and checks the hot instruction
+translation against the installed entry. A full flush invalidates both
+TLBs and the hot slot. Covers reach both page sizes, translated fetch and
+store hits, a second-level fault, and cancellation before and after AR.
+The reference uses the SoC's documented 32-bit physical address subset
+and arbitrarily delayed AXI responses. This is not a proof of the CPU's
+SFENCE.VMA decode, trap retirement, or the coherence of page-table stores.
+
 ### Sv32 load integration
 
 ```sh

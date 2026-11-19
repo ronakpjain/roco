@@ -304,6 +304,9 @@ module roco_cpu_mmu #(
   always_ff @(posedge clk or posedge rst) begin
     if (rst) i_hot_valid <= 1'b0;
     else if (flush) i_hot_valid <= 1'b0;
+    else if ((wstate == W_INSTALL) && !w_discard && w_is_if &&
+             (w_idx == (i_hot_match ? i_hot_vpn[IDX_BITS-1:0] : i_idx)))
+      i_hot_valid <= 1'b0;
     else if (!i_hot_match) i_hot_valid <= i_req && i_translate && i_tag_hit && i_perm_ok;
   end
   assign i_hit = !i_translate || i_hot_match;
@@ -322,9 +325,10 @@ module roco_cpu_mmu #(
   // refresh independently of late acceptance and redirect qualification.
   always_ff @(posedge clk) i_req_vaddr <= i_vaddr;
   assign d_paddr = d_translate ? {d_ppn, d_vaddr[11:0]} : d_vaddr;
-  assign d_fault = !d_cached_hit &&
+  assign d_fault = d_translate && !d_cached_hit &&
                    (d_perm_fault || (d_fault_pending && d_req && (d_vpn == d_fault_vpn)));
-  assign d_fault_cause = d_fault_pending ? d_fault_cause_q : (d_we ? 4'd15 : 4'd13);
+  assign d_fault_cause = d_fault_pending && !d_perm_fault ? d_fault_cause_q :
+                         (d_we ? 4'd15 : 4'd13);
 
   axi4_ar_t ptw_ar_payload;
   assign ptw_ar = ptw_ar_payload;
@@ -358,7 +362,8 @@ module roco_cpu_mmu #(
         end else begin
           walk_result = R_INSTALL;
         end
-      end else if (pte_range_ok) begin
+      end else if (pte_range_ok && !(pte_data_q[7] || pte_data_q[6] || pte_data_q[4])) begin
+        // U, A and D are reserved in an Sv32 non-leaf PTE.
         walk_result = R_NEXT;
       end else begin
         walk_result = R_FAULT;
@@ -372,12 +377,15 @@ module roco_cpu_mmu #(
     end
   end
 
+  logic start_data_walk;
+  assign start_data_walk = d_miss_pending && d_translate && d_req;
+
   // Walker state determines whether this payload is live. Capture idle
   // candidates even when a flush cancels the request, keeping redirect
   // arbitration off the physical request-address register enable.
   always_ff @(posedge clk) begin
     if (wstate == W_IDLE) begin
-      w_pte_addr <= d_miss_pending ? {satp[19:0], d_vaddr[31:22], 2'b00} :
+      w_pte_addr <= start_data_walk ? {satp[19:0], d_vaddr[31:22], 2'b00} :
                                     {satp[19:0], i_vaddr[31:22], 2'b00};
     end else if ((wstate == W_PTE1_WAIT) && pte_valid_q && (walk_result == R_NEXT)) begin
       w_pte_addr <= level0_pte_addr;
@@ -395,10 +403,10 @@ module roco_cpu_mmu #(
       w_install_word <= '0;
     end else begin
       if (wstate == W_IDLE) begin
-        w_vaddr <= d_miss_pending ? d_vaddr : i_vaddr;
-        w_priv <= d_miss_pending ? priv_data : priv_fetch;
-        w_is_if <= !d_miss_pending;
-        w_is_store <= d_miss_pending && d_we;
+        w_vaddr <= start_data_walk ? d_vaddr : i_vaddr;
+        w_priv <= start_data_walk ? priv_data : priv_fetch;
+        w_is_if <= !start_data_walk;
+        w_is_store <= start_data_walk && d_we;
       end
       if (pte_valid_q && ((wstate == W_PTE1_WAIT) || (wstate == W_PTE0_WAIT))) begin
         w_install_word <= {
@@ -507,7 +515,7 @@ module roco_cpu_mmu #(
         case (wstate)
           W_IDLE: begin
             w_discard <= 1'b0;
-            if (d_miss_pending) begin
+            if (start_data_walk) begin
               if (in_sdram({satp[19:0], d_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
@@ -516,7 +524,7 @@ module roco_cpu_mmu #(
                 d_fault_vpn <= d_vaddr[31:12];
                 d_fault_cause_q <= d_we ? 4'd15 : 4'd13;
               end
-            end else if (i_miss_pending && !iflush) begin
+            end else if (i_miss_pending && !iflush && i_translate && i_req) begin
               if (in_sdram({satp[19:0], i_vaddr[31:22], 2'b00})) begin
                 wstate <= W_PTE1_REQ;
               end else begin
@@ -637,4 +645,7 @@ module roco_cpu_mmu #(
     end
   end
 
+`ifdef ROCO_SV32_FORMAL
+  `include "sv32_checks.svh"
+`endif
 endmodule

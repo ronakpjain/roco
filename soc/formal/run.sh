@@ -164,6 +164,15 @@ case "$job" in
     proof_depth=4
     proof_lowering=''
     ;;
+  sv32)
+    top=roco_cpu_mmu
+    depth=24
+    sources=(rtl/core/roco_cpu_mmu.sv)
+    defines='-DROCO_SV32_FORMAL'
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
+    proof_depth=5
+    proof_lowering=''
+    ;;
   icache)
     top=icache
     depth=28
@@ -185,7 +194,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|icache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|sv32|icache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -236,6 +245,7 @@ rtl/common/roco_rvfi.svh
 formal/rv32m_divider_checks.svh
 formal/scalar_regs_checks.svh
 formal/icache_checks.svh
+formal/sv32_checks.svh
 EOF
 fi
 

@@ -62,6 +62,9 @@ module sdram_ctrl #(
   f_ctrl_write_count,
   f_ctrl_pins_written,
 `endif
+`ifdef ROCO_SDRAM_MEMORY_FORMAL
+  output logic [14:0] f_pin_row,
+`endif
   input logic [15:0] sd_dq_in
 );
 

@@ -65,6 +65,7 @@ jobs:
           - {job: sdram-adapter, mode: prove, solver: bitwuzla}
           - {job: sdram-pins, mode: prove, solver: bitwuzla}
           - {job: sdram-link, mode: prove, solver: bitwuzla}
+          - {job: sdram-memory, mode: prove, solver: bitwuzla}
           - {job: soc-control, mode: prove, solver: bitwuzla}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422, solver: bitwuzla}
     env:

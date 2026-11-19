@@ -665,3 +665,28 @@ write at the pins. AXI masters must still hold payloads stable while stalled
 and use `WLAST` consistent with AWLEN; reset and pin input data remain arbitrary.
 This proves preservation and ordering up to the pins, not a coherent SDRAM
 cell model or an end-to-end proof through the rest of the SoC.
+
+## AXI-to-SDRAM memory coherence (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh sdram-memory prove
+SOLVER=bitwuzla bash formal/run.sh sdram-memory cover
+```
+
+The connected adapter and controller now drive a sparse BL2/CL3 memory model.
+The proof checks an arbitrary word in the entire SDRAM window: one copy
+updates from actual WRITE pins and DQM, and the other updates independently
+from accepted AXI W beats and strobes. Inductive assertions allow the two
+copies to differ only for the halfwords still in flight, and check that they
+agree at B. READ commands snapshot the pin copy and return the two halfwords
+through the CAS-latency pipeline. The corresponding AXI R beat must report
+the architectural copy, including when the adapter buffers it under stalls.
+Checking an arbitrary word and an arbitrary buffer index covers every
+address and beat. All other word data may vary without restriction.
+
+The proof retains the link contract's AXI assumptions and uses default
+controller timing. The checker models reset as starting a new memory epoch
+with the same arbitrary word; it does not prove contents across reset. Cover
+mode alone shortens power-up and reaches a write that changes the word followed
+by an AXI read of it. This still assumes an ideal memory device, not physical
+SDRAM timing or retention, and does not include the crossbar or caches.

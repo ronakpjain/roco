@@ -6,6 +6,9 @@ logic f_activate, f_precharge, f_refresh, f_mode, f_read, f_write, f_accept_w;
 logic f_open;
 logic [1:0] f_bank;
 logic [12:0] f_row;
+`ifdef ROCO_SDRAM_MEMORY_FORMAL
+assign f_pin_row = {f_bank, f_row};
+`endif
 logic [CL+1:0] f_read_delay, f_last_delay;
 logic f_busy, f_request, f_request_we;
 logic [22:0] f_word_addr;
@@ -129,9 +132,11 @@ always_ff @(posedge clk) begin
       if (rvalid) assert (rdata[15:0] == $past(sd_dq_in, 2));
     end
 
+`ifndef ROCO_SDRAM_LINK_FORMAL
     cover (rvalid && rlast && f_len == 15);
     cover (f_write_half == 2 && f_written_words == 15);
     cover (f_refresh && init_done);
+`endif
 
     // Inductive links to the pin monitor. These are checked, not assumed.
     assert (f_open == row_open);

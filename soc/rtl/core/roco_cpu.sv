@@ -409,6 +409,21 @@ module roco_cpu (
   assign dmem_lu_addr = lookup_paddr[31:2];
   assign dmem_lu_offset = lookup_paddr[1:0];
   assign dmem_lu_funct3 = idex_funct3;
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  // Decode classes must remain exclusive even when ID/EX is held for an
+  // arbitrarily long translation or memory wait. Assert these facts rather
+  // than constraining the pipeline state at the induction boundary.
+  always_ff @(posedge clk) begin
+    if (!rst && idex_valid && (idex_is_vload || idex_is_vstore))
+      assert (!(idex_is_load || idex_is_store || idex_is_amo || idex_is_lr || idex_is_sc));
+    if (!rst && idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
+        idex_is_lr || idex_is_sc || idex_is_vload || idex_is_vstore)) begin
+      assert (!(idex_is_branch || idex_is_jal || idex_is_jalr || idex_is_csr ||
+                idex_ecall || idex_ebreak || idex_mret || idex_sret ||
+                idex_is_sfence || idex_is_fence_i || idex_is_vec));
+    end
+  end
+`endif
 `ifdef ROCO_SOC_RAM_FORMAL
   // Observe the owning MEM packet even on cycles when AMO preparation or
   // a core halt suppresses the externally visible dmem_valid.

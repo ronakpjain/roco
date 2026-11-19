@@ -4,6 +4,10 @@ initial assume (rst);
 logic f_ram_past, f_ram_write_is_boot;
 logic [4:0] f_ram_write_left;
 logic [31:2] f_last_lookup_word;
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+logic f_dc_pending;
+logic [22:0] f_dc_word;
+`endif
 initial f_ram_past = 1'b0;
 
 function automatic logic ram_burst(input logic [31:0] addr, input logic [7:0] len,
@@ -17,6 +21,20 @@ always_ff @(posedge clk) begin
   if (rst) begin
     {f_ram_write_left, f_ram_write_is_boot, f_last_lookup_word} <= '0;
   end else begin
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+    if (!core_rst) begin
+      assert (f_dc_pending == (f_mem_packet && dmem_in_sdram));
+      if (f_dc_pending) assert (f_dc_word == f_last_lookup_word[24:2]);
+      if (dmem_req && dmem_in_sdram) begin
+        assert (f_dc_pending && dc_cm_ready && dmem_addr[24:2] == f_dc_word);
+      end
+      if (dmem_lu_valid && dmem_lu_in_sdram) begin
+        assert (!f_dc_pending || (dmem_req && dmem_in_sdram));
+        f_dc_pending <= 1'b1;
+        f_dc_word <= dmem_lu_addr[24:2];
+      end else if (dmem_req && dmem_in_sdram) f_dc_pending <= 1'b0;
+    end
+`endif
     if (dmem_lu_valid) f_last_lookup_word <= dmem_lu_addr;
     // Count the real downstream AW/W handshakes. Link the observed
     // burst to the selected master, even across indefinitely long stalls.
@@ -53,4 +71,10 @@ always_ff @(posedge clk) begin
     if (ram_ar.valid) assert (ram_burst(ram_ar.addr, ram_ar.len, ram_ar.size, ram_ar.burst));
     if (ram_aw.valid) assert (ram_burst(ram_aw.addr, ram_aw.len, ram_aw.size, ram_aw.burst));
   end
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  // CPU reset cancels its packet, but does not reset the cache. This
+  // monitor proves ownership within a CPU epoch only; cache cancellation
+  // across UART boot restart remains a separate composition obligation.
+  if (core_rst) {f_dc_pending, f_dc_word} <= '0;
+`endif
 end

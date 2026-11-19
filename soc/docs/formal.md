@@ -122,6 +122,26 @@ AXI input assumptions of `sdram-memory` on the real slave wires. They do
 not yet discharge the D-cache contract's held address/format and backing
 read-data assumptions at its native ports.
 
+## D-cache caller ownership (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-dcache-client prove
+```
+
+On the actual default SoC, k-induction proves that each SDRAM lookup owns a
+live MEM packet until its ready-qualified commit, with the original word
+address. A new lookup can overlap the older packet only on its commit edge.
+The job retains all `soc-ram` assertions. Supporting assertions prove that
+held ID/EX memory classes exclude scalar control/system instructions and that
+scalar and vector memory classes are mutually exclusive. No internal state
+is assumed.
+
+The scoreboard starts a new epoch on CPU reset. UART boot restart can reset
+the CPU without resetting the D-cache, so cancellation of outstanding cache
+work across that boundary must also be checked separately. Held lookup
+address/format, flush exclusion and backing read-data assumptions remain open.
+This job does not yet discharge the full `dcache-memory` caller contract.
+
 ## Whole-SoC memory and MMIO integration (bounded)
 
 ```sh

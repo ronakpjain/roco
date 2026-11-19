@@ -23,6 +23,8 @@ always_ff @(posedge clk) begin
   if (rst) begin
     {f_ram_write_left, f_ram_write_is_boot, f_last_lookup_word} <= '0;
   end else begin
+    assert (f_boot_write_left == (f_boot_write_owned ? 5'd1 : 5'd0));
+    if (boot_cache_maintenance) assert (!f_boot_write_owned);
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
     // The backing read agent is the real AXI master, crossbar, adapter
     // and SDRAM controller. Count native handshakes independently.

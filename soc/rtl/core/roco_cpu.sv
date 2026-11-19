@@ -429,6 +429,9 @@ module roco_cpu (
   // a core halt suppresses the externally visible dmem_valid.
   assign f_mem_packet = exmem_valid && (exmem_is_load || exmem_is_store || exmem_is_amo ||
                         exmem_is_lr || exmem_is_sc || exmem_is_vload || exmem_is_vstore);
+  always_ff @(posedge clk) begin
+    if (!rst && exmem_valid && (exmem_is_fence_i || exmem_is_sfence)) assert (!f_mem_packet);
+  end
 `endif
   // Hold the faulting instruction while registering the MMU response.
   // Trap delegation and fetch redirection then start from a register.

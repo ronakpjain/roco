@@ -363,6 +363,7 @@ module roco_soc #(
   logic unused_i_wready, unused_i_done, unused_d_done, unused_boot_done;
 `ifdef ROCO_SOC_RAM_FORMAL
   logic [4:0] f_d_write_left, f_boot_write_left;
+  logic f_boot_write_owned;
   logic f_ram_wphase, f_ram_wowner_boot;
 `endif
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
@@ -719,6 +720,9 @@ module roco_soc #(
 
   // ----------------------------------------------------------- Bootloader
   uart_boot u_boot (
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_owned(f_boot_write_owned),
+`endif
       .clk(clk),
       .rst(rst),
       .restart(boot_restart),

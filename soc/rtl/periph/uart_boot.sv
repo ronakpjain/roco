@@ -15,6 +15,9 @@
 `default_nettype none
 
 module uart_boot (
+`ifdef ROCO_SOC_RAM_FORMAL
+  output logic f_write_owned,
+`endif
   input logic clk,
   input logic rst,
   input logic restart,
@@ -93,6 +96,7 @@ module uart_boot (
   assign range_sum = {1'b0, base_q} + {1'b0, len_q};
 
 `ifdef ROCO_SOC_RAM_FORMAL
+  assign f_write_owned = state == S_WR_BEAT;
   always_ff @(posedge clk) begin
     if (!rst) begin
       if (boot_done) assert (state == S_MAGIC);

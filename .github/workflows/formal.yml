@@ -60,7 +60,7 @@ jobs:
           - {job: core-divide-interlock, mode: bmc, depth: 45, solver: bitwuzla}
           - {job: core-csr-trap, mode: bmc-fast, depth: 48}
           - {job: core-sv32-load, mode: bmc-fast, depth: 55}
-          - {job: core-vector-mem-stream, mode: bmc-fast, depth: 24, riscv-formal: true}
+          - {job: core-vector-mem-stream, mode: bmc-fast, depth: 24, riscv-formal: true, proof-timeout: 600}
           - {job: axi-mem-master, mode: prove}
           - {job: sdram-adapter, mode: prove, solver: bitwuzla}
           - {job: sdram-pins, mode: prove, solver: bitwuzla}
@@ -98,6 +98,7 @@ jobs:
           MODE: ${{ matrix.mode }}
           DEPTH: ${{ matrix.depth }}
           SOLVER: ${{ matrix.solver }}
+          PROOF_TIMEOUT: ${{ matrix.proof-timeout }}
         run: |
           yosys -V
           sby --version

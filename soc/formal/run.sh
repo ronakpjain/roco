@@ -244,12 +244,12 @@ case "$job" in
     sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv)
     defines='-DROCO_SOC_CONTROL_FORMAL'
     if [[ "$job" == soc-fence ]]; then defines='-DROCO_SOC_FENCE_FORMAL'; fi
-    if [[ "$job" == soc-dcache-client ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL'; fi
-    if [[ "$job" == soc-ram ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL'; fi
+    if [[ "$job" == soc-dcache-client ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_FENCE_FORMAL'; fi
+    if [[ "$job" == soc-ram ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_FENCE_FORMAL'; fi
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
     if [[ "$job" == soc-sdram-memory ]]; then
-      defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_SDRAM_MEMORY_FORMAL -DROCO_SDRAM_ADAPTER_FORMAL -DROCO_SDRAM_PIN_FORMAL -DROCO_SDRAM_LINK_FORMAL -DROCO_SDRAM_MEMORY_FORMAL'
+      defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_FENCE_FORMAL -DROCO_SOC_SDRAM_MEMORY_FORMAL -DROCO_SDRAM_ADAPTER_FORMAL -DROCO_SDRAM_PIN_FORMAL -DROCO_SDRAM_LINK_FORMAL -DROCO_SDRAM_MEMORY_FORMAL'
       proof_depth=10
     fi
     proof_lowering='opt_clean'

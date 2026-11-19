@@ -21,6 +21,10 @@ module dcache #(
     parameter int LINE_WORDS = 4,
     parameter int NUM_LINES = 256
 ) (
+`ifdef ROCO_SOC_FENCE_FORMAL
+  output logic f_idle,
+  output logic f_lookup_pending,
+`endif
   input logic clk,
   input logic rst,
   input logic flush,
@@ -161,6 +165,10 @@ module dcache #(
   assign miss_pulse = lookup_valid_q && (state == S_IDLE) && !lookup_hit_q;
 
   assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
+`ifdef ROCO_SOC_FENCE_FORMAL
+  assign f_idle = state == S_IDLE;
+  assign f_lookup_pending = lookup_valid_q;
+`endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;

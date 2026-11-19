@@ -95,6 +95,20 @@ every I-cache line is invalid and no cache hit is delivered after the
 invalidation, including while an old refill drains. Checks of the live
 pipeline flags connect the instruction encoding to the handshake.
 
+The same sequencer handles UART boot restart. Unbounded assertions check that
+the CPU stays in reset and boot writes are blocked during maintenance, dirty
+flush completes before the controller drain and I-cache invalidation, and the
+D-cache is idle before its metadata reset. Old I-cache refills drain using
+the invalidation protocol; their stalled requests are not canceled. Boot
+writes after a restart require completed cleaning and invalidation history.
+These checks also run in `soc-ram` and `soc-sdram-memory`.
+
+`make test_boot_reload` (also part of `make test_boot`) uploads two different
+images at the same address. The first leaves dirty data and restarts without
+FENCE.I. The second checks replacement instruction/data visibility and
+preservation of a dirty word outside the upload. It reproduced stale first-
+image instruction execution before the restart-maintenance fix.
+
 This verifies control and cache metadata, not that the post-fence instruction
 bytes equal a preceding CPU store for every legal program. The latter still
 requires composing the CPU/D-cache data contract, fabric coherence and
@@ -173,10 +187,11 @@ native requests and write payloads remain stable under backpressure. These
 checks do not assume anything about SDRAM input data. The `soc-ram` CI gate
 also includes this complete assertion set.
 
-The scoreboard starts a new epoch on CPU reset. UART boot restart can reset
-the CPU without resetting the D-cache, so cancellation of outstanding cache
-work across that boundary must also be checked separately. Flush exclusion
-and backing read-data assumptions remain open. Inactive lookup inputs may
+The scoreboard starts a new epoch on CPU reset. UART boot restart immediately
+resets the CPU, then drains and cleans the D-cache before resetting its
+metadata and admitting boot writes, as checked by `soc-fence`. Composing
+architectural data across that reset boundary, ordinary flush exclusion and
+the cache's backing read-data assumptions remains open. Inactive lookup inputs may
 change freely; the cache retains the accepted address and load format.
 This job does not yet discharge the full `dcache-memory` caller contract.
 

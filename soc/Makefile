@@ -363,7 +363,7 @@ $(BOOT_SIM): $(SIM_RTL) $(RTL_SVH) sim/tb_soc_boot.sv sim/sdram_model.sv | build
 $(BUILD_DIR)/tb_uart_boot_restart.vvp: rtl/periph/uart_boot.sv sim/tb_uart_boot_restart.sv | build
 	$(IVERILOG) -g2012 -s tb_uart_boot_restart -o $@ $^
 
-test_boot: $(BUILD_DIR)/hello_boot.packet.hex $(BOOT_SIM) $(BUILD_DIR)/tb_uart_boot_restart.vvp
+test_boot: $(BUILD_DIR)/hello_boot.packet.hex $(BOOT_SIM) $(BUILD_DIR)/tb_uart_boot_restart.vvp test_boot_reload
 	$(VVP) $(BUILD_DIR)/tb_uart_boot_restart.vvp
 	$(BOOT_SIM) +packet=$(BUILD_DIR)/hello_boot.packet.hex
 
@@ -459,3 +459,10 @@ $(BUILD_DIR)/tb_if_prediction.vvp: rtl/core/roco_cpu_if_stage.sv rtl/mem/icache.
 test_if_queue: $(BUILD_DIR)/tb_if_queue.vvp $(BUILD_DIR)/tb_if_prediction.vvp
 	$(VVP) $(BUILD_DIR)/tb_if_queue.vvp
 	$(VVP) $(BUILD_DIR)/tb_if_prediction.vvp
+
+$(BUILD_DIR)/boot_reload_%.packet.hex: $(BUILD_DIR)/boot_reload_%.elf
+	$(PYTHON) scripts/boot.py --bin $(BUILD_DIR)/boot_reload_$*.bin --emit-hex $@
+
+.PHONY: test_boot_reload
+test_boot_reload: $(BUILD_DIR)/boot_reload_first.packet.hex $(BUILD_DIR)/boot_reload_second.packet.hex $(BOOT_SIM)
+	$(BOOT_SIM) +packet=$(BUILD_DIR)/boot_reload_first.packet.hex +reload=$(BUILD_DIR)/boot_reload_second.packet.hex

@@ -51,7 +51,18 @@ module tb_soc_boot #(
   integer guard;
   int unsigned cycles;
   int unsigned max_cycles;
-  string packet_file;
+  string packet_file, reload_file;
+  integer images_accepted = 0, restarts = 0;
+  logic previous_boot_done = 0;
+  always @(posedge clk) begin
+    previous_boot_done <= u_soc.boot_done;
+    if (!rst && u_soc.boot_done && !previous_boot_done) images_accepted <= images_accepted + 1;
+    if (!rst && u_soc.boot_restart) begin
+      restarts <= restarts + 1;
+      if (reload_file != "" && restarts != 0)
+        $fatal(1, "replacement fetched stale first-image code");
+    end
+  end
 
   logic trace_on;
   initial trace_on = $test$plusargs("trace");
@@ -143,15 +154,11 @@ module tb_soc_boot #(
     end
   endtask
 
-  initial begin
-    if (!$value$plusargs("packet=%s", packet_file)) begin
-      $display("tb_soc_boot: no +packet file");
-      $finish;
-    end
-    fd = $fopen(packet_file, "r");
+  task automatic load_packet(input string name);
+    fd = $fopen(name, "r");
     if (fd == 0) begin
-      $display("tb_soc_boot: cannot open %s", packet_file);
-      $finish;
+      $display("tb_soc_boot: cannot open %s", name);
+      $fatal(1, "invalid boot packet");
     end
     packet_len = 0;
     scan_ret = $fscanf(fd, "%h\n", rx_byte);
@@ -163,8 +170,17 @@ module tb_soc_boot #(
     $fclose(fd);
     if (packet_len == 0) begin
       $display("tb_soc_boot: empty packet file");
+      $fatal(1, "invalid boot packet");
+    end
+  endtask
+
+  initial begin
+    if (!$value$plusargs("packet=%s", packet_file)) begin
+      $display("tb_soc_boot: no +packet file");
       $finish;
     end
+    load_packet(packet_file);
+    if (!$value$plusargs("reload=%s", reload_file)) reload_file = "";
     $display("tb_soc_boot: %0d packet bytes", packet_len);
     if (!$value$plusargs("max_cycles=%d", max_cycles)) begin
       max_cycles = 6_000_000;
@@ -196,15 +212,32 @@ module tb_soc_boot #(
     $display("tb_soc_boot: packet sent");
 
     guard = 0;
-    while (!u_soc.boot_done && guard < 200000) begin
+    while (images_accepted == 0 && guard < 200000) begin
       @(posedge clk);
       guard = guard + 1;
     end
-    if (!u_soc.boot_done) begin
+    if (images_accepted == 0) begin
       $display("tb_soc_boot: bootloader did not accept the image");
       $finish;
     end
     $display("tb_soc_boot: bootloader accepted image at %0t", $time);
+    if (reload_file != "") begin
+      guard = 0;
+      while ((restarts == 0 || !u_soc.core_rst) && guard < 100000) begin
+        @(posedge clk);
+        guard++;
+      end
+      if (restarts != 1 || !u_soc.core_rst) $fatal(1, "first image did not restart boot");
+      load_packet(reload_file);
+      for (i = 0; i < packet_len; i++) send_byte(packet[i]);
+      guard = 0;
+      while (images_accepted != 2 && guard < 200000) begin
+        @(posedge clk);
+        guard++;
+      end
+      if (images_accepted != 2) $fatal(1, "replacement image was not accepted");
+    end
+
   end
 
   // UART monitor on the transmit pin.
@@ -237,7 +270,7 @@ module tb_soc_boot #(
       if (exit_code == 32'd1) begin
         $display("tb_soc_boot: PASS (%0d sdram errors)", sdram_errors);
       end else begin
-        $display("tb_soc_boot: FAIL code=%0d (%0d sdram errors)", exit_code, sdram_errors);
+        $fatal(1, "tb_soc_boot: FAIL code=%0d (%0d sdram errors)", exit_code, sdram_errors);
       end
       $finish;
     end

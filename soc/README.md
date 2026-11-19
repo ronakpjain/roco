@@ -175,6 +175,12 @@ current trap vector. Initially M-mode programs are linked at
 
 ## Boot protocol
 
+Writing the boot-restart register holds the CPU in reset, writes back dirty
+D-cache lines, waits for SDRAM writes to drain, and invalidates both caches
+before the loader can write a replacement image. Committed data outside the
+replacement image is preserved. Accepted memory transactions continue to
+drain while the CPU resets.
+
 After reset the CPU is held in reset and the loader waits for a packet
 consisting of the 4-byte magic `ROCO`, a little-endian 32-bit base, a
 little-endian 32-bit length, a little-endian CRC-32 of the payload, and

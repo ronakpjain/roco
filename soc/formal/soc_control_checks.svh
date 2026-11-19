@@ -29,7 +29,7 @@ always_ff @(posedge clk) begin
     if (halted || core_rst) assert (!trace_valid);
   end
   if (f_soc_past_valid && !rst && !$past(rst)) begin
-    assert (core_rst == !$past(boot_done_eff));
+    assert (core_rst == (boot_cache_maintenance || !$past(boot_done_eff)));
     if ($past(psel && (!penable || !pready))) begin
       assert (psel && penable);
       assert ($stable({paddr, pwrite, pwdata, pstrb}));

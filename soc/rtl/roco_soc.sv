@@ -104,6 +104,11 @@ module roco_soc #(
   logic dcache_flush_done;
   logic icache_flush;
   logic [1:0] fence_state;
+  logic boot_cache_maintenance, cache_rst;
+  logic boot_axi_ready;
+`ifdef ROCO_SOC_FENCE_FORMAL
+  logic f_dc_idle, f_dc_lookup_pending;
+`endif
 
   logic imem_in_sdram;
   logic dmem_in_sdram;
@@ -225,7 +230,12 @@ module roco_soc #(
       boot_release <= boot_done_eff;
     end
   end
-  assign core_rst = rst || !boot_release;
+  assign core_rst = rst || !boot_release || boot_cache_maintenance;
+  // A replacement image may overwrite cached instructions and data. Drain
+  // committed dirty stores first, then cancel old lookup/refill metadata.
+  // The AXI masters keep running so accepted transactions always drain.
+  assign cache_rst = rst || (boot_cache_maintenance && icache_flush);
+  assign boot_mem_ready = boot_axi_ready && !boot_cache_maintenance;
 
   // ---------------------------------------------------------------- CPU
   roco_cpu u_cpu (
@@ -303,8 +313,12 @@ module roco_soc #(
       .LINE_WORDS(8),
       .NUM_LINES(DCACHE_LINES)
   ) u_dcache (
+`ifdef ROCO_SOC_FENCE_FORMAL
+      .f_idle(f_dc_idle),
+      .f_lookup_pending(f_dc_lookup_pending),
+`endif
       .clk(clk),
-      .rst(rst),
+      .rst(cache_rst),
       .flush(dcache_flush),
       .flush_done(dcache_flush_done),
       .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
@@ -426,11 +440,11 @@ module roco_soc #(
   axi4_mem_master u_boot_axi (
       .clk(clk),
       .rst(rst),
-      .req(boot_mem_req),
+      .req(boot_mem_req && !boot_cache_maintenance),
       .we(1'b1),
       .addr({7'd8, boot_mem_word_addr, 2'b00}),
       .len(4'd0),
-      .ready(boot_mem_ready),
+      .ready(boot_axi_ready),
       .wvalid(boot_mem_wvalid),
       .wready(boot_mem_wready),
       .wdata(boot_mem_wdata),
@@ -789,37 +803,46 @@ module roco_soc #(
       dcache_flush <= 1'b0;
       icache_flush <= 1'b0;
       fence_done <= 1'b0;
+      boot_cache_maintenance <= 1'b0;
     end else begin
       icache_flush <= 1'b0;
-      case (fence_state)
-        F_IDLE: begin
-          if (core_fence_req) begin
-            dcache_flush <= 1'b1;
-            fence_state <= F_DCACHE;
-          end else begin
-            fence_done <= 1'b0;
+      if (boot_restart && !BOOT_OVERRIDE) begin
+        boot_cache_maintenance <= 1'b1;
+        dcache_flush <= 1'b1;
+        fence_done <= 1'b0;
+        fence_state <= F_DCACHE;
+      end else
+        case (fence_state)
+          F_IDLE: begin
+            if (core_fence_req) begin
+              fence_done <= 1'b0;
+              dcache_flush <= 1'b1;
+              fence_state <= F_DCACHE;
+            end else begin
+              fence_done <= 1'b0;
+            end
           end
-        end
-        F_DCACHE: begin
-          if (dcache_flush_done) begin
-            dcache_flush <= 1'b0;
-            fence_state <= F_DRAIN;
+          F_DCACHE: begin
+            if (dcache_flush_done) begin
+              dcache_flush <= 1'b0;
+              fence_state <= F_DRAIN;
+            end
           end
-        end
-        F_DRAIN: begin
-          if (c_ready) begin
-            icache_flush <= 1'b1;
-            fence_state <= F_ICACHE;
+          F_DRAIN: begin
+            if (c_ready) begin
+              icache_flush <= 1'b1;
+              fence_state <= F_ICACHE;
+            end
           end
-        end
-        F_ICACHE: begin
-          fence_done <= 1'b1;
-          fence_state <= F_IDLE;
-        end
-        default: begin
-          fence_state <= F_IDLE;
-        end
-      endcase
+          F_ICACHE: begin
+            fence_done <= 1'b1;
+            fence_state <= F_IDLE;
+            boot_cache_maintenance <= 1'b0;
+          end
+          default: begin
+            fence_state <= F_IDLE;
+          end
+        endcase
     end
   end
 

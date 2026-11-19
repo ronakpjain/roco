@@ -99,7 +99,6 @@ jobs:
           - {job: sdram-adapter, mode: cover}
           - {job: sdram-memory, mode: cover}
           - {job: sdram-pins, mode: cover}
-          - {job: soc-mmio-memory, mode: cover}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal

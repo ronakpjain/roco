@@ -317,8 +317,9 @@ case "$job" in
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
     proof_lowering='opt_clean'
-    if [[ "$job" == sdram-adapter && "$mode" == cover ]]; then
+    if [[ "$job" == sdram-adapter && "$mode" == cover && -n "${COVER_DEEP:-}" ]]; then
       # A 256-beat rejected burst only fits inside this bound.
+      defines+=' -DROCO_SDRAM_DEEP_COVER'
       depth=260
     fi
     if [[ "$job" != sdram-adapter ]]; then

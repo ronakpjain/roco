@@ -98,9 +98,18 @@ COVER_FAST=1 DEPTH=80 bash formal/run.sh soc-fence cover
 
 The second form skips the boot image, shortens SDRAM power-up and uses
 two-line caches, which brings the same CPU traffic inside a bound the solver
-can unroll. `soc-mmio-memory cover` is gated instead: its fixed program
-reaches the CPU store, the FENCE.I refetch, the SDRAM refill and halt at the
-pins, so the SoC data path is covered without an open-ended address search.
+can unroll.
+
+`soc-mmio-memory` carries the SoC-level data path instead. Its passing
+`bmc-fast` proof requires the CPU store at the pins, the refetch and refill
+after FENCE.I, and the halt within the 420-cycle deadline, so those states
+are reachable rather than assumed. Its own cover run witnesses the same
+events explicitly and takes a few minutes:
+
+```sh
+bash formal/run.sh soc-mmio-memory cover
+```
+
 UART boot, restart and cache maintenance remain covered by the simulation
 matrices.
 
@@ -902,7 +911,7 @@ request held behind B, and an error read response.
 
 ```sh
 bash formal/run.sh sdram-adapter prove
-DEPTH=260 bash formal/run.sh sdram-adapter cover
+COVER_DEEP=1 bash formal/run.sh sdram-adapter cover
 ```
 
 K-induction proves the actual adapter against a separate handshake scoreboard.

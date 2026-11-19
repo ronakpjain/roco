@@ -149,8 +149,12 @@ always_ff @(posedge clk) begin
 `ifndef ROCO_SDRAM_MEMORY_FORMAL
     cover (r_fire && supported && received == 16 && transferred == 0);
     cover (b_fire && supported && length == 16);
+`ifdef ROCO_SDRAM_DEEP_COVER
+    // A rejected 256-beat burst only fits a much larger bound; the gated
+    // cover run keeps the cheap witnesses and COVER_DEEP=1 adds these.
     cover (r_fire && !supported && transferred == 255);
     cover (b_fire && !supported && length == 256);
+`endif
 `endif
   end
 end

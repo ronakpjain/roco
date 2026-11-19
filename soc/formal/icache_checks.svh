@@ -1,7 +1,16 @@
 // Scoreboard for the public lookup/refill protocol. Only one arbitrary
 // row and word are shadowed; proving the assertions quantifies over both.
+`ifdef ROCO_SOC_ICACHE_MEMORY_FORMAL
+`define ICACHE_ENV_CHECK assert
+logic [IDX_BITS-1:0] watch_index;
+logic [OFF_BITS-1:0] watch_offset;
+assign watch_index = formal_watch_word[IDX_HI-2:IDX_LO-2];
+assign watch_offset = formal_watch_word[OFF_BITS-1:0];
+`else
+`define ICACHE_ENV_CHECK assume
 (* anyconst *) logic [IDX_BITS-1:0] watch_index;
 (* anyconst *) logic [OFF_BITS-1:0] watch_offset;
+`endif
 logic check_lookup, check_hit, check_word_valid;
 logic [31:0] check_lookup_addr, check_word;
 logic row_valid;
@@ -17,10 +26,11 @@ always @(posedge clk) begin
   // The arbiter returns exactly LINE_WORDS ordered beats for an
   // accepted refill. It need not accept or supply a beat at any time.
   if (!rst && mem_rvalid) begin
-    assume (burst_pending);
-    assume (mem_rlast == (burst_beat == OFF_BITS'(LINE_WORDS - 1)));
+    `ICACHE_ENV_CHECK(burst_pending);
+    `ICACHE_ENV_CHECK(mem_rlast == (burst_beat == OFF_BITS'(LINE_WORDS - 1)));
   end
 end
+`undef ICACHE_ENV_CHECK
 
 always @(posedge clk) begin
   check_lookup_addr <= cpu_addr;

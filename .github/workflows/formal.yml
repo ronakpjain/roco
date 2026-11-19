@@ -74,6 +74,7 @@ jobs:
           - {job: soc-ram, mode: prove, solver: bitwuzla}
           - {job: soc-sdram-memory, mode: prove, solver: bitwuzla}
           - {job: soc-dcache-memory, mode: prove, solver: bitwuzla}
+          - {job: soc-fence-memory, mode: prove, solver: bitwuzla}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422, solver: bitwuzla}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"

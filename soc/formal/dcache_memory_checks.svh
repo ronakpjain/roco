@@ -57,6 +57,7 @@ assign formal_read_left = f_mem_active && !f_mem_write ? 5'(LINE_WORDS) - 5'(f_m
 assign formal_pending = f_pending;
 assign formal_abandoned = f_abandoned;
 assign formal_cpu_word = f_cpu_addr;
+assign formal_arch_data = f_arch_word;
 `endif
 assign f_evicting = state == S_WB_RD || state == S_WB_WR;
 assign f_flushing = state == S_FLUSH_RD || state == S_FLUSH_WR;
@@ -146,7 +147,7 @@ always_ff @(posedge clk) begin
     // sequencer must have invalidated this cache before admitting them.
     assert (f_mem_word == formal_backing_word);
     if (!formal_cancel) assert (!f_abandoned_q);
-    if (formal_boot_clean) assert (f_mem_word == f_arch_word);
+    if (formal_flush_clean) assert (f_mem_word == f_arch_word);
     if (formal_boot_loading) begin
       assert (state == S_IDLE && !pending_miss && !lookup_valid_q && !lookup_hit_q);
       assert (!f_mem_active && !f_pending && !f_abandoned_q && !valid_ram[f_index]);

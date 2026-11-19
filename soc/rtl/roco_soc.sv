@@ -112,6 +112,21 @@ module roco_soc #(
   logic [4:0] f_dc_write_left, f_dc_cache_read_left;
   logic f_dc_checker_pending, f_dc_checker_abandoned;
   logic [22:0] f_dc_checker_cpu_word;
+  logic [31:0] f_dc_arch_data;
+`endif
+`ifdef ROCO_SOC_ICACHE_MEMORY_FORMAL
+  logic f_instruction_coherent;
+  always_ff @(posedge clk) begin
+    if (rst) f_instruction_coherent <= 1'b1;
+    else if (dmem_req && dmem_in_sdram && dmem_we && dmem_addr[24:2] == cell_addr)
+      f_instruction_coherent <= 1'b0;
+    else if (icache_flush) f_instruction_coherent <= 1'b1;
+    if (!rst && f_instruction_coherent) assert (f_dc_arch_data == native_cell);
+    if (!rst && icache_flush) begin
+      assert (!dmem_req);
+      assert (f_dc_arch_data == native_cell);
+    end
+  end
 `endif
 `ifdef ROCO_SOC_FENCE_FORMAL
   logic f_dc_idle, f_dc_lookup_pending;
@@ -294,6 +309,15 @@ module roco_soc #(
       .LINE_WORDS(4),
       .NUM_LINES(ICACHE_LINES)
   ) u_icache (
+`ifdef ROCO_SOC_ICACHE_MEMORY_FORMAL
+      .formal_watch_word(cell_addr),
+      .formal_watch_data(f_dc_arch_data),
+      .formal_backing_data(native_cell),
+      .formal_coherent(f_instruction_coherent),
+      .formal_boot_loading(core_rst && !boot_cache_maintenance),
+      .formal_ram_word(ic_read_word),
+      .formal_read_left(f_ic_read_left),
+`endif
       .clk(clk),
       .rst(rst),
       .flush(icache_flush),
@@ -327,8 +351,7 @@ module roco_soc #(
       .formal_cancel(core_rst),
       .formal_boot_loading(core_rst && !boot_cache_maintenance),
       .formal_global_reset(rst),
-      .formal_boot_clean(boot_cache_maintenance &&
-                        (fence_state == F_DRAIN || fence_state == F_ICACHE)),
+      .formal_flush_clean(fence_state == F_DRAIN || fence_state == F_ICACHE),
       .formal_external_write(boot_write_fire && boot_write_word == cell_addr),
       .formal_external_data(boot_mem_wdata),
       .formal_external_be(boot_mem_wbe),
@@ -340,6 +363,7 @@ module roco_soc #(
       .formal_pending(f_dc_checker_pending),
       .formal_abandoned(f_dc_checker_abandoned),
       .formal_cpu_word(f_dc_checker_cpu_word),
+      .formal_arch_data(f_dc_arch_data),
 `endif
 `ifdef ROCO_SOC_FENCE_FORMAL
       .f_idle(f_dc_idle),

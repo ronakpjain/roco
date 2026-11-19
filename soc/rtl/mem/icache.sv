@@ -13,6 +13,15 @@ module icache #(
     parameter int LINE_WORDS = 4,
     parameter int NUM_LINES = 128
 ) (
+`ifdef ROCO_SOC_ICACHE_MEMORY_FORMAL
+  input logic [22:0] formal_watch_word,
+  input logic [31:0] formal_watch_data,
+  input logic [31:0] formal_backing_data,
+  input logic formal_coherent,
+  input logic formal_boot_loading,
+  input logic [22:0] formal_ram_word,
+  input logic [2:0] formal_read_left,
+`endif
 `ifdef ROCO_FETCH_PROTOCOL_CHECKS
   input logic [22:0] formal_watch_word,
   input logic [31:0] formal_watch_data,
@@ -210,5 +219,8 @@ module icache #(
 `endif
 `ifdef ROCO_ICACHE_FORMAL
   `include "icache_checks.svh"
+`endif
+`ifdef ROCO_SOC_ICACHE_MEMORY_FORMAL
+  `include "soc_icache_memory_checks.svh"
 `endif
 endmodule

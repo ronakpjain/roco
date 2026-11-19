@@ -115,10 +115,10 @@ FENCE.I. The second checks replacement instruction/data visibility and
 preservation of a dirty word outside the upload. It reproduced stale first-
 image instruction execution before the restart-maintenance fix.
 
-This verifies control and cache metadata, not that the post-fence instruction
-bytes equal a preceding CPU store for every legal program. The latter still
-requires composing the CPU/D-cache data contract, fabric coherence and
-instruction-fetch refinement.
+This job isolates control and cache metadata. `soc-fence-memory` below
+composes the stored data through the actual I-cache response. Extending that
+result through the fetch queue and architectural instruction retirement
+remains a separate obligation.
 
 ## Whole-SoC SDRAM AXI ingress (unbounded)
 
@@ -234,8 +234,40 @@ alone begins a fresh memory epoch.
 This proves the SDRAM data path from the CPU's physical memory port through
 the cache and pins, including boot replacement. It does not compare the
 CPU's addresses, store values or instruction results against an ISA model,
-prove Sv32 architectural permissions, or prove coherent instruction fetch
-after FENCE.I. Those architectural compositions remain open.
+or prove Sv32 architectural permissions. The I-cache response is composed
+with this data reference in `soc-fence-memory`; the remaining architectural
+compositions are listed below.
+
+## Whole-SoC instruction-cache data after FENCE.I (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-fence-memory prove
+```
+
+At default geometry, the actual SoC composes the CPU data-port reference,
+both caches, AXI fabric and sparse SDRAM pin model. For an arbitrary physical
+word, a CPU store ends its instruction-coherent interval. The real I-cache
+invalidation handshake starts a new interval, and asserts that the latest
+CPU-port value has reached backing memory. During that interval, every
+I-cache response for the word must equal the CPU store history, until the
+next store to that word. This includes byte stores, dirty evictions, FENCE.I
+writeback, instruction refills and boot replacement.
+
+The checker tracks the actual cache RAM, tags, partial fills, synchronous
+lookup data and responses. An old refill invalidated by a fence is allowed
+to drain but cannot install stale instruction bytes. Boot writes require
+invalid cache lines and no outstanding lookup. The standalone I-cache
+protocol checker is reused, with its refill assumptions replaced by
+assertions on the actual native memory port. D-cache cleaning also proves
+CPU-reference/backing equality during the drain and invalidation phases of
+ordinary fences as well as boot maintenance.
+
+Only initial global reset and the external ideal BL2/CL3 memory device are
+assumed; no cache, CPU or internal bus state is constrained. This is a cache
+response data proof. It does not yet establish that every instruction
+consumed from the fetch queue or retired by the CPU uses the current
+post-fence bytes, or compose the complete ISA semantics with this memory
+system. Those obligations remain open.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

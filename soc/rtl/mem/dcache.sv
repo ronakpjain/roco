@@ -28,7 +28,7 @@ module dcache #(
   input logic formal_cancel,
   input logic formal_boot_loading,
   input logic formal_global_reset,
-  input logic formal_boot_clean,
+  input logic formal_flush_clean,
   input logic formal_external_write,
   input logic [31:0] formal_external_data,
   input logic [3:0] formal_external_be,
@@ -40,6 +40,7 @@ module dcache #(
   output logic formal_pending,
   output logic formal_abandoned,
   output logic [22:0] formal_cpu_word,
+  output logic [31:0] formal_arch_data,
 `endif
 `ifdef ROCO_SOC_FENCE_FORMAL
   output logic f_idle,

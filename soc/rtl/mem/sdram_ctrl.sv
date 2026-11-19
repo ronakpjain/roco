@@ -439,4 +439,7 @@ module sdram_ctrl #(
     end
   end
 
+`ifdef ROCO_SDRAM_PIN_FORMAL
+  `include "sdram_pin_checks.svh"
+`endif
 endmodule

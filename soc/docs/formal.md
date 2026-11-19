@@ -624,5 +624,27 @@ The environment holds AXI request channels stable during backpressure, uses
 `WLAST` consistent with AWLEN, and sends controller read beats only after an
 accepted read, at most as many as requested. There is no progress assumption:
 AXI and controller stalls may be indefinite, and reset may recur. This does not
-prove controller pin timing, refresh, or that the actual SoC endpoints meet the
-assumptions. Those are separate obligations, not implied by the adapter proof.
+prove that the actual SoC endpoints satisfy all of the assumptions.
+
+## SDRAM controller pins (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh sdram-pins prove
+SOLVER=bitwuzla bash formal/run.sh sdram-pins cover
+```
+
+K-induction checks the actual controller at its default parameters, starting
+in reset, with arbitrary subsequent resets, request and write stalls, and
+arbitrary SDRAM input data. An independent pin monitor checks row ownership,
+closed rows on refresh, BL2/CL3 mode setup, successive burst columns, the two
+write halfwords and DQM masks, and sampling and assembly of both read
+halfwords with `RLAST` on the final word. A new command cannot be accepted
+while a previous burst is still issuing reads or driving its write data.
+The caller must not submit a burst crossing a 256-word row; the adapter
+contract checks that condition on requests it forwards. Cover mode alone
+shortens the power-up and refresh intervals to reach maximum-length reads,
+writes and operational refresh quickly.
+
+This is not an SDRAM device model. It does not establish all JEDEC timing
+constraints, a refresh deadline during arbitrary write stalls, pin-to-cell
+coherence, or unbounded end-to-end memory correctness through the caches.

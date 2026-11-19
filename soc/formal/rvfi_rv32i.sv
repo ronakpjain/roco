@@ -10,6 +10,7 @@ module rvfi_rv32i #(
     parameter bit AccountingOnly = 1'b0,
     parameter bit CoherentMemory = 1'b0,
     parameter bit Atomics = 1'b0,
+    parameter bit StallMemory = 1'b0,
     parameter bit RegisterOnly = 1'b0,
     parameter bit StorageOnly = 1'b0
 ) (
@@ -23,11 +24,13 @@ module rvfi_rv32i #(
   logic [31:0] imem_addr, imem_rsp_addr, imem_rsp_data;
   (* anyseq *) logic [31:0] fetch_word;
   (* anyseq *) logic [31:0] other_load_word;
+  (* anyseq *) logic mem_accept;
   logic [31:0] load_word, dmem_addr, dmem_wdata;
   logic [3:0] dmem_be;
-  logic dmem_req, dmem_we;
+  logic dmem_req, dmem_valid, dmem_we, dmem_ready;
   axi4_r_t ptw_r;
   assign ptw_r = '0;
+  assign dmem_ready = !StallMemory || mem_accept;
 
   logic rvfi_valid, rvfi_trap, rvfi_intr;
   logic [63:0] rvfi_order;
@@ -40,6 +43,11 @@ module rvfi_rv32i #(
   logic trace_valid;
   logic [31:0] trace_pc, trace_instr;
   (* anyconst *) logic [4:0] tracked_reg;
+`ifdef ROCO_RVFI_PC_CHECKS
+  logic [31:0] rvfi_oldest_pc, trace_wdata;
+  logic [4:0] trace_rd;
+  logic rvfi_mem_regwrite;
+`endif
 `ifdef ROCO_RVFI_GPR_STATE
   logic [31:0] tracked_physical_value;
 `ifdef ROCO_RVFI_FORWARD_CHECKS
@@ -47,13 +55,19 @@ module rvfi_rv32i #(
 `endif
 `ifdef ROCO_RVFI_INSN_CHECKS
   logic rvfi_fwd_trap_pending;
-  logic rvfi_fwd_if_valid, rvfi_fwd_idex_valid, rvfi_fwd_exmem_valid;
-  logic [31:0] rvfi_fwd_if_instr, rvfi_fwd_idex_instr, rvfi_fwd_exmem_instr;
+  logic [3:0] rvfi_queue_live;
+  logic [127:0] rvfi_queue_insn;
+  logic rvfi_fwd_idex_valid, rvfi_fwd_exmem_valid;
+  logic [31:0] rvfi_fwd_idex_instr, rvfi_fwd_exmem_instr;
   logic [31:0] rvfi_fwd_exc_instr;
 `endif
 `endif
 
   roco_cpu dut (
+`ifdef ROCO_RVFI_PC_CHECKS
+      .rvfi_oldest_pc(rvfi_oldest_pc),
+      .rvfi_mem_regwrite(rvfi_mem_regwrite),
+`endif
 `ifdef ROCO_RVFI_GPR_STATE
       .rvfi_gpr_watch_addr(tracked_reg),
       .rvfi_gpr_watch_value(tracked_physical_value),
@@ -62,10 +76,10 @@ module rvfi_rv32i #(
 `endif
 `ifdef ROCO_RVFI_INSN_CHECKS
       .rvfi_fwd_trap_pending(rvfi_fwd_trap_pending),
-      .rvfi_fwd_if_valid(rvfi_fwd_if_valid),
+      .rvfi_queue_live(rvfi_queue_live),
+      .rvfi_queue_insn(rvfi_queue_insn),
       .rvfi_fwd_idex_valid(rvfi_fwd_idex_valid),
       .rvfi_fwd_exmem_valid(rvfi_fwd_exmem_valid),
-      .rvfi_fwd_if_instr(rvfi_fwd_if_instr),
       .rvfi_fwd_idex_instr(rvfi_fwd_idex_instr),
       .rvfi_fwd_exmem_instr(rvfi_fwd_exmem_instr),
       .rvfi_fwd_exc_instr(rvfi_fwd_exc_instr),
@@ -88,9 +102,9 @@ module rvfi_rv32i #(
       .dmem_lu_addr(),
       .dmem_lu_offset(),
       .dmem_lu_funct3(),
-      .dmem_ready(1'b1),
+      .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
-      .dmem_valid(),
+      .dmem_valid(dmem_valid),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),
@@ -105,8 +119,13 @@ module rvfi_rv32i #(
       .trace_valid(trace_valid),
       .trace_pc(trace_pc),
       .trace_instr(trace_instr),
+`ifdef ROCO_RVFI_PC_CHECKS
+      .trace_rd(trace_rd),
+      .trace_wdata(trace_wdata),
+`else
       .trace_rd(),
       .trace_wdata(),
+`endif
       .fence_req(),
       .fence_done(1'b1),
       .rvfi_halt(),
@@ -137,7 +156,8 @@ module rvfi_rv32i #(
     (* anyconst *) logic [31:0] initial_word;
     logic [31:0] physical_word, architectural_word;
     logic [3:0] written_lanes;
-    logic rvfi_access, failed_sc;
+    logic rvfi_access, failed_sc, rmw;
+    assign rmw = Atomics && rvfi_insn[6:0] == 7'h2f && (|rvfi_mem_rmask) && (|rvfi_mem_wmask);
     // MEM may issue a cache access for a failed SC but may not write to it.
     assign failed_sc = Atomics && rvfi_valid && !rvfi_trap &&
                        rvfi_insn[6:0] == 7'h2f && rvfi_insn[31:27] == 5'd3 &&
@@ -152,6 +172,12 @@ module rvfi_rv32i #(
         written_lanes <= 0;
       end else begin
         assert (physical_word == architectural_word);
+        assert (dmem_req == (dmem_valid && dmem_ready));
+        if (StallMemory && !$past(rst) && $past(dmem_valid && !dmem_ready)) begin
+          assert (dmem_valid && $stable({dmem_addr, dmem_we}));
+          if (dmem_we) assert ($stable({dmem_be, dmem_wdata}));
+          cover (dmem_req && dmem_we);
+        end
         // Check the actual side effect, not just the RVFI metadata. Bare
         // M-mode makes the physical and architectural addresses identical.
         assert (dmem_req == (rvfi_access || failed_sc));
@@ -159,6 +185,9 @@ module rvfi_rv32i #(
           assert (dmem_addr[31:2] == rvfi_mem_addr[31:2]);
           assert (dmem_we == (|rvfi_mem_wmask));
           if (dmem_we) assert (dmem_be == rvfi_mem_wmask);
+          // AMOs sample the old data one cycle earlier. Their read value
+          // is checked against the coherent word below, not the live bus.
+          if ((|rvfi_mem_rmask) && !rmw) assert (rvfi_mem_rdata == load_word);
         end
         for (integer i = 0; i < 4; i = i + 1) begin
           if (dmem_req && dmem_we && dmem_be[i]) begin
@@ -187,6 +216,12 @@ module rvfi_rv32i #(
     extra_trap = word == 32'h0000_0073 || word == 32'h0010_0073 || word == 0;
   endfunction
 
+  // riscv-formal's RV32I model list omits FENCE. In this single-hart,
+  // in-order, always-ready memory model it has no scalar side effects.
+  function automatic logic plain_fence(input logic [31:0] word);
+    plain_fence = word[6:0] == 7'h0f && word[14:12] == 0 && word[31:28] == 0;
+  endfunction
+
   function automatic logic atomic_fetch(input logic [31:0] word);
     atomic_fetch = 0;
     if (word[6:0] == 7'h2f && word[14:12] == 3'd2) begin
@@ -208,8 +243,7 @@ module rvfi_rv32i #(
   function automatic logic simple_rv32i(input logic [31:0] word);
     simple_rv32i = 0;
     case (word[6:0])
-      7'b0110111, 7'b0010111, 7'b1101111, 7'b1100111, 7'b1100011, 7'b0000011, 7'b0100011:
-      simple_rv32i = 1;
+      7'h37, 7'h17, 7'h6f, 7'h67, 7'h63, 7'h03, 7'h23, 7'h13: simple_rv32i = 1;
       7'b0001111: simple_rv32i = word[14:12] == 3'b000;
       7'b0110011: simple_rv32i = word[31:25] != 7'd1;
       7'b1110011:
@@ -246,92 +280,38 @@ module rvfi_rv32i #(
 `endif
 
 `ifdef ROCO_RVFI_INSN_CHECKS
-  // Instruction-identity chain: each live pipeline word stays inside the
-  // assumed fetch set, so the retirement checks can rely on the models.
-  typedef struct packed {logic valid;} chain_t;
-  chain_t chain_if, chain_idex, chain_exmem, chain_exc;
-  `ROCO_FORMAL_ISA_MODEL chain_decode_if (
-      .rvfi_valid(1'b1),
-      .rvfi_insn(rvfi_fwd_if_instr),
-      .rvfi_pc_rdata(32'd0),
-      .rvfi_rs1_rdata(32'd0),
-      .rvfi_rs2_rdata(32'd0),
-      .rvfi_mem_rdata(32'd0),
-      .spec_valid(chain_if.valid),
-      .spec_trap(),
-      .spec_rs1_addr(),
-      .spec_rs2_addr(),
-      .spec_rd_addr(),
-      .spec_rd_wdata(),
-      .spec_pc_wdata(),
-      .spec_mem_addr(),
-      .spec_mem_rmask(),
-      .spec_mem_wmask(),
-      .spec_mem_wdata()
-  );
-  `ROCO_FORMAL_ISA_MODEL chain_decode_idex (
-      .rvfi_valid(1'b1),
-      .rvfi_insn(rvfi_fwd_idex_instr),
-      .rvfi_pc_rdata(32'd0),
-      .rvfi_rs1_rdata(32'd0),
-      .rvfi_rs2_rdata(32'd0),
-      .rvfi_mem_rdata(32'd0),
-      .spec_valid(chain_idex.valid),
-      .spec_trap(),
-      .spec_rs1_addr(),
-      .spec_rs2_addr(),
-      .spec_rd_addr(),
-      .spec_rd_wdata(),
-      .spec_pc_wdata(),
-      .spec_mem_addr(),
-      .spec_mem_rmask(),
-      .spec_mem_wmask(),
-      .spec_mem_wdata()
-  );
-  `ROCO_FORMAL_ISA_MODEL chain_decode_exmem (
-      .rvfi_valid(1'b1),
-      .rvfi_insn(rvfi_fwd_exmem_instr),
-      .rvfi_pc_rdata(32'd0),
-      .rvfi_rs1_rdata(32'd0),
-      .rvfi_rs2_rdata(32'd0),
-      .rvfi_mem_rdata(32'd0),
-      .spec_valid(chain_exmem.valid),
-      .spec_trap(),
-      .spec_rs1_addr(),
-      .spec_rs2_addr(),
-      .spec_rd_addr(),
-      .spec_rd_wdata(),
-      .spec_pc_wdata(),
-      .spec_mem_addr(),
-      .spec_mem_rmask(),
-      .spec_mem_wmask(),
-      .spec_mem_wdata()
-  );
-  `ROCO_FORMAL_ISA_MODEL chain_decode_exc (
-      .rvfi_valid(1'b1),
-      .rvfi_insn(rvfi_fwd_exc_instr),
-      .rvfi_pc_rdata(32'd0),
-      .rvfi_rs1_rdata(32'd0),
-      .rvfi_rs2_rdata(32'd0),
-      .rvfi_mem_rdata(32'd0),
-      .spec_valid(chain_exc.valid),
-      .spec_trap(),
-      .spec_rs1_addr(),
-      .spec_rs2_addr(),
-      .spec_rd_addr(),
-      .spec_rd_wdata(),
-      .spec_pc_wdata(),
-      .spec_mem_addr(),
-      .spec_mem_rmask(),
-      .spec_mem_wmask(),
-      .spec_mem_wdata()
-  );
-  always @(posedge clk) begin
-    if (!rst) begin
-      if (rvfi_fwd_if_valid) assert (chain_if.valid || extra_trap(rvfi_fwd_if_instr));
-      if (rvfi_fwd_idex_valid) assert (chain_idex.valid || extra_trap(rvfi_fwd_idex_instr));
-      if (rvfi_fwd_exmem_valid) assert (chain_exmem.valid || extra_trap(rvfi_fwd_exmem_instr));
-      if (rvfi_fwd_trap_pending) assert (chain_exc.valid || extra_trap(rvfi_fwd_exc_instr));
+  // Check every live word, including queue slots not yet at the head.
+  // An arbitrary stalled induction state can keep those slots unseen for
+  // several cycles, so a head-only check is not an inductive invariant.
+  logic [6:0] live;
+  logic [223:0] words;
+  assign live = {rvfi_fwd_trap_pending, rvfi_fwd_exmem_valid, rvfi_fwd_idex_valid, rvfi_queue_live};
+  assign words = {rvfi_fwd_exc_instr, rvfi_fwd_exmem_instr, rvfi_fwd_idex_instr, rvfi_queue_insn};
+  for (genvar slot = 0; slot < 7; slot++) begin : g_live_insn
+    logic [31:0] word;
+    logic supported;
+    assign word = words[32*slot+:32];
+    `ROCO_FORMAL_ISA_MODEL decode (
+        .rvfi_valid(1'b1),
+        .rvfi_insn(word),
+        .rvfi_pc_rdata(32'd0),
+        .rvfi_rs1_rdata(32'd0),
+        .rvfi_rs2_rdata(32'd0),
+        .rvfi_mem_rdata(32'd0),
+        .spec_valid(supported),
+        .spec_trap(),
+        .spec_rs1_addr(),
+        .spec_rs2_addr(),
+        .spec_rd_addr(),
+        .spec_rd_wdata(),
+        .spec_pc_wdata(),
+        .spec_mem_addr(),
+        .spec_mem_rmask(),
+        .spec_mem_wmask(),
+        .spec_mem_wdata()
+    );
+    always @(posedge clk) begin
+      if (!rst && live[slot]) assert (supported || extra_trap(word) || plain_fence(word));
     end
   end
 `endif
@@ -341,7 +321,13 @@ module rvfi_rv32i #(
     imem_rsp_addr <= imem_addr;
     imem_rsp_data <= fetch_word;
     if (!rst && imem_req) begin
-      assume (fetch_supported || extra_trap(fetch_word) || (Atomics && atomic_fetch(fetch_word)));
+      assume (fetch_supported || extra_trap(
+          fetch_word
+      ) || plain_fence(
+          fetch_word
+      ) || (Atomics && atomic_fetch(
+          fetch_word
+      )));
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
       // Redundant with the RV32I decoder above. Keep the one forbidden
       // encoding class explicit so the frontend invariant has a small cone.
@@ -386,6 +372,7 @@ module rvfi_rv32i #(
       if (rst) tracked_value <= 0;
       else begin
 `ifdef ROCO_RVFI_GPR_STATE
+        if (tracked_reg == 0) assert (tracked_value == 0);
         // Retirement drives MEM/WB first; the array receives it one edge
         // later. Writeback bypass supplies the current value before that.
         if (!$past(rst)) begin
@@ -418,15 +405,22 @@ module rvfi_rv32i #(
       logic [31:0] rd_data, pc, addr, wdata;
       logic [3:0] rmask, wmask;
     } expected_t;
-    expected_t base_spec, atomic_spec, spec;
-    assign spec = atomic_spec.valid ? atomic_spec : base_spec;
+    expected_t base_spec, atomic_spec, fence_spec, spec;
+    logic waiting;
+    assign waiting = StallMemory && dmem_valid && !dmem_ready;
+    always_comb begin
+      fence_spec = '0;
+      fence_spec.valid = rvfi_valid && plain_fence(rvfi_insn);
+      fence_spec.pc = rvfi_pc_rdata + 32'd4;
+    end
+    assign spec = atomic_spec.valid ? atomic_spec : fence_spec.valid ? fence_spec : base_spec;
     `ROCO_FORMAL_ISA_MODEL spec_model (
-        .rvfi_valid(rvfi_valid),
+        .rvfi_valid(rvfi_valid || waiting),
         .rvfi_insn(rvfi_insn),
         .rvfi_pc_rdata(rvfi_pc_rdata),
         .rvfi_rs1_rdata(rvfi_rs1_rdata),
         .rvfi_rs2_rdata(rvfi_rs2_rdata),
-        .rvfi_mem_rdata(rvfi_mem_rdata),
+        .rvfi_mem_rdata(waiting ? load_word : rvfi_mem_rdata),
         .spec_valid(base_spec.valid),
         .spec_trap(base_spec.trap),
         .spec_rs1_addr(base_spec.rs1),
@@ -468,13 +462,42 @@ module rvfi_rv32i #(
       assign atomic_spec = '0;
     end
 
+`ifdef ROCO_RVFI_PC_CHECKS
+    // A MEM packet can wait longer than the induction window. Check its
+    // decoded effects even when the commit strobe is masked by !ready.
+    always @(posedge clk) begin
+      if (!rst && waiting) begin
+        assert (!rvfi_valid && rvfi_mode == 3);
+        assert (spec.valid && !spec.trap && (|spec.rmask || |spec.wmask));
+        assert (rvfi_pc_wdata == spec.pc);
+        assert (rvfi_rs1_addr == spec.rs1 && rvfi_rs2_addr == spec.rs2);
+        assert ((rvfi_mem_regwrite ? trace_rd : 5'd0) == spec.rd);
+        if (spec.rd != 0) assert (trace_wdata == spec.rd_data);
+        assert (rvfi_mem_addr == spec.addr && dmem_addr[31:2] == spec.addr[31:2]);
+        assert (dmem_we == (|spec.wmask));
+        if (dmem_we) begin
+          assert (dmem_be == spec.wmask);
+          for (integer i = 0; i < 4; i = i + 1)
+          if (spec.wmask[i]) assert (dmem_wdata[8*i+:8] == spec.wdata[8*i+:8]);
+        end
+      end
+    end
+`endif
+
     logic [31:0] expected_pc;
     logic expected_handler;
     always @(posedge clk) begin
       if (rst) begin
         expected_pc <= BootAddr;
         expected_handler <= 0;
-      end else if (rvfi_valid) begin
+      end else begin
+`ifdef ROCO_RVFI_PC_CHECKS
+        // Keep the reference PC and handler flag anchored between reports.
+        assert (rvfi_oldest_pc == expected_pc);
+        assert (rvfi_intr == expected_handler);
+`endif
+      end
+      if (!rst && rvfi_valid) begin
         assert (rvfi_pc_rdata == expected_pc);
         assert (rvfi_intr == expected_handler);
         assert (rvfi_mode == 3 && rvfi_ixl == 1);
@@ -517,6 +540,8 @@ module rvfi_rv32i #(
       cover (rvfi_valid && |rvfi_mem_rmask);
       cover (rvfi_valid && |rvfi_mem_wmask);
       cover (rvfi_valid && !rvfi_trap && rvfi_pc_wdata != rvfi_pc_rdata + 4);
+      cover (rvfi_valid && !rvfi_trap && plain_fence(rvfi_insn));
+      cover (rvfi_valid && !rvfi_trap && rvfi_insn[6:0] == 7'h13 && rvfi_rd_addr != 0);
     end
   end
 endmodule

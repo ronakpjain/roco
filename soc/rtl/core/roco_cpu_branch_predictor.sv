@@ -124,4 +124,19 @@ module roco_cpu_branch_predictor #(
     end
   end
 
+`ifdef ROCO_RVFI_PC_CHECKS
+  // A matching tag and immediate stand in for a wide direct-target compare
+  // in ID/EX. Prove that the BTB maintains the relation this relies on.
+  for (genvar slot = 0; slot < ENTRIES; slot++) begin : g_direct_target
+    logic [31:0] entry_pc;
+    assign entry_pc = {tags[slot], IDX_BITS'(slot), 2'b00};
+    always @(posedge clk) begin
+      if (!rst && valid[slot]) begin
+        assert (targets[slot][1:0] == 0);
+        if (direct[slot])
+          assert (targets[slot] == entry_pc + {{11{immediates[slot][20]}}, immediates[slot]});
+      end
+    end
+  end
+`endif
 endmodule

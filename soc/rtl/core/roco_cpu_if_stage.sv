@@ -16,6 +16,13 @@
 `default_nettype none
 
 module roco_cpu_if_stage (
+`ifdef ROCO_RVFI_PC_CHECKS
+  output logic [31:0] rvfi_fetch_head_pc,
+`endif
+`ifdef ROCO_RVFI_INSN_CHECKS
+  output logic [3:0] rvfi_queue_live,
+  output logic [127:0] rvfi_queue_insn,
+`endif
   input logic clk,
   input logic rst,
   input logic halt,
@@ -239,6 +246,56 @@ module roco_cpu_if_stage (
       end
     end
   end
+
+`ifdef ROCO_RVFI_INSN_CHECKS
+  for (genvar slot = 0; slot < DEPTH; slot++) begin : g_queue_insn
+    logic [1:0] distance;
+    assign distance = 2'(slot) - q_head;
+    assign rvfi_queue_live[slot] = 3'(distance) < q_count;
+    assign rvfi_queue_insn[32*slot+:32] = q_instr[slot];
+  end
+`endif
+
+`ifdef ROCO_RVFI_PC_CHECKS
+  // In the one-cycle hit environment, the response in flight is the next
+  // queue entry; without one, the next entry starts at the request PC.
+  logic [31:0] rvfi_queue_end_pc;
+  assign rvfi_queue_end_pc = prediction_pending ? last_req : request_pc;
+  assign rvfi_fetch_head_pc = boot_load ? boot_addr : q_empty ? rvfi_queue_end_pc : if_pc;
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (!retry_pending && !imem_fault && !imem_busy && !imem_miss);
+      assert (imem_rsp_valid == prediction_pending);
+      assert (pc_if[1:0] == 0 && last_req[1:0] == 0);
+      if (prediction_pending) begin
+        assert (imem_rsp_addr == last_req && pc_if == last_req + 32'd4);
+        assert (q_count < 3'(DEPTH));
+        if (pending_pred_taken) assert (pending_pred_target[1:0] == 0);
+        if (pending_pred_taken && pending_pred_direct)
+          assert (pending_pred_target == last_req + {{11{pending_pred_imm[20]}}, pending_pred_imm});
+      end
+      if (boot_load) assert (q_empty && !prediction_pending);
+    end
+  end
+  for (genvar slot = 0; slot < DEPTH; slot++) begin : g_pc_chain
+    localparam int Next = (slot + 1) % DEPTH;
+    logic [1:0] distance;
+    logic [31:0] successor;
+    assign distance = 2'(slot) - q_head;
+    assign successor = q_pred_taken[slot] ? q_pred_target[slot] : q_pc[slot] + 32'd4;
+    always @(posedge clk) begin
+      if (!rst && 3'(distance) < q_count) begin
+        assert (!q_fault[slot] && q_pc[slot][1:0] == 0);
+        if (q_pred_taken[slot]) assert (q_pred_target[slot][1:0] == 0);
+        if (q_pred_taken[slot] && q_pred_direct[slot])
+          assert (q_pred_target[slot] == q_pc[slot] + {{11{q_pred_imm[slot][20]}}, q_pred_imm[slot]});
+        if (3'(distance) + 3'd1 == q_count)
+          assert (successor == rvfi_queue_end_pc);
+          else assert (successor == q_pc[Next]);
+      end
+    end
+  end
+`endif
 
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
   // A slot is live iff its distance from the circular head is below count.

@@ -63,13 +63,17 @@ module roco_cpu (
   rvfi_div_b,
   rvfi_div_wb_data,
 `endif
+`ifdef ROCO_RVFI_PC_CHECKS
+  output logic [31:0] rvfi_oldest_pc,
+  output logic rvfi_mem_regwrite,
+`endif
 `ifdef ROCO_RVFI_INSN_CHECKS
-  input logic rvfi_fwd_trap_pending,
-  output logic rvfi_fwd_if_valid,
+  output logic rvfi_fwd_trap_pending,
+  output logic [3:0] rvfi_queue_live,
+  output logic [127:0] rvfi_queue_insn,
   output logic rvfi_fwd_idex_valid,
   output logic rvfi_fwd_exmem_valid,
-  output logic [31:0] rvfi_fwd_if_instr,
-  rvfi_fwd_idex_instr,
+  output logic [31:0] rvfi_fwd_idex_instr,
   rvfi_fwd_exmem_instr,
   rvfi_fwd_exc_instr,
 `endif
@@ -465,7 +469,17 @@ module roco_cpu (
   assign trace_rd = commit_rd;
   assign trace_wdata = commit_wdata;
 
+`ifdef ROCO_RVFI_PC_CHECKS
+  logic [31:0] rvfi_fetch_head_pc;
+`endif
   roco_cpu_if_stage u_if (
+`ifdef ROCO_RVFI_PC_CHECKS
+      .rvfi_fetch_head_pc(rvfi_fetch_head_pc),
+`endif
+`ifdef ROCO_RVFI_INSN_CHECKS
+      .rvfi_queue_live(rvfi_queue_live),
+      .rvfi_queue_insn(rvfi_queue_insn),
+`endif
       .clk(clk),
       .rst(rst),
       .halt(halt),
@@ -502,6 +516,10 @@ module roco_cpu (
   );
 
   roco_cpu_id_stage u_id (
+`ifdef ROCO_RVFI_PC_CHECKS
+      .rvfi_idex_rs1(rvfi_idex_rs1),
+      .rvfi_idex_rs2(rvfi_idex_rs2),
+`endif
 `ifdef ROCO_RVFI_GPR_STATE
       .rvfi_gpr_watch_addr(rvfi_gpr_watch_addr),
       .rvfi_gpr_watch_value(rvfi_gpr_watch_value),
@@ -656,14 +674,68 @@ module roco_cpu (
 `ifdef ROCO_RVFI_FORWARD_CHECKS
   logic rvfi_fwd_mem_ready;
   logic rvfi_fwd_cancel;
-  logic rvfi_fwd_ex_trap;
   logic [31:0] rvfi_fwd_held_rs1, rvfi_fwd_held_rs2;
-`ifdef ROCO_RVFI_INSN_CHECKS
-  logic rvfi_fwd_trap_pending;
-  logic rvfi_fwd_if_valid, rvfi_fwd_idex_valid, rvfi_fwd_exmem_valid;
-  logic [31:0] rvfi_fwd_if_instr, rvfi_fwd_idex_instr, rvfi_fwd_exmem_instr;
-  logic [31:0] rvfi_fwd_exc_instr;
 `endif
+
+`ifdef ROCO_RVFI_PC_CHECKS
+  logic [31:0] saved_target, idex_successor, frontend_pc, after_mem_pc;
+  always @(posedge clk) begin
+    if (if_consume) saved_target <= if_pred_target;
+  end
+  assign rvfi_mem_regwrite = exmem_regwrite;
+  assign idex_successor = idex_pred_taken ? saved_target : idex_pc + 32'd4;
+  assign frontend_pc = ex_redirect_en ? ex_redirect_pc : rvfi_fetch_head_pc;
+  assign after_mem_pc = !ex_redirect_en && idex_valid ? idex_pc : frontend_pc;
+  assign rvfi_oldest_pc = rvfi_fwd_trap_pending ? rvfi_exception.pc :
+                          exmem_valid ? exmem_pc : after_mem_pc;
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (!mem_redirect && !d_fault_q);
+      assert (retire == (exmem_valid && !mem_wait));
+      assert (!(rvfi_fwd_trap_pending && ex_redirect_en));
+      if (ex_redirect_en) assert (ex_redirect_pc[1:0] == 0);
+      if (idex_valid) begin
+        assert (!idex_ifault && !idex_is_csr);
+        assert (idex_pc[1:0] == 0);
+        if ((idex_is_branch || idex_is_jal) && idex_pred_taken && idex_pred_target_match)
+          assert (saved_target == idex_pc + idex_imm);
+        if (idex_pred_jalr_aligned) begin
+          assert (!saved_target[0]);
+          assert (idex_pred_jalr_base[30:0] == saved_target[31:1] - idex_imm[31:1]);
+          assert (idex_pred_jalr_carry[30:0] == idex_pred_jalr_base[30:0] - 31'd1);
+        end
+        if (!ex_redirect_en && !rvfi_fwd_trap_pending) begin
+          assert (idex_successor == rvfi_fetch_head_pc);
+          // EX cannot depend on the live data of a long-latency MEM
+          // producer; ID must have inserted the dependency bubble.
+          if (!rvfi_fwd_mem_ready && (idex_rs1_from_mem || idex_rs2_from_mem))
+            assert (exmem_valid && exmem_regwrite && !mem_result_late);
+        end
+      end
+      if (exmem_valid) begin
+        assert (rvfi_exmem.next_pc == after_mem_pc);
+        if (rvfi_exmem.rs1 == 0) assert (rvfi_exmem.rs1_data == 0);
+        if (rvfi_exmem.rs2 == 0) assert (rvfi_exmem.rs2_data == 0);
+        assert (exmem_is_load == (exmem_instr[6:0] == 7'h03));
+        assert (exmem_is_store == (exmem_instr[6:0] == 7'h23));
+        if (exmem_is_load || exmem_is_store) begin
+          // Preserve the subword offset and access width even while the
+          // packet waits; the ISA model's reported address is word-aligned.
+          assert (exmem_alu == rvfi_exmem.vaddr);
+          assert (exmem_funct3 == exmem_instr[14:12]);
+          assert (exmem_alu[1:0] == rvfi_exmem.rs1_data[1:0] +
+                  (exmem_is_load ? exmem_instr[21:20] : exmem_instr[8:7]));
+        end
+      end
+      // Exercise recovery from a stale taken prediction on a store.
+      cover (rvfi_valid && ex_redirect_en && $past(
+          idex_pred_taken && idex_is_store
+      ) && |rvfi_mem_wmask);
+`ifdef ROCO_RVFI_STALL_CHECKS
+      cover ($past(ex_redirect_en && mem_wait && exmem_is_store) && retire && dmem_req);
+`endif
+    end
+  end
 `endif
 
 `ifdef ROCO_RVFI_GPR_WRITEBACK_CHECKS
@@ -711,12 +783,9 @@ module roco_cpu (
   always @(posedge clk) begin
     if (!rst) begin
       // Under the restricted fetch set this job uses, the translation base
-      // and mode registers are never written, memory is always ready, and
-      // only plain FENCE appears. So no lookup can miss, no memory op
-      // waits on the bus, and no FENCE.I/SFENCE hold can occur. Pin that
-      // down explicitly: it removes those scenarios from induction. The
-      // ordinary one-cycle scalar prepare is not a stall and stays legal.
-      assert (!dmem_lu_stall && !mem_wait && !fence_req);
+      // and mode registers cannot enable translation, and only plain
+      // FENCE appears. No translation retry or FENCE.I/SFENCE hold occurs.
+      assert (!dmem_lu_stall && !fence_req);
       // The fetch set contains no privilege return and no CSR access to the
       // translation base or mode registers, so the core stays in M mode and
       // data translation stays disabled. The divider never launches, so its
@@ -775,14 +844,15 @@ module roco_cpu (
           !rvfi_fwd_mem_ready && !rvfi_fwd_cancel &&
           rvfi_idex_rs2 == rvfi_gpr_watch_addr)
         assert (fwd_mem_w);
-      if (idex_valid && rvfi_fwd_mem_ready && fwd_watch_nonzero &&
-          !rvfi_fwd_cancel && !rvfi_fwd_ex_trap &&
-          rvfi_idex_rs1 == rvfi_gpr_watch_addr)
-        assert (rvfi_fwd_held_rs1 == fwd_hist0);
-      if (idex_valid && rvfi_fwd_mem_ready && fwd_watch_nonzero &&
-          !rvfi_fwd_cancel && !rvfi_fwd_ex_trap &&
-          rvfi_idex_rs2 == rvfi_gpr_watch_addr)
-        assert (rvfi_fwd_held_rs2 == fwd_hist0);
+      if (idex_valid && rvfi_fwd_mem_ready && !rvfi_fwd_cancel) begin
+        // Scalar preparation waits for the previous MEM packet to drain.
+        // This also holds when the prepared address will take a trap.
+        assert (!exmem_valid);
+        if (fwd_watch_nonzero && rvfi_idex_rs1 == rvfi_gpr_watch_addr)
+          assert (rvfi_fwd_held_rs1 == fwd_hist0);
+        if (fwd_watch_nonzero && rvfi_idex_rs2 == rvfi_gpr_watch_addr)
+          assert (rvfi_fwd_held_rs2 == fwd_hist0);
+      end
       if (exmem_valid && fwd_watch_nonzero && rvfi_exmem.rs1 == rvfi_gpr_watch_addr)
         assert (rvfi_exmem.rs1_data == fwd_hist0);
       if (exmem_valid && fwd_watch_nonzero && rvfi_exmem.rs2 == rvfi_gpr_watch_addr)
@@ -805,10 +875,8 @@ module roco_cpu (
   // Instruction-identity chain for the semantic job: every live pipeline
   // word stays within the fetch set the harness assumes at the response
   // interface, so the upstream models can decode each retirement.
-  assign rvfi_fwd_if_valid = if_valid;
   assign rvfi_fwd_idex_valid = idex_valid;
   assign rvfi_fwd_exmem_valid = exmem_valid;
-  assign rvfi_fwd_if_instr = if_instr;
   assign rvfi_fwd_idex_instr = idex_instr;
   assign rvfi_fwd_exmem_instr = exmem_instr;
   assign rvfi_fwd_exc_instr = rvfi_exception.instr;
@@ -858,7 +926,6 @@ module roco_cpu (
 `ifdef ROCO_RVFI_FORWARD_CHECKS
       .rvfi_fwd_mem_ready(rvfi_fwd_mem_ready),
       .rvfi_fwd_cancel(rvfi_fwd_cancel),
-      .rvfi_fwd_ex_trap(rvfi_fwd_ex_trap),
 `ifdef ROCO_RVFI_INSN_CHECKS
       .rvfi_fwd_trap_pending(rvfi_fwd_trap_pending),
 `endif

@@ -9,6 +9,10 @@
 `include "roco_cpu_defs.svh"
 
 module roco_cpu_id_stage (
+`ifdef ROCO_RVFI_PC_CHECKS
+  input logic [4:0] rvfi_idex_rs1,
+  rvfi_idex_rs2,
+`endif
 `ifdef ROCO_RVFI_GPR_STATE
   input logic [4:0] rvfi_gpr_watch_addr,
   output logic [31:0] rvfi_gpr_watch_value,
@@ -291,7 +295,9 @@ module roco_cpu_id_stage (
       idex_is_sfence <= 1'b0;
       idex_is_fence_i <= 1'b0;
     end else if (halt || hold) begin
-      // Frozen while MEM owns the bus.
+      // MEM can hold its own packet while a redirect kills the younger
+      // EX packet. The payload stays frozen; only its valid bit clears.
+      if (!halt && flush) idex_valid <= 1'b0;
     end else begin
       // Only the valid bit needs the flush and bubble controls. Updating
       // the invalid payload keeps those controls off the register enables.
@@ -359,5 +365,81 @@ module roco_cpu_id_stage (
       idex_is_fence_i <= dec_is_fence_i;
     end
   end
+
+`ifdef ROCO_RVFI_PC_CHECKS
+  // An arbitrarily long MEM stall can hold EX past the induction window.
+  // Relate the registered control bits to their instruction throughout it.
+  logic [31:0] replay_imm;
+  logic [2:0] replay_funct3;
+  logic [3:0] replay_alu_op;
+  logic replay_regwrite, replay_load, replay_store, replay_illegal;
+  logic replay_branch, replay_jal, replay_jalr, replay_ecall, replay_ebreak;
+  logic replay_use_rs1, replay_use_rs2, replay_a_pc, replay_b_imm;
+  logic replay_jump;
+  assign replay_jump = replay_jal || replay_jalr;
+  roco_cpu_decoder replay_decode (
+      .instr(idex_instr),
+      .rs1(),
+      .rs2(),
+      .rd(),
+      .funct3(replay_funct3),
+      .imm(replay_imm),
+      .use_rs1(replay_use_rs1),
+      .use_rs2(replay_use_rs2),
+      .alu_b_imm(replay_b_imm),
+      .alu_a_pc(replay_a_pc),
+      .alu_op(replay_alu_op),
+      .is_muldiv(),
+      .md_op(),
+      .regwrite(replay_regwrite),
+      .is_load(replay_load),
+      .is_store(replay_store),
+      .is_amo(),
+      .is_lr(),
+      .is_sc(),
+      .amo_op(),
+      .is_vec(),
+      .is_vset(),
+      .is_vload(),
+      .is_vstore(),
+      .vec_funct6(),
+      .is_branch(replay_branch),
+      .is_jal(replay_jal),
+      .is_jalr(replay_jalr),
+      .is_csr(),
+      .csr_uimm(),
+      .csr_op(),
+      .csr_addr(),
+      .illegal(replay_illegal),
+      .ecall(replay_ecall),
+      .ebreak(replay_ebreak),
+      .mret(),
+      .sret(),
+      .is_sfence(),
+      .is_fence_i()
+  );
+  always @(posedge clk) begin
+    if (!rst && idex_valid) begin
+      assert (idex_funct3 == replay_funct3 && idex_imm == replay_imm);
+      assert (idex_is_load == replay_load && idex_is_store == replay_store);
+      assert (idex_is_branch == replay_branch && idex_is_jal == replay_jal && idex_is_jalr == replay_jalr);
+      assert (idex_ecall == replay_ecall && idex_ebreak == replay_ebreak && idex_illegal == replay_illegal);
+      assert (idex_alu_op == replay_alu_op && idex_regwrite == replay_regwrite);
+      assert (idex_rd == idex_instr[11:7]);
+      assert (idex_wb_select == {replay_jump, 2'b00, !replay_jump});
+      assert (rvfi_idex_rs1 == (replay_use_rs1 ? idex_instr[19:15] : 5'd0));
+      assert (rvfi_idex_rs2 == (replay_use_rs2 ? idex_instr[24:20] : 5'd0));
+      assert (idex_alu_a_from_mem == (idex_rs1_from_mem && !replay_a_pc));
+      assert (idex_alu_b_from_mem == (idex_rs2_from_mem && !replay_b_imm));
+      assert (idex_alu_a_val == (replay_a_pc ? idex_pc : idex_rs1_val));
+      assert (idex_alu_b_val == (replay_b_imm ? idex_imm : idex_rs2_val));
+      assert (!idex_rs1_from_wb && idex_rs1_from_rf == !idex_rs1_from_mem);
+      if (idex_instr[19:15] == 0) assert (!idex_rs1_from_mem && idex_rs1_val == 0);
+      if (idex_instr[24:20] == 0) assert (!idex_rs2_from_mem && idex_rs2_val == 0);
+      if (idex_rs1_from_mem) assert (idex_rs1_val == 0);
+      if (idex_rs2_from_mem) assert (idex_rs2_val == 0);
+    end
+  end
+`endif
 
 endmodule

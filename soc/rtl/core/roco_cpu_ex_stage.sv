@@ -25,7 +25,6 @@ module roco_cpu_ex_stage (
 `ifdef ROCO_RVFI_FORWARD_CHECKS
   output logic rvfi_fwd_mem_ready,
   output logic rvfi_fwd_cancel,
-  output logic rvfi_fwd_ex_trap,
 `ifdef ROCO_RVFI_INSN_CHECKS
   output logic rvfi_fwd_trap_pending,
 `endif
@@ -717,6 +716,10 @@ module roco_cpu_ex_stage (
                             ((rs1_fwd[0] && idex_imm[0]) ?
                              (rs1_fwd[31:1] != idex_pred_jalr_carry[30:0]) :
                              (rs1_fwd[31:1] != idex_pred_jalr_base[30:0]));
+      end else begin
+        // A stale taken prediction must also be repaired if the fetched
+        // word is no longer a control transfer (e.g. after an alias).
+        branch_mispredict = idex_pred_taken && !lu_stall && !vec_mem_hold;
       end
 
       ex_redirect = ex_trap || is_satp_write || idex_mret || idex_sret || branch_mispredict;
@@ -802,11 +805,11 @@ module roco_cpu_ex_stage (
   // mux behind branch comparison in front of the payload register.
   assign ex_redirect_base = trap_pending ? csr_trap_vector :
                             idex_mret ? csr_mepc : idex_sret ? csr_sepc :
-                            (is_satp_write || idex_is_branch || idex_is_jal) ? idex_pc : rs1_fwd;
+                            idex_is_jalr ? rs1_fwd : idex_pc;
   assign ex_redirect_offset = (trap_pending || idex_mret || idex_sret || is_satp_write) ?
                               32'd0 : idex_imm;
-  assign ex_redirect_fallthrough = !trap_pending &&
-                                  (is_satp_write || (idex_is_branch && !ex_branch_taken));
+  assign ex_redirect_fallthrough = !trap_pending && !idex_mret && !idex_sret &&
+                                  !(idex_is_jal || idex_is_jalr || (idex_is_branch && ex_branch_taken));
   assign ex_redirect_mask_lsb = !trap_pending && idex_is_jalr;
   assign ex_trap_taken = trap_commit;
   assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || dmem_lu_fault ||
@@ -1218,7 +1221,6 @@ module roco_cpu_ex_stage (
   // phase flag that selects them over the live forwarding muxes.
   assign rvfi_fwd_mem_ready = scalar_is_mem && scalar_mem_ready;
   assign rvfi_fwd_cancel = cancel_ex;
-  assign rvfi_fwd_ex_trap = ex_trap;
 `ifdef ROCO_RVFI_INSN_CHECKS
   assign rvfi_fwd_trap_pending = trap_pending;
 `endif
@@ -1229,6 +1231,17 @@ module roco_cpu_ex_stage (
   assign rvfi_trap_entry = trap_commit && !halt;
   assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;
   assign rvfi_trap_vector = csr_trap_vector;
+`ifdef ROCO_RVFI_PC_CHECKS
+  always @(posedge clk) begin
+    if (!rst) begin
+      // This fetch set has no CSR writes. The M-mode trap vector stays at
+      // reset, including while a synchronous exception is pending.
+      assert (!csr_wr_en && unused_csr_mtvec == 0);
+      if (trap_pending) assert (!trap_is_irq_q);
+      if (idex_valid && btb_update) assert (idex_pc[1:0] == 0);
+    end
+  end
+`endif
 `ifdef ROCO_RVFI_NO_DIV_CHECKS
   // The fetch set contains no CSR access to the translation base or mode
   // registers, no interrupt or delegation state, and no instruction that

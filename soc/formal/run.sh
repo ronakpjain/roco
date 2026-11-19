@@ -17,11 +17,13 @@ case "$mode" in
 esac
 
 case "$job" in
-  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-multiply)
+  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
-    elif [[ "$job" == core-memory ]]; then
+    elif [[ "$job" == core-isa-stall ]]; then
+      parameters="chparam -set CoherentMemory 1 -set StallMemory 1 $top;"
+    elif [[ "$job" == core-memory || "$job" == core-isa ]]; then
       parameters="chparam -set CoherentMemory 1 $top;"
     elif [[ "$job" == core-memory-port ]]; then
       parameters="chparam -set CoherentMemory 1 -set AccountingOnly 1 $top;"
@@ -59,10 +61,11 @@ case "$job" in
     fi
     if [[ "$job" == core-forward ]]; then
       defines+=' -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_FORMAL_SIMPLE_FETCH'
-    elif [[ "$job" == core-isa ]]; then
-      defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_INSN_CHECKS -DROCO_RVFI_NO_DIV_CHECKS'
+    elif [[ "$job" == core-isa || "$job" == core-isa-stall ]]; then
+      defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_INSN_CHECKS -DROCO_RVFI_NO_DIV_CHECKS -DROCO_RVFI_PC_CHECKS'
     fi
-    if [[ "$job" == core-no-divide || "$job" == core-forward || "$job" == core-isa ]]; then
+    if [[ "$job" == core-isa-stall ]]; then defines+=' -DROCO_RVFI_STALL_CHECKS'; fi
+    if [[ "$job" == core-no-divide || "$job" == core-forward || "$job" == core-isa* ]]; then
       proof_engine="smtbmc ${SOLVER:-z3}"
       proof_depth=6
       proof_lowering=''
@@ -173,7 +176,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

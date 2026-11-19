@@ -193,13 +193,49 @@ native requests and write payloads remain stable under backpressure. These
 checks do not assume anything about SDRAM input data. The `soc-ram` CI gate
 also includes this complete assertion set.
 
-The scoreboard starts a new epoch on CPU reset. UART boot restart immediately
-resets the CPU, then drains and cleans the D-cache before resetting its
-metadata and admitting boot writes, as checked by `soc-fence`. Composing
-architectural data across that reset boundary, ordinary flush exclusion and
-the cache's backing read-data assumptions remains open. Inactive lookup inputs may
-change freely; the cache retains the accepted address and load format.
-This job does not yet discharge the full `dcache-memory` caller contract.
+The ownership scoreboard starts a new epoch on CPU reset. UART boot restart
+immediately resets the CPU, then drains and cleans the D-cache before resetting
+its metadata and admitting boot writes, as checked by `soc-fence`. This job
+checks ownership and transport; `soc-dcache-memory` below composes the data
+contract, flush exclusion and cancellation across restart. Inactive lookup
+inputs may change freely; the cache retains the accepted address and format.
+
+## Whole-SoC CPU data-port memory coherence (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-dcache-memory prove
+```
+
+On the actual default SoC, the D-cache checker runs together with the real
+CPU, AXI fabric, SDRAM controller and sparse pin-level memory device. One
+arbitrary physical word has a reference updated only by CPU-port stores and
+native boot writes. Ready CPU reads must return that word on both the raw
+and formatted forwarding ports. The checker follows both physical cache
+copies through hits, byte stores, refills, conflicts and dirty writeback;
+flush completion requires the reference to equal backing memory.
+
+The D-cache caller and backing-read constraints are checked as assertions,
+with an explicit canceled-lookup state for CPU reset.
+Independent cache and fabric scoreboards agree on each beat and address;
+the backing shadow is related to the independent pin-level memory copy,
+including write halfwords still in flight.
+Only initial global reset and the ideal external BL2/CL3 device are assumed.
+The elaborated assumption set contains no D-cache, CPU or internal bus
+constraints. Other external inputs and subsequent resets are unconstrained.
+
+CPU reset can abandon a lookup while the cache finishes its outstanding
+work. The checker retains that lookup until the maintenance reset, prohibits
+its commit, and checks normal ownership again when the CPU resumes. Before
+a maintenance reset discards metadata, the CPU-port reference must already
+equal backing memory. Boot writes are admitted only with invalid cache lines
+and update the memory references with their actual byte enables. Global reset
+alone begins a fresh memory epoch.
+
+This proves the SDRAM data path from the CPU's physical memory port through
+the cache and pins, including boot replacement. It does not compare the
+CPU's addresses, store values or instruction results against an ISA model,
+prove Sv32 architectural permissions, or prove coherent instruction fetch
+after FENCE.I. Those architectural compositions remain open.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 
@@ -685,9 +721,10 @@ stall indefinitely and supplies exactly a line's worth of ordered responses
 if it completes a read, with coherent data only at the tracked word. Each
 reset starts a fresh memory epoch. Cover mode uses four lines to reach dirty
 eviction, changed data surviving flush, and same-cycle store/load forwarding.
-This is a cache contract, not a proof that the CPU and the SoC fabric satisfy
-its interface assumptions or that FENCE.I is architecturally coherent across
-both caches.
+This standalone job isolates the cache contract. `soc-dcache-memory`
+discharges the connected CPU and backing-port constraints, including boot
+replacement; architectural instruction-fetch coherence across FENCE.I still
+requires composing both caches with the CPU's instruction model.
 
 ### Remaining whole-core proof obligations
 

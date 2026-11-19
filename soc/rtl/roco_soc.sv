@@ -106,6 +106,13 @@ module roco_soc #(
   logic [1:0] fence_state;
   logic boot_cache_maintenance, cache_rst;
   logic boot_axi_ready;
+`ifdef ROCO_SOC_DCACHE_MEMORY_FORMAL
+  logic [22:0] f_dc_beat_word;
+  logic f_dc_memory_active, f_dc_memory_write;
+  logic [4:0] f_dc_write_left, f_dc_cache_read_left;
+  logic f_dc_checker_pending, f_dc_checker_abandoned;
+  logic [22:0] f_dc_checker_cpu_word;
+`endif
 `ifdef ROCO_SOC_FENCE_FORMAL
   logic f_dc_idle, f_dc_lookup_pending;
 `endif
@@ -313,6 +320,27 @@ module roco_soc #(
       .LINE_WORDS(8),
       .NUM_LINES(DCACHE_LINES)
   ) u_dcache (
+`ifdef ROCO_SOC_DCACHE_MEMORY_FORMAL
+      .formal_memory_addr(cell_addr),
+      .formal_initial_word(rst ? initial_cell : native_cell),
+      .formal_backing_word(native_cell),
+      .formal_cancel(core_rst),
+      .formal_boot_loading(core_rst && !boot_cache_maintenance),
+      .formal_global_reset(rst),
+      .formal_boot_clean(boot_cache_maintenance &&
+                        (fence_state == F_DRAIN || fence_state == F_ICACHE)),
+      .formal_external_write(boot_write_fire && boot_write_word == cell_addr),
+      .formal_external_data(boot_mem_wdata),
+      .formal_external_be(boot_mem_wbe),
+      .formal_beat_word(f_dc_beat_word),
+      .formal_memory_active(f_dc_memory_active),
+      .formal_memory_write(f_dc_memory_write),
+      .formal_write_left(f_dc_write_left),
+      .formal_read_left(f_dc_cache_read_left),
+      .formal_pending(f_dc_checker_pending),
+      .formal_abandoned(f_dc_checker_abandoned),
+      .formal_cpu_word(f_dc_checker_cpu_word),
+`endif
 `ifdef ROCO_SOC_FENCE_FORMAL
       .f_idle(f_dc_idle),
       .f_lookup_pending(f_dc_lookup_pending),

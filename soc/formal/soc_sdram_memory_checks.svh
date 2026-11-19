@@ -71,6 +71,25 @@ always_ff @(posedge clk) begin
     assert (9'(f_ram_write_left) == (active && writing && !final_w ? length - transferred : 9'd0));
 end
 
+`ifdef ROCO_SOC_DCACHE_MEMORY_FORMAL
+// The two independent native-port scoreboards name the same in-flight
+// beat. This connects cache writeback history to the fabric memory copy.
+always_ff @(posedge clk) begin
+  if (!rst && !cache_rst) begin
+    assert (f_d_write_left == f_dc_write_left);
+    assert (f_dc_read_left == f_dc_cache_read_left);
+    if (!core_rst) begin
+      assert ((f_dc_checker_pending && !f_dc_checker_abandoned) == f_dc_pending);
+      if (f_dc_pending) assert (f_dc_checker_cpu_word == f_dc_word);
+    end
+    if (f_d_write_left != 0)
+      assert (f_dc_memory_active && f_dc_memory_write && f_dc_beat_word == dc_write_word);
+    if (f_dc_read_left != 0)
+      assert (f_dc_memory_active && !f_dc_memory_write && f_dc_beat_word == dc_read_word);
+  end
+end
+`endif
+
 logic [22:0] dc_write_word, boot_write_word;
 logic [31:0] native_cell;
 logic dc_write_fire, boot_write_fire;

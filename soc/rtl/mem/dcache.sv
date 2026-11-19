@@ -21,6 +21,26 @@ module dcache #(
     parameter int LINE_WORDS = 4,
     parameter int NUM_LINES = 256
 ) (
+`ifdef ROCO_SOC_DCACHE_MEMORY_FORMAL
+  input logic [22:0] formal_memory_addr,
+  input logic [31:0] formal_initial_word,
+  input logic [31:0] formal_backing_word,
+  input logic formal_cancel,
+  input logic formal_boot_loading,
+  input logic formal_global_reset,
+  input logic formal_boot_clean,
+  input logic formal_external_write,
+  input logic [31:0] formal_external_data,
+  input logic [3:0] formal_external_be,
+  output logic [22:0] formal_beat_word,
+  output logic formal_memory_active,
+  output logic formal_memory_write,
+  output logic [4:0] formal_write_left,
+  output logic [4:0] formal_read_left,
+  output logic formal_pending,
+  output logic formal_abandoned,
+  output logic [22:0] formal_cpu_word,
+`endif
 `ifdef ROCO_SOC_FENCE_FORMAL
   output logic f_idle,
   output logic f_lookup_pending,

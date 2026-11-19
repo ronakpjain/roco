@@ -67,9 +67,6 @@ always_ff @(posedge clk) begin
     // may overlap the retiring access. FENCE.I holds flush through done.
     if (cm_valid) assume (f_pending && cm_ready && cm_addr == f_cpu_addr);
     if (lu_valid) assume (!f_pending || cm_valid);
-    if (f_pending && !lu_valid) begin
-      assume ({lu_addr, lu_offset, lu_funct3} == {f_cpu_addr, f_cpu_offset, f_cpu_funct3});
-    end
     if (flush) assume (!f_pending && !lu_valid);
     if (f_past_valid && !$past(rst) && $past(flush && !flush_done)) assume (flush);
     if (lu_valid) begin

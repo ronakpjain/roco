@@ -250,6 +250,24 @@ module tb_dcache;
         end
       end
     end
+    // The next EX packet may change address and format while MEM retains
+    // a ready response (halt or AMO preparation), or while a refill runs.
+    for (int access = 0; access < 2; access ++) begin
+      lu_offset = 2'd2;
+      lu_funct3 = 3'b000;
+      lookup(access == 0 ? 2 : 33);
+      lu_addr = 23'd511;
+      lu_offset = 2'd0;
+      lu_funct3 = 3'b010;
+      wait_ready();
+      repeat (4) begin
+        @(negedge clk);
+        if (!cm_ready || cm_rdata !== (access == 0 ? 32'hc0ad00ef : 32'hc0000021) ||
+            cm_forward_data !== (access == 0 ? 32'hffffffad : 32'd0))
+          $fatal(1, "response changed without a new lookup, access=%0d", access);
+      end
+      ack_read(access == 0 ? 2 : 33);
+    end
     $display("tb_dcache: PASS");
     $finish;
   end

@@ -194,7 +194,9 @@ module dcache #(
 
   always_comb begin
     ram_raddr = {lu_addr[IDX_HI:IDX_LO], lu_addr[OFF_BITS+1:2]};
-    if (pending_miss && !recovery_ready) begin
+    // A lookup owns the response until commit. EX may already present
+    // another packet while MEM is paused, without issuing a new lookup.
+    if (!lu_valid || (pending_miss && !recovery_ready)) begin
       ram_raddr = {lu_addr_q[IDX_HI:IDX_LO], lu_addr_q[OFF_BITS+1:2]};
     end
     if ((state == S_WB_RD) || (state == S_WB_WR)) begin
@@ -218,7 +220,7 @@ module dcache #(
   endfunction
   // The forwarding mirror is never used for writeback or flush reads.
   // Only the live lookup and saved miss address belong on its read path.
-  assign forward_raddr = (pending_miss && !recovery_ready) ?
+  assign forward_raddr = (!lu_valid || (pending_miss && !recovery_ready)) ?
                          lu_addr_q[IDX_HI:2] : lu_addr[IDX_HI:2];
 `ifdef ROCO_DCACHE_MEMORY_FORMAL
   `include "dcache_memory_checks.svh"
@@ -266,8 +268,8 @@ module dcache #(
   for (genvar b = 0; b < 4; b = b + 1) begin : g_forward_mask
     assign forward_mask[8*b+:8] = {8{cm_be[b]}};
   end
-  assign forward_offset = (pending_miss && !recovery_ready) ? lookup_offset_q : lu_offset;
-  assign forward_funct3 = (pending_miss && !recovery_ready) ? lookup_funct3_q : lu_funct3;
+  assign forward_offset = (!lu_valid || (pending_miss && !recovery_ready)) ? lookup_offset_q : lu_offset;
+  assign forward_funct3 = (!lu_valid || (pending_miss && !recovery_ready)) ? lookup_funct3_q : lu_funct3;
   always_ff @(posedge clk) begin
     ram_data <= {lane3[ram_raddr], lane2[ram_raddr], lane1[ram_raddr], lane0[ram_raddr]};
     // Register alignment and store matching independently. Formatting the

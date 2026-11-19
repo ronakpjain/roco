@@ -138,8 +138,9 @@ is assumed.
 
 The scoreboard starts a new epoch on CPU reset. UART boot restart can reset
 the CPU without resetting the D-cache, so cancellation of outstanding cache
-work across that boundary must also be checked separately. Held lookup
-address/format, flush exclusion and backing read-data assumptions remain open.
+work across that boundary must also be checked separately. Flush exclusion
+and backing read-data assumptions remain open. Inactive lookup inputs may
+change freely; the cache retains the accepted address and load format.
 This job does not yet discharge the full `dcache-memory` caller contract.
 
 ## Whole-SoC memory and MMIO integration (bounded)
@@ -618,9 +619,10 @@ the same word. Dirty writebacks must present the latest value, and flush
 completion must leave backing memory coherent. The native memory request and
 write channels also hold valid payloads during stalls.
 
-The caller has one lookup outstanding, holds its address and load-format
-inputs while waiting unless issuing the next lookup on the commit edge, and
-starts and holds flush only when no demand is pending. The backing port may
+The caller has one lookup outstanding and may issue the next lookup on the
+commit edge. Inactive lookup address and format inputs are unconstrained;
+the cache retains the accepted fields through hits, stalls and refill
+recovery. The caller starts and holds flush only when no demand is pending. The backing port may
 stall indefinitely and supplies exactly a line's worth of ordered responses
 if it completes a read, with coherent data only at the tracked word. Each
 reset starts a fresh memory epoch. Cover mode uses four lines to reach dirty

@@ -585,8 +585,23 @@ only after `WLAST`. Cover checks include both destinations accepting addresses
 in the same cycle, and concurrent read and write responses.
 
 This checks routing, not whether endpoints generate correct `LAST`, IDs, or
-burst lengths. It does not prove arbitration fairness. The AXI memory master
-still needs a separate contract before composing the checks at the SoC boundary.
+burst lengths. It does not prove arbitration fairness.
+
+## AXI4 memory master (unbounded)
+
+```sh
+bash formal/run.sh axi-mem-master prove
+bash formal/run.sh axi-mem-master cover
+```
+
+ABC PDR proves the actual memory master against a public-handshake scoreboard.
+The contract checks AR/AW attributes and payload, W data/strobes and `LAST`,
+read data and error conversion, and that the client port stays reserved until
+B after a write. The source holds the request and each write payload stable
+until accepted; AXI stalls and subsequent resets are unconstrained. The job
+checks how the master handles the response it sees, not whether the slave
+sends a legal number of read beats. Both covers reached: a stalled next
+request held behind B, and an error read response.
 
 ## AXI4-to-SDRAM adapter (unbounded)
 

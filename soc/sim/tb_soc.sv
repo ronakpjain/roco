@@ -218,16 +218,14 @@ module tb_soc #(
 
   initial begin
     if (!$value$plusargs("hex=%s", hexfile)) begin
-      $display("tb_soc: no +hex image");
-      $finish;
+      $fatal(1, "tb_soc: no +hex image");
     end
     for (i = 0; i < IMAGE_WORDS; i = i + 1) begin
       image[i] = 32'd0;
     end
     hex_fd = $fopen(hexfile, "r");
     if (hex_fd == 0) begin
-      $display("tb_soc: cannot open %s", hexfile);
-      $finish;
+      $fatal(1, "tb_soc: cannot open %s", hexfile);
     end
     i = 0;
     hex_matched = 1;
@@ -281,8 +279,7 @@ module tb_soc #(
       cycles <= cycles + 1;
       if (u_soc.trace_valid && first_retire_cycle < 0) first_retire_cycle <= cycles;
       if (cycles > max_cycles) begin
-        $display("tb_soc: TIMEOUT after %0d cycles", max_cycles);
-        $finish;
+        $fatal(1, "tb_soc: TIMEOUT after %0d cycles", max_cycles);
       end
     end
   end
@@ -342,6 +339,7 @@ module tb_soc #(
                u_soc.u_peripherals.dbg0, u_soc.u_peripherals.dbg1, push_cnt, start_cnt,
                full_push_cnt);
       if (exit_code == 32'd1) begin
+        if (sdram_errors != 0) $fatal(1, "SDRAM model reported %0d errors", sdram_errors);
         if ($test$plusargs("check_counter_clear")) begin
           if (counter_clear_count != 32) $fatal(1, "missing or duplicate APB counter clear");
           $display("counter clear: PASS (%0d clears, %0d collisions)", counter_clear_count,
@@ -354,7 +352,7 @@ module tb_soc #(
         end
         $display("tb_soc: PASS (%0d sdram errors)", sdram_errors);
       end else begin
-        $display("tb_soc: FAIL code=%0d (%0d sdram errors)", exit_code, sdram_errors);
+        $fatal(1, "tb_soc: FAIL code=%0d (%0d sdram errors)", exit_code, sdram_errors);
       end
       $finish;
     end

@@ -176,8 +176,7 @@ module tb_soc_boot #(
 
   initial begin
     if (!$value$plusargs("packet=%s", packet_file)) begin
-      $display("tb_soc_boot: no +packet file");
-      $finish;
+      $fatal(1, "tb_soc_boot: no +packet file");
     end
     load_packet(packet_file);
     if (!$value$plusargs("reload=%s", reload_file)) reload_file = "";
@@ -201,8 +200,7 @@ module tb_soc_boot #(
       guard = guard + 1;
     end
     if (!u_soc.sdram_init_done) begin
-      $display("tb_soc_boot: SDRAM init timeout");
-      $finish;
+      $fatal(1, "tb_soc_boot: SDRAM init timeout");
     end
     repeat (10) @(posedge clk);
 
@@ -217,8 +215,7 @@ module tb_soc_boot #(
       guard = guard + 1;
     end
     if (images_accepted == 0) begin
-      $display("tb_soc_boot: bootloader did not accept the image");
-      $finish;
+      $fatal(1, "tb_soc_boot: bootloader did not accept the image");
     end
     $display("tb_soc_boot: bootloader accepted image at %0t", $time);
     if (reload_file != "") begin
@@ -258,8 +255,7 @@ module tb_soc_boot #(
     if (!rst && !halted) begin
       cycles <= cycles + 1;
       if (cycles > max_cycles) begin
-        $display("tb_soc_boot: TIMEOUT after %0d cycles", max_cycles);
-        $finish;
+        $fatal(1, "tb_soc_boot: TIMEOUT after %0d cycles", max_cycles);
       end
     end
   end
@@ -268,6 +264,7 @@ module tb_soc_boot #(
     if (!rst && halted) begin
       repeat (5000) @(posedge clk);
       if (exit_code == 32'd1) begin
+        if (sdram_errors != 0) $fatal(1, "SDRAM model reported %0d errors", sdram_errors);
         $display("tb_soc_boot: PASS (%0d sdram errors)", sdram_errors);
       end else begin
         $fatal(1, "tb_soc_boot: FAIL code=%0d (%0d sdram errors)", exit_code, sdram_errors);

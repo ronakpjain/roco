@@ -20,6 +20,11 @@ _start:
   csrw mip, t0
   csrw mtvec, s2
 resume:
+  # Interrupt entry may follow the CSR commit immediately or an ordinary
+  # instruction later. A stationary next PC makes the expected EPC exact
+  # in both cases, including cache misses and fetch-queue bubbles.
+  j resume
+after_irq:
   li t1, 1
   bne s1, t1, fail
   csrr t1, mip
@@ -43,6 +48,8 @@ handler:
   beqz t1, fail
   addi s1, s1, 1
   csrw mip, zero
+  la t1, after_irq
+  csrw mepc, t1
   mret
 
 .align 2

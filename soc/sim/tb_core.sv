@@ -277,8 +277,7 @@ module tb_core;
     if (hexfile.len() > 0) begin
       hex_fd = $fopen(hexfile, "r");
       if (hex_fd == 0) begin
-        $display("tb_core: cannot open %s", hexfile);
-        $finish;
+        $fatal(1, "tb_core: cannot open %s", hexfile);
       end
       i = 0;
       hex_matched = 1;
@@ -319,8 +318,7 @@ module tb_core;
       cycles <= cycles + 1;
       if (trace_valid && first_retire_cycle < 0) first_retire_cycle <= cycles;
       if (cycles > max_cycles) begin
-        $display("tb_core: TIMEOUT after %0d cycles", max_cycles);
-        $finish;
+        $fatal(1, "tb_core: TIMEOUT after %0d cycles", max_cycles);
       end
     end
     if (trace_on && trace_valid) begin
@@ -349,7 +347,7 @@ module tb_core;
       if (exit_code == 32'd1) begin
         $display("tb_core: PASS");
       end else begin
-        $display("tb_core: FAIL code=%0d", exit_code);
+        $fatal(1, "tb_core: FAIL code=%0d", exit_code);
       end
       $finish;
     end

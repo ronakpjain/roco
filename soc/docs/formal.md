@@ -399,6 +399,22 @@ accepted request. Covers reach a hit, a stalled address request and a fill
 discarded by invalidation. This job checks the cache, not the fetch queue,
 D-cache coherence, or when `FENCE.I` signals completion.
 
+```sh
+bash formal/run.sh if-cache prove
+SOLVER=bitwuzla bash formal/run.sh if-cache cover
+```
+
+`if-cache` connects the real four-entry IF queue to the production I-cache
+in a bare-address environment. Unbounded k-induction checks the PC stream
+from boot through arbitrarily delayed misses, retries, prediction bubbles,
+redirects, backpressure from ID, invalidation and temporary halt. Every queued
+copy of a symbolic, immutable backing word must match memory. The harness
+checks prediction metadata and treats redirects as the resolved target input;
+it does not prove EX's branch decision or the SoC's D-cache writeback and
+`FENCE.I` handshake. Covers include misses coincident with a prediction or a
+redirect, a hit arriving during halt, a backed-up queue, and consumption of
+the tracked word.
+
 ### Remaining whole-core proof obligations
 
 - Extend the scalar proof to the actual fetch/cache protocol, including

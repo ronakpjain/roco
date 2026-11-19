@@ -13,6 +13,12 @@ module icache #(
     parameter int LINE_WORDS = 4,
     parameter int NUM_LINES = 128
 ) (
+`ifdef ROCO_FETCH_PROTOCOL_CHECKS
+  input logic [22:0] formal_watch_word,
+  input logic [31:0] formal_watch_data,
+  input logic formal_filling,
+  input logic [22:0] formal_ram_addr,
+`endif
   input logic clk,
   input logic rst,
   input logic flush,
@@ -94,7 +100,7 @@ module icache #(
   assign cpu_rsp_addr = rsp_addr_q;
   assign cpu_rsp_data = ram_data;
   assign cpu_miss = lookup_pending && !lu_hit;
-  assign cpu_busy = (state != S_IDLE) || cpu_miss;
+  assign cpu_busy = (state != S_IDLE) || cpu_miss || flush;
   assign hit_pulse = cpu_rsp_valid;
   assign miss_pulse = cpu_miss;
 
@@ -176,6 +182,9 @@ module icache #(
     end
   end
 
+`ifdef ROCO_FETCH_PROTOCOL_CHECKS
+  `include "icache_backing_checks.svh"
+`endif
 `ifdef ROCO_ICACHE_FORMAL
   `include "icache_checks.svh"
 `endif

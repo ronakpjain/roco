@@ -66,7 +66,7 @@ end
 
 always @(posedge clk) begin
   if (!rst && !past_reset) begin
-    assert (cpu_busy == (request_pending || burst_pending || cpu_miss));
+    assert (cpu_busy == (request_pending || burst_pending || cpu_miss || flush));
     assert (mem_req == request_pending);
     assert (!(cpu_rsp_valid && cpu_miss));
     assert ((cpu_rsp_valid || cpu_miss) == check_lookup);

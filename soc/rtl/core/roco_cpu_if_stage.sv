@@ -16,6 +16,10 @@
 `default_nettype none
 
 module roco_cpu_if_stage (
+`ifdef ROCO_FETCH_PROTOCOL_CHECKS
+  input logic [29:0] formal_watch_word,
+  input logic [31:0] formal_watch_data,
+`endif
 `ifdef ROCO_RVFI_PC_CHECKS
   output logic [31:0] rvfi_fetch_head_pc,
 `endif
@@ -90,7 +94,7 @@ module roco_cpu_if_stage (
   logic queue_push;
   logic retry_pending;
   logic [31:0] retry_pc, retry_miss_pc;
-  logic retry_previous_q;
+  logic retry_previous_q, replay_previous;
   logic [31:0] request_pc;
   logic [31:0] pc_next;
   // Asynchronous reset can only clear to a constant, so the image base
@@ -127,21 +131,20 @@ module roco_cpu_if_stage (
   assign imem_addr = request_pc;
   assign fetch_pc = request_pc;
 
-  // Retry payload is captured independently of late acceptance control.
+  // A miss replays the previous lookup, including in the prediction
+  // bubble. A one-cycle hit arriving during halt must also be replayed:
+  // the cache keeps running and won't repeat the response on resume.
+  assign replay_previous = imem_retry_previous || (halt && prediction_pending);
   always_ff @(posedge clk) begin
     retry_pc <= request_pc;
-    retry_miss_pc <= imem_miss_addr;
-    retry_previous_q <= imem_retry_previous;
+    retry_miss_pc <= imem_retry_previous ? imem_miss_addr : last_req;
+    retry_previous_q <= replay_previous;
   end
   always_ff @(posedge clk or posedge rst) begin
     if (rst) retry_pending <= 1'b0;
-    else if (boot_load) retry_pending <= 1'b0;
-    else if (!halt) begin
-      if (flush || fault_push) retry_pending <= 1'b0;
-      // A response-stage miss also wins during a taken-prediction bubble.
-      else if (imem_retry_previous) retry_pending <= 1'b1;
-      else if (issue) retry_pending <= imem_busy || imem_miss;
-    end
+    else if (boot_load || (!halt && flush) || fault_push) retry_pending <= 1'b0;
+    else if (replay_previous) retry_pending <= 1'b1;
+    else if (issue) retry_pending <= imem_busy || imem_miss;
   end
 
   assign if_valid = !q_empty;
@@ -161,7 +164,7 @@ module roco_cpu_if_stage (
   always_ff @(posedge clk or posedge rst) begin
     if (rst) prediction_pending <= 1'b0;
     else if (boot_load || flush || fault_push) prediction_pending <= 1'b0;
-    else if (!halt) prediction_pending <= issue;
+    else prediction_pending <= issue && !imem_busy && !imem_miss;
   end
 
   // A redirect invalidates queue pointers, not payload bits. Allowing
@@ -331,5 +334,8 @@ module roco_cpu_if_stage (
       if (if_valid) assert (!excluded_enc(if_instr));
     end
   end
+`endif
+`ifdef ROCO_FETCH_PROTOCOL_CHECKS
+  `include "if_cache_pc_checks.svh"
 `endif
 endmodule

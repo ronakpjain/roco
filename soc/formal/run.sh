@@ -273,7 +273,7 @@ case "$job" in
     sources=(rtl/bus/axi4_mem_master.sv formal/axi_mem_master_contract.sv)
     defines=''
     ;;
-  sdram-adapter)
+  sdram-adapter|sdram-link)
     top=axi_sdram_contract
     depth=36
     sources=(rtl/bus/axi4_sdram_adapter.sv formal/axi_sdram_contract.sv)
@@ -281,6 +281,11 @@ case "$job" in
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
     proof_lowering='opt_clean'
+    if [[ "$job" == sdram-link ]]; then
+      sources+=(rtl/mem/sdram_ctrl.sv)
+      defines+=' -DROCO_SDRAM_PIN_FORMAL -DROCO_SDRAM_LINK_FORMAL'
+      proof_depth=8
+    fi
     ;;
   bridge)
     top=axi_apb_contract
@@ -294,7 +299,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {sdram-pins|axi-mem-master|sdram-adapter|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {sdram-pins|axi-mem-master|sdram-adapter|sdram-link|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -302,6 +307,8 @@ if [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
   out="${out}_${job#core-}"
 elif [[ "$job" == core-divide-cutpoint ]]; then
   out="${out}_cutpoint"
+elif [[ "$job" == sdram-link ]]; then
+  out="${out}_link"
 fi
 mkdir -p "$out"
 if [[ "$mode" == prove || "$mode" == bmc-fast ]]; then

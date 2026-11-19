@@ -52,6 +52,16 @@ module sdram_ctrl #(
   output logic [1:0] sd_dqm,
   output logic [15:0] sd_dq_out,
   output logic sd_dq_oe,
+`ifdef ROCO_SDRAM_LINK_FORMAL
+  output logic f_ctrl_busy,
+  f_ctrl_read_owned,
+  f_ctrl_we,
+  output logic [22:0] f_ctrl_addr,
+  output logic [3:0] f_ctrl_len,
+  output logic [4:0] f_ctrl_read_count,
+  f_ctrl_write_count,
+  f_ctrl_pins_written,
+`endif
   input logic [15:0] sd_dq_in
 );
 

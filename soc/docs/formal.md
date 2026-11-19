@@ -648,3 +648,20 @@ writes and operational refresh quickly.
 This is not an SDRAM device model. It does not establish all JEDEC timing
 constraints, a refresh deadline during arbitrary write stalls, pin-to-cell
 coherence, or unbounded end-to-end memory correctness through the caches.
+
+## AXI-to-SDRAM pin composition (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh sdram-link prove
+```
+
+This connects the actual AXI adapter to the actual SDRAM controller at default
+parameters. Both blocks' assertions run together. The controller contract's
+row-boundary assumption and the adapter contract's incoming-read-beat
+assumption become assertions on the connected wires. The proof checks that
+controller responses belong to the currently issued AXI burst and match its
+address and beat count, and that a successful B reply cannot precede the final
+write at the pins. AXI masters must still hold payloads stable while stalled
+and use `WLAST` consistent with AWLEN; reset and pin input data remain arbitrary.
+This proves preservation and ordering up to the pins, not a coherent SDRAM
+cell model or an end-to-end proof through the rest of the SoC.

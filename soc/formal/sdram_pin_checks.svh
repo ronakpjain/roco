@@ -11,6 +11,33 @@ logic f_busy, f_request, f_request_we;
 logic [22:0] f_word_addr;
 logic [3:0] f_len;
 logic [4:0] f_read_commands, f_written_words;
+`ifdef ROCO_SDRAM_LINK_FORMAL
+logic [4:0] f_returns;
+assign f_ctrl_busy = f_busy;
+assign f_ctrl_read_owned = (f_busy && !f_request_we) || rvalid;
+assign f_ctrl_we = f_request_we;
+assign f_ctrl_addr = f_word_addr;
+assign f_ctrl_len = f_len;
+assign f_ctrl_read_count = f_returns;
+assign f_ctrl_write_count = f_written_words + 5'(f_write_half != 0);
+assign f_ctrl_pins_written = f_written_words;
+always_ff @(posedge clk) begin
+  if (rst || f_request) f_returns <= 0;
+  else if (rvalid) f_returns <= f_returns + 1'b1;
+  if (!rst && f_ctrl_read_owned) begin
+    // Relate the count of responses observed at the port to the pipeline
+    // time. At the trailing RVALID the controller has already left S_READ.
+    if (rvalid && !f_busy) begin
+      assert (rlast && !f_request_we && f_returns == 5'(f_len));
+    end else begin
+      assert (f_busy && !f_request_we);
+      assert (f_returns == ((state == S_READ && rd_t > 6'(CL + 2)) ?
+                            5'((rd_t - 6'(CL + 2)) >> 1) : 5'd0));
+      if (rvalid) assert (!rlast && f_returns < 5'(f_len));
+    end
+  end
+end
+`endif
 logic [8:0] f_column;
 logic [31:0] f_write_word;
 logic [3:0] f_write_mask;
@@ -35,7 +62,11 @@ always_ff @(posedge clk) begin
     {f_write_half, f_write_word, f_write_mask} <= '0;
   end else begin
     if (f_request) begin
+`ifdef ROCO_SDRAM_LINK_FORMAL
+      assert (9'(req_word_addr[7:0]) + 9'(req_len) <= 9'd255);
+`else
       assume (9'(req_word_addr[7:0]) + 9'(req_len) <= 9'd255);
+`endif
       assert (!f_busy);
       f_busy <= 1'b1;
       f_request_we <= req_we;

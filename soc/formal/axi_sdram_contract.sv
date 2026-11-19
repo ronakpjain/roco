@@ -4,8 +4,19 @@
 module axi_sdram_contract (
   input logic clk
 );
-  (* anyseq *) logic rst, r_ready, b_ready, req_ready, wready, rvalid;
+  (* anyseq *) logic rst, r_ready, b_ready;
+`ifdef ROCO_SDRAM_LINK_FORMAL
+  logic req_ready, wready, rvalid;
+  logic [31:0] rdata;
+  (* anyseq *) logic [15:0] sd_dq_in;
+  logic f_ctrl_busy, f_ctrl_read_owned, f_ctrl_we;
+  logic [22:0] f_ctrl_addr;
+  logic [3:0] f_ctrl_len;
+  logic [4:0] f_ctrl_read_count, f_ctrl_write_count, f_ctrl_pins_written;
+`else
+  (* anyseq *) logic req_ready, wready, rvalid;
   (* anyseq *) logic [31:0] rdata;
+`endif
   (* anyseq *) axi4_ar_t ar;
   (* anyseq *) axi4_aw_t aw;
   (* anyseq *) axi4_w_t w;
@@ -31,6 +42,43 @@ module axi_sdram_contract (
   logic [22:0] f_addr;
   logic f_write, f_error;
   axi4_sdram_adapter dut (.*);
+`ifdef ROCO_SDRAM_LINK_FORMAL
+  sdram_ctrl ctrl (
+      .clk(clk),
+      .rst(rst),
+      .req_valid(req_valid),
+      .req_ready(req_ready),
+      .req_we(req_we),
+      .req_word_addr(req_word_addr),
+      .req_len(req_len),
+      .wvalid(wvalid),
+      .wready(wready),
+      .wdata(wdata),
+      .wbe(wbe),
+      .rvalid(rvalid),
+      .rdata(rdata),
+      .rlast(),
+      .init_done(),
+      .sd_a(),
+      .sd_ba(),
+      .sd_cs_n(),
+      .sd_ras_n(),
+      .sd_cas_n(),
+      .sd_we_n(),
+      .sd_dqm(),
+      .sd_dq_out(),
+      .sd_dq_oe(),
+      .sd_dq_in(sd_dq_in),
+      .f_ctrl_busy(f_ctrl_busy),
+      .f_ctrl_read_owned(f_ctrl_read_owned),
+      .f_ctrl_we(f_ctrl_we),
+      .f_ctrl_addr(f_ctrl_addr),
+      .f_ctrl_len(f_ctrl_len),
+      .f_ctrl_read_count(f_ctrl_read_count),
+      .f_ctrl_write_count(f_ctrl_write_count),
+      .f_ctrl_pins_written(f_ctrl_pins_written)
+  );
+`endif
 
   initial assume (rst);
   initial past_valid = 1'b0;
@@ -67,7 +115,26 @@ module axi_sdram_contract (
       end
       // The controller cannot send a beat on the request handshake itself,
       // or send more than requested. It need not make forward progress.
+`ifdef ROCO_SDRAM_LINK_FORMAL
+      if (rvalid) assert (active && !writing && supported && issued && 9'(received) < length);
+      // The controller owns the read through its last RVALID; the adapter
+      // owns the AXI response until RREADY accepts the last buffered word.
+      assert (f_ctrl_read_owned == (active && issued && !writing && 9'(received) < length));
+      if (f_ctrl_read_owned) assert (f_ctrl_read_count == received);
+      if (f_ctrl_busy || f_ctrl_read_owned) begin
+        assert (active && issued);
+        assert (f_ctrl_we == writing && f_ctrl_addr == base[24:2]);
+        assert (9'(f_ctrl_len) + 9'd1 == length);
+      end
+      if (active && issued && writing) begin
+        assert (9'(f_ctrl_write_count) == transferred);
+        if (!final_w) assert (f_ctrl_busy);
+        if (drained) assert (!f_ctrl_busy);
+        if (b.valid) assert (9'(f_ctrl_pins_written) == length);
+      end
+`else
       if (rvalid) assume (active && !writing && supported && issued && 9'(received) < length);
+`endif
       // AXI masters declare the burst length in AW and mark the final W beat.
       if (w_fire && active && writing) assume (w.last == (transferred + 9'd1 == length));
 
@@ -79,7 +146,10 @@ module axi_sdram_contract (
       if (active) begin
         assert ({f_id, f_addr, f_write, f_error} == {id, base[24:2], writing, !supported});
         assert (length == 9'(f_len) + 9'd1);
-        assert (!supported || length <= 16);
+        if (supported) begin
+          assert (length <= 16);
+          assert (9'(base[9:2]) + length <= 9'd256);
+        end
         assert (!issued || supported);
         if (supported && !issued) assert (transferred == 0);
         if (!supported && final_w) assert (drained);

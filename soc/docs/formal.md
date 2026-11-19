@@ -1,6 +1,6 @@
 # Formal verification
 
-From `soc/`, install Yosys, `yosys-smtbmc`, and Z3. The core harness uses
+From `soc/`, install Yosys, `yosys-smtbmc`, and Bitwuzla. The core harness uses
 reference instruction models from [riscv-formal](https://github.com/YosysHQ/riscv-formal):
 
 ```sh
@@ -11,7 +11,8 @@ bash formal/run.sh core bmc
 bash formal/run.sh core cover
 ```
 
-`DEPTH` sets the number of solver time steps; `SOLVER` overrides Z3. Logs,
+`DEPTH` sets the number of solver time steps; `SOLVER` selects another
+SMT solver. Logs,
 SMT models, and counterexample/cover VCDs are under `build/formal/` by default.
 BMC checks the selected number of steps from reset, not arbitrary execution
 length. Cover checks that interesting cases are reachable; it does not prove
@@ -74,7 +75,7 @@ forward progress under arbitrary stalls.
 ## Whole-SoC control safety (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-control prove
+bash formal/run.sh soc-control prove
 ```
 
 K-induction passes on `roco_soc` with its default parameters, no internal
@@ -89,7 +90,7 @@ refinement proof of every path through the SoC.
 ## Whole-SoC FENCE.I ordering (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-fence prove
+bash formal/run.sh soc-fence prove
 ```
 
 On the actual `roco_soc` at default parameters, with only initial reset
@@ -124,7 +125,7 @@ remains a separate obligation.
 ## Whole-SoC SDRAM AXI ingress (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-ram prove
+bash formal/run.sh soc-ram prove
 ```
 
 The actual `roco_soc` with normal boot and default geometry satisfies the
@@ -153,7 +154,7 @@ instruction when the response mux used the current request's region.
 ## Whole-SoC SDRAM memory coherence (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-sdram-memory prove
+bash formal/run.sh soc-sdram-memory prove
 ```
 
 This runs the SDRAM memory checker on the actual default `roco_soc`, with
@@ -182,7 +183,7 @@ stores, or coherence between dirty cache lines and UART boot writes.
 ## D-cache caller ownership (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-dcache-client prove
+bash formal/run.sh soc-dcache-client prove
 ```
 
 On the actual default SoC, k-induction proves that each SDRAM lookup owns a
@@ -211,7 +212,7 @@ inputs may change freely; the cache retains the accepted address and format.
 ## Whole-SoC CPU data-port memory coherence (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-dcache-memory prove
+bash formal/run.sh soc-dcache-memory prove
 ```
 
 On the actual default SoC, the D-cache checker runs together with the real
@@ -249,7 +250,7 @@ compositions are listed below.
 ## Whole-SoC instruction-cache data after FENCE.I (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-fence-memory prove
+bash formal/run.sh soc-fence-memory prove
 ```
 
 At default geometry, the actual SoC composes the CPU data-port reference,
@@ -279,7 +280,7 @@ this memory system remain open.
 ## Whole-SoC instruction fetch after FENCE.I (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-fetch-memory prove
+bash formal/run.sh soc-fetch-memory prove
 ```
 
 This retains the complete `soc-fence-memory` harness and adds the CPU's own
@@ -311,7 +312,7 @@ architectural effect; retirement and the ISA model remain open.
 ## Whole-SoC memory and MMIO integration (bounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh soc-mmio-memory bmc-fast
+bash formal/run.sh soc-mmio-memory bmc-fast
 ```
 
 This 422-step CI check instantiates the actual `roco_soc`, with no internal bus
@@ -411,7 +412,7 @@ hazards, or placing the deferred GPR write in the right RVFI retirement record.
 
 ```sh
 bash formal/run.sh core-divide-cutpoint bmc-fast
-SOLVER=bitwuzla DEPTH=45 bash formal/run.sh core-divide-interlock bmc
+DEPTH=45 bash formal/run.sh core-divide-interlock bmc
 ```
 
 The cutpoint job passed 45 bounded steps for a fixed program on the core: two
@@ -430,7 +431,7 @@ sequences.
 
 ```sh
 bash formal/run.sh core-m-stream prove
-SOLVER=bitwuzla bash formal/run.sh core-m-stream cover
+bash formal/run.sh core-m-stream cover
 ```
 
 `core-m-stream` passed unbounded k-induction on arbitrary scalar streams
@@ -495,7 +496,7 @@ cache-side access, but must not write memory. The 12-step bounded run passed;
 cover reached successful SC, failed SC, AMO and misaligned atomics.
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh core-atomic-stream prove
+bash formal/run.sh core-atomic-stream prove
 ```
 
 `core-atomic-stream` passed unbounded k-induction for arbitrary mixed RV32I
@@ -522,8 +523,8 @@ bash formal/run.sh core-vector-copy cover
 ### Whole-core vector memory streams
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh core-vector-mem-stream prove
-SOLVER=bitwuzla bash formal/run.sh core-vector-mem-stream cover
+bash formal/run.sh core-vector-mem-stream prove
+bash formal/run.sh core-vector-mem-stream cover
 DEPTH=24 bash formal/run.sh core-vector-mem-stream bmc-fast
 ```
 
@@ -548,7 +549,7 @@ scalar `riscv-formal` jobs.
 
 ```sh
 bash formal/run.sh vector-execute prove
-SOLVER=bitwuzla bash formal/run.sh vector-execute cover
+bash formal/run.sh vector-execute cover
 ```
 
 `vector-execute` proves the combinational vector lane arithmetic, moves,
@@ -590,7 +591,7 @@ interrupt, or privilege-delegation proof.
 
 ```sh
 bash formal/run.sh core-irq prove
-SOLVER=bitwuzla bash formal/run.sh core-irq cover
+bash formal/run.sh core-irq cover
 ```
 
 `core-irq` passed unbounded k-induction on the real pipeline. The fetch
@@ -610,7 +611,7 @@ Delegation arbitration is checked by `csr-trap`, not by this pipeline job.
 
 ```sh
 bash formal/run.sh sv32 prove
-SOLVER=bitwuzla bash formal/run.sh sv32 cover
+bash formal/run.sh sv32 cover
 ```
 
 `sv32` passed unbounded k-induction on the production MMU. The reference
@@ -678,7 +679,7 @@ pipeline's operand muxes against architectural state.
 ### Operand forwarding on the whole core
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh core-forward prove
+bash formal/run.sh core-forward prove
 bash formal/run.sh core-forward cover
 ```
 
@@ -698,16 +699,16 @@ divider completion, and encodings for M, A, vector, SFENCE, FENCE.I and
 CSR accesses that could enable translation or interrupts.
 Each fact was needed inductively; the queue-slot and stage exclusions match
 the restricted fetch set exactly. BitWuzla closes the induction step in
-seconds where z3 timed out. This covers operand capture and reporting only:
+seconds. This covers operand capture and reporting only:
 the ALU results, memory effects, and branch resolution that consume the
 operands are checked by the semantic jobs.
 
 ### Whole-core RV32I semantics
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh core-isa prove
-SOLVER=bitwuzla bash formal/run.sh core-isa-stall prove
-SOLVER=bitwuzla bash formal/run.sh core-isa-stall cover
+bash formal/run.sh core-isa prove
+bash formal/run.sh core-isa-stall prove
+bash formal/run.sh core-isa-stall cover
 ```
 
 `core-isa` passed unbounded k-induction with Bitwuzla on the actual core. It
@@ -736,7 +737,7 @@ proofs of fetch coherence, I-cache misses, or Sv32.
 
 ```sh
 bash formal/run.sh icache prove
-SOLVER=bitwuzla bash formal/run.sh icache cover
+bash formal/run.sh icache cover
 ```
 
 `icache` passed unbounded k-induction at the production geometry (128
@@ -752,7 +753,7 @@ D-cache coherence, or when `FENCE.I` signals completion.
 
 ```sh
 bash formal/run.sh if-cache prove
-SOLVER=bitwuzla bash formal/run.sh if-cache cover
+bash formal/run.sh if-cache cover
 ```
 
 `if-cache` connects the real four-entry IF queue to the production I-cache
@@ -769,8 +770,8 @@ the tracked word.
 ### Write-back D-cache coherence (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh dcache-memory prove
-SOLVER=bitwuzla bash formal/run.sh dcache-memory cover
+bash formal/run.sh dcache-memory prove
+bash formal/run.sh dcache-memory cover
 ```
 
 K-induction proves the actual D-cache at the default SoC geometry (128 lines,
@@ -866,8 +867,8 @@ request held behind B, and an error read response.
 ## AXI4-to-SDRAM adapter (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh sdram-adapter prove
-SOLVER=bitwuzla DEPTH=260 bash formal/run.sh sdram-adapter cover
+bash formal/run.sh sdram-adapter prove
+DEPTH=260 bash formal/run.sh sdram-adapter cover
 ```
 
 K-induction proves the actual adapter against a separate handshake scoreboard.
@@ -889,8 +890,8 @@ prove that the actual SoC endpoints satisfy all of the assumptions.
 ## SDRAM controller pins (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh sdram-pins prove
-SOLVER=bitwuzla bash formal/run.sh sdram-pins cover
+bash formal/run.sh sdram-pins prove
+bash formal/run.sh sdram-pins cover
 ```
 
 K-induction checks the actual controller at its default parameters, starting
@@ -912,7 +913,7 @@ coherence, or unbounded end-to-end memory correctness through the caches.
 ## AXI-to-SDRAM pin composition (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh sdram-link prove
+bash formal/run.sh sdram-link prove
 ```
 
 This connects the actual AXI adapter to the actual SDRAM controller at default
@@ -929,8 +930,8 @@ cell model or an end-to-end proof through the rest of the SoC.
 ## AXI-to-SDRAM memory coherence (unbounded)
 
 ```sh
-SOLVER=bitwuzla bash formal/run.sh sdram-memory prove
-SOLVER=bitwuzla bash formal/run.sh sdram-memory cover
+bash formal/run.sh sdram-memory prove
+bash formal/run.sh sdram-memory cover
 ```
 
 The connected adapter and controller now drive a sparse BL2/CL3 memory model.

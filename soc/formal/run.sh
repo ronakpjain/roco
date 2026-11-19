@@ -96,7 +96,7 @@ case "$job" in
       proof_lowering='memory_map -rom-only; opt'
     fi
     if [[ "$job" == core-no-divide || "$job" == core-forward || "$job" == core-isa* || "$job" == core-atomic-stream ]]; then
-      proof_engine="smtbmc ${SOLVER:-z3}"
+      proof_engine="smtbmc ${SOLVER:-bitwuzla}"
       proof_depth=6
       proof_lowering=''
     fi
@@ -173,7 +173,7 @@ case "$job" in
     depth=24
     sources=(rtl/core/roco_cpu_divider.sv formal/rv32m_divider_contract.sv)
     defines='-DROCO_DIVIDER_FORMAL'
-    proof_engine="smtbmc ${SOLVER:-z3}"
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=4
     proof_lowering=''
     ;;
@@ -189,7 +189,7 @@ case "$job" in
     depth=7
     sources=(rtl/core/roco_cpu_regfile.sv)
     defines='-DROCO_REGFILE_FORMAL'
-    proof_engine="smtbmc ${SOLVER:-z3}"
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=4
     proof_lowering=''
     ;;
@@ -207,7 +207,7 @@ case "$job" in
     depth=9
     sources=(rtl/core/roco_cpu_vec.sv formal/vector_regs_contract.sv)
     defines=''
-    proof_engine="smtbmc ${SOLVER:-z3}"
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=4
     proof_lowering=''
     ;;
@@ -373,7 +373,7 @@ if [[ "$mode" == prove || "$mode" == bmc-fast ]]; then
 mode $sby_mode
 depth $proof_depth
 timeout ${PROOF_TIMEOUT:-300}
-aigsmt ${SOLVER:-z3}
+aigsmt ${SOLVER:-bitwuzla}
 
 [engines]
 $proof_engine
@@ -427,5 +427,5 @@ printf -v files ' "%s"' "${sources[@]}"
   async2sync; dffunmap;
   write_smt2 -wires \"$out/design.smt2\"
 "
-exec "${SMTBMC:-yosys-smtbmc}" -s "${SOLVER:-z3}" -t "${DEPTH:-$depth}" "${flags[@]}" \
+exec "${SMTBMC:-yosys-smtbmc}" -s "${SOLVER:-bitwuzla}" -t "${DEPTH:-$depth}" "${flags[@]}" \
   --noprogress --dump-vcd "$out/$mode-%.vcd" "$out/design.smt2"

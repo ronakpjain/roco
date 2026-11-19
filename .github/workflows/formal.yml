@@ -32,25 +32,25 @@ jobs:
         include:
           - {job: bridge, mode: prove}
           - {job: xbar, mode: prove}
-          - {job: icache, mode: prove, solver: bitwuzla}
-          - {job: if-cache, mode: prove, solver: bitwuzla}
-          - {job: sv32, mode: prove, solver: bitwuzla}
+          - {job: icache, mode: prove}
+          - {job: if-cache, mode: prove}
+          - {job: sv32, mode: prove}
           - {job: core-accounting, mode: prove, riscv-formal: true}
           - {job: core-gpr-writeback, mode: prove, riscv-formal: true}
-          - {job: core-no-divide, mode: prove, riscv-formal: true, solver: bitwuzla}
-          - {job: core-forward, mode: prove, riscv-formal: true, solver: bitwuzla}
-          - {job: core-isa, mode: prove, riscv-formal: true, solver: bitwuzla}
-          - {job: core-isa-stall, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-no-divide, mode: prove, riscv-formal: true}
+          - {job: core-forward, mode: prove, riscv-formal: true}
+          - {job: core-isa, mode: prove, riscv-formal: true}
+          - {job: core-isa-stall, mode: prove, riscv-formal: true}
           - {job: csr-trap, mode: prove}
-          - {job: core-irq, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-irq, mode: prove, riscv-formal: true}
           - {job: divider, mode: prove}
-          - {job: core-m-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-m-stream, mode: prove, riscv-formal: true}
           - {job: atomic-mem, mode: prove}
-          - {job: core-atomic-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
-          - {job: core-vector-mem-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
+          - {job: core-atomic-stream, mode: prove, riscv-formal: true}
+          - {job: core-vector-mem-stream, mode: prove, riscv-formal: true}
           - {job: scalar-regs, mode: prove}
           - {job: vector-regs, mode: prove}
-          - {job: vector-execute, mode: prove, solver: bitwuzla}
+          - {job: vector-execute, mode: prove}
           - {job: mul-prod, mode: prove}
           - {job: mul-recombine, mode: prove}
           - {job: core, mode: bmc-fast, depth: 9, riscv-formal: true}
@@ -59,24 +59,24 @@ jobs:
           - {job: core-atomic, mode: bmc-fast, depth: 12, riscv-formal: true}
           - {job: core-vector-copy, mode: bmc-fast, depth: 20}
           - {job: core-divide-cutpoint, mode: bmc-fast, depth: 45}
-          - {job: core-divide-interlock, mode: bmc, depth: 45, solver: bitwuzla}
+          - {job: core-divide-interlock, mode: bmc, depth: 45}
           - {job: core-csr-trap, mode: bmc-fast, depth: 48}
           - {job: core-sv32-load, mode: bmc-fast, depth: 55}
           - {job: core-vector-mem-stream, mode: bmc-fast, depth: 24, riscv-formal: true, proof-timeout: 600}
           - {job: axi-mem-master, mode: prove}
-          - {job: sdram-adapter, mode: prove, solver: bitwuzla}
-          - {job: sdram-pins, mode: prove, solver: bitwuzla}
-          - {job: sdram-link, mode: prove, solver: bitwuzla}
-          - {job: sdram-memory, mode: prove, solver: bitwuzla}
-          - {job: dcache-memory, mode: prove, solver: bitwuzla}
-          - {job: soc-control, mode: prove, solver: bitwuzla}
-          - {job: soc-fence, mode: prove, solver: bitwuzla}
-          - {job: soc-ram, mode: prove, solver: bitwuzla}
-          - {job: soc-sdram-memory, mode: prove, solver: bitwuzla}
-          - {job: soc-dcache-memory, mode: prove, solver: bitwuzla}
-          - {job: soc-fence-memory, mode: prove, solver: bitwuzla}
-          - {job: soc-fetch-memory, mode: prove, solver: bitwuzla}
-          - {job: soc-mmio-memory, mode: bmc-fast, depth: 422, solver: bitwuzla}
+          - {job: sdram-adapter, mode: prove}
+          - {job: sdram-pins, mode: prove}
+          - {job: sdram-link, mode: prove}
+          - {job: sdram-memory, mode: prove}
+          - {job: dcache-memory, mode: prove}
+          - {job: soc-control, mode: prove}
+          - {job: soc-fence, mode: prove}
+          - {job: soc-ram, mode: prove}
+          - {job: soc-sdram-memory, mode: prove}
+          - {job: soc-dcache-memory, mode: prove}
+          - {job: soc-fence-memory, mode: prove}
+          - {job: soc-fetch-memory, mode: prove}
+          - {job: soc-mmio-memory, mode: bmc-fast, depth: 422}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal
@@ -113,7 +113,7 @@ jobs:
         run: |
           yosys -V
           sby --version
-          z3 --version
+          bitwuzla --version
           bash formal/run.sh "$JOB" "$MODE" 2>&1 | tee "$RUNNER_TEMP/formal.log"
 
       - name: Upload solver log and counterexamples

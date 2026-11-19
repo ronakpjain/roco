@@ -91,6 +91,12 @@ case "$job" in
       defines+=' -DROCO_FORMAL_DIV_CUTPOINT'
     fi
     ;;
+  csr-trap)
+    top=csr_trap_contract
+    depth=12
+    sources=(rtl/core/roco_cpu_csr.sv formal/csr_trap_contract.sv)
+    defines=''
+    ;;
   core-csr-trap)
     top=core_csr_trap
     depth=48
@@ -167,7 +173,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

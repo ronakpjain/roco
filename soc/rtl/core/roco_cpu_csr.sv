@@ -118,7 +118,7 @@ module roco_cpu_csr (
   logic [31:0] trap_base;
   logic [31:0] trap_offset;
   logic [31:0] irq_cand;
-  logic [31:0] irq_eligible;
+  logic [31:0] irq_eligible, irq_m_eligible, irq_s_eligible;
   logic irq_m_allowed;
   logic irq_s_allowed;
 
@@ -196,10 +196,13 @@ module roco_cpu_csr (
   // to allow them and the bit to be delegated.
   assign irq_m_allowed = mstatus_mie || (priv_q != PRIV_M);
   assign irq_s_allowed = (priv_q != PRIV_M) && (mstatus_sie || (priv_q != PRIV_S));
-  assign irq_eligible = (irq_cand & ~mideleg_q & {32{irq_m_allowed}}) |
-                        (irq_cand & mideleg_q & {32{irq_s_allowed}});
+  assign irq_m_eligible = irq_cand & ~mideleg_q & {32{irq_m_allowed}};
+  assign irq_s_eligible = irq_cand & mideleg_q & {32{irq_s_allowed}};
+  // Target privilege wins before cause priority within that privilege.
+  // In particular, a nondelegated STI outranks a delegated SSI.
+  assign irq_eligible = (|irq_m_eligible) ? irq_m_eligible : irq_s_eligible;
 
-  // Architectural interrupt priority: MEI, MSI, MTI, SEI, SSI, STI.
+  // Architectural cause priority within a privilege: MEI, MSI, MTI, SEI, SSI, STI.
   always_comb begin
     irq_req = |irq_eligible;
     irq_code = 5'd0;
@@ -559,11 +562,14 @@ module roco_cpu_csr (
         end
       end else if (sret_en) begin
         priv_q <= mstatus_spp ? PRIV_S : PRIV_U;
+        // Returning below M mode also clears the M-mode data override.
+        mstatus_mprv_q <= 1'b0;
         mstatus_sie <= mstatus_spie;
         mstatus_spie <= 1'b1;
         mstatus_spp <= 1'b0;
       end else if (mret_en) begin
         priv_q <= mstatus_mpp_q;
+        if (mstatus_mpp_q != PRIV_M) mstatus_mprv_q <= 1'b0;
         mstatus_mie <= mstatus_mpie;
         mstatus_mpie <= 1'b1;
         mstatus_mpp_q <= PRIV_U;

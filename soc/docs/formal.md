@@ -30,6 +30,12 @@ and `csr-trap`.
 Exploratory jobs such as the monolithic `core prove` and `core-multiply prove`
 remain runnable locally but are not gates.
 
+The workflow also runs a simulation matrix for `test_core`, `test_soc`,
+`test_boot` and `test_dcache`, building the sibling `cc` toolchain from source.
+`test_boot` includes parser restart and two-image cache-coherence reload.
+Program failures, timeouts and SDRAM model errors fail the test process and
+the CI job. Changes to either `soc/` or `cc/` trigger this workflow.
+
 ### Unbounded safety proofs
 
 Install [SymbiYosys](https://github.com/YosysHQ/sby) and Yosys's ABC executable.

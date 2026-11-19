@@ -5,10 +5,12 @@ on:
     branches: [main, "ci/**"]
     paths:
       - "soc/**"
+      - "cc/**"
       - ".github/workflows/formal.yml"
   pull_request:
     paths:
       - "soc/**"
+      - "cc/**"
       - ".github/workflows/formal.yml"
   workflow_dispatch:
 
@@ -119,5 +121,47 @@ jobs:
           path: |
             ${{ runner.temp }}/formal.log
             soc/build/formal/**/*.vcd
+          if-no-files-found: ignore
+          retention-days: 14
+
+  regress:
+    name: Regression (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # test_boot includes cold boot, parser restart and two-image reload.
+        target: [test_core, test_soc, test_boot, test_dcache]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install simulation and compiler dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends verilator iverilog cmake ninja-build libgtest-dev
+
+      - name: Build the roco toolchain
+        run: |
+          cmake -S cc -B cc/build -G Ninja -DROCO_BUILD_DOCS=OFF
+          cmake --build cc/build --target roco_as roco_ld roco_cc --parallel 2
+
+      - name: Run ${{ matrix.target }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          make -C soc "$TARGET" 2>&1 | tee "$RUNNER_TEMP/regression.log"
+
+      - name: Upload regression log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-${{ matrix.target }}
+          path: ${{ runner.temp }}/regression.log
           if-no-files-found: ignore
           retention-days: 14

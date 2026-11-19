@@ -112,6 +112,15 @@ always_ff @(posedge clk) begin
       if (dmem_lu_valid) assert (dmem_req);
     end
     if (dmem_valid || dmem_req) assert (f_mem_packet);
+    cover (imem_req);
+    cover (ic_mem_req);
+    cover (dc_mem_req);
+    cover (dmem_req);
+    cover (dmem_req && dmem_we);
+    cover (ram_ar.valid);
+    cover (ram_aw.valid);
+    cover (ram_w.valid);
+    cover (boot_mem_req && boot_mem_ready);
     if (ram_ar.valid) assert (ram_burst(ram_ar.addr, ram_ar.len, ram_ar.size, ram_ar.burst));
     if (ram_aw.valid) assert (ram_burst(ram_aw.addr, ram_aw.len, ram_aw.size, ram_aw.burst));
   end

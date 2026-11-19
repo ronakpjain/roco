@@ -137,6 +137,12 @@ always_ff @(posedge clk) begin
   if (rst) begin
     {dc_read_word, ic_read_word} <= '0;
   end else begin
+    cover (pin_read);
+    cover (pin_write);
+    cover (f_ram_read_i);
+    cover (f_ram_read_d);
+    cover (ic_read_word == cell_addr && ic_mem_rvalid);
+    cover (dc_read_word == cell_addr && dc_mem_rvalid);
     if (dc_mem_req && dc_mem_ready && !dc_mem_we) dc_read_word <= dc_mem_word_addr;
     if (ic_mem_req && ic_mem_ready) ic_read_word <= ic_mem_word_addr;
     if (f_ram_read_d) begin

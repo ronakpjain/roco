@@ -32,5 +32,10 @@ always_ff @(posedge clk) begin
       if (cpu_rsp_valid && cpu_rsp_addr[31:2] == coherent_byte_addr[31:2])
         assert (cpu_rsp_data == formal_watch_data);
     end
+    cover (row_valid);
+    cover (burst_pending);
+    cover (cpu_rsp_valid);
+    cover (formal_coherent && cpu_rsp_valid);
+    cover (cpu_rsp_valid && cpu_rsp_addr[31:2] == coherent_byte_addr[31:2]);
   end
 end

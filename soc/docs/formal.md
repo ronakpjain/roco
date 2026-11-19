@@ -73,6 +73,37 @@ A `PASS` proves the harness assertions for all reachable states under its
 assumptions. It does not widen the instruction or protocol scope, or prove
 forward progress under arbitrary stalls.
 
+### Cover reachability
+
+Every job also runs in `cover` mode from the same workflow, at the depth its
+own states need. A `cover` statement sits next to the assertion it motivates
+and names the state that assertion needs: an owned lookup, the watched word
+crossing the fabric, a fence phase, a rejected burst, a diverted fetch. A
+cover run fails when any statement is unreached, so an antecedent that has
+quietly become contradictory or unreachable breaks CI instead of leaving a
+proof that passes vacuously. Cover runs prove reachability only, never
+correctness, and they assume nothing: an unreached statement is either a real
+gap in the property or a bound that is too small.
+
+The workflow gates `cover` for every job whose search finishes quickly. The
+whole-SoC k-induction jobs cannot be gated that way: their traffic needs the
+SDRAM power-up sequence and a boot image, and the unrolled whole-SoC model is
+too large for a word-level solver to search that deep. Their checks stay
+available at full depth from the command line:
+
+```sh
+DEPTH=600 bash formal/run.sh soc-fence cover
+COVER_FAST=1 DEPTH=80 bash formal/run.sh soc-fence cover
+```
+
+The second form skips the boot image, shortens SDRAM power-up and uses
+two-line caches, which brings the same CPU traffic inside a bound the solver
+can unroll. `soc-mmio-memory cover` is gated instead: its fixed program
+reaches the CPU store, the FENCE.I refetch, the SDRAM refill and halt at the
+pins, so the SoC data path is covered without an open-ended address search.
+UART boot, restart and cache maintenance remain covered by the simulation
+matrices.
+
 ## Whole-SoC control safety (unbounded)
 
 ```sh

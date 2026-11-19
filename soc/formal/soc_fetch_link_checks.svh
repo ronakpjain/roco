@@ -20,5 +20,9 @@ always_ff @(posedge clk) begin
       if (formal_instruction_coherent && imem_rsp_addr[31:2] == {7'd8, formal_watch_word})
         assert (if_imem_rsp_data == formal_watch_data);
     end
+    cover (if_imem_rsp_valid);
+    cover (if_imem_rsp_valid && imem_rsp_addr[31:2] == {7'd8, formal_watch_word});
+    cover (!f_fetch_coherent);
+    cover (mem_redirect);
   end
 end

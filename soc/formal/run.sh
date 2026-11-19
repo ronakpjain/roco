@@ -262,6 +262,13 @@ case "$job" in
       fi
     fi
     proof_lowering='opt_clean'
+    if [[ "$mode" == cover && -n "${COVER_FAST:-}" ]]; then
+      # A full-depth cover searches from reset with the real boot path. The
+      # fast variant skips the boot image and shortens SDRAM power-up so CPU
+      # traffic is reachable in a bound a word-level solver can unroll.
+      parameters="chparam -set BOOT_OVERRIDE 1 -set CLK_HZ 520000 -set SDRAM_POWERUP 8 -set ICACHE_LINES 2 -set DCACHE_LINES 2 $top;"
+      depth=${DEPTH:-80}
+    fi
     ;;
   soc-mmio-memory)
     top=soc_mmio_memory
@@ -310,6 +317,10 @@ case "$job" in
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
     proof_lowering='opt_clean'
+    if [[ "$job" == sdram-adapter && "$mode" == cover ]]; then
+      # A 256-beat rejected burst only fits inside this bound.
+      depth=260
+    fi
     if [[ "$job" != sdram-adapter ]]; then
       sources+=(rtl/mem/sdram_ctrl.sv)
       defines+=' -DROCO_SDRAM_PIN_FORMAL -DROCO_SDRAM_LINK_FORMAL'

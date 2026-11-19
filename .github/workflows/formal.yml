@@ -77,6 +77,29 @@ jobs:
           - {job: soc-fence-memory, mode: prove}
           - {job: soc-fetch-memory, mode: prove}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422}
+          # Cover reachability: every witness statement must be reached, so a
+          # vacuous or contradictory antecedent fails the job. The whole-SoC
+          # k-induction jobs stay out: their search needs a boot image and the
+          # SDRAM power-up sequence beyond what a word-level solver can unroll.
+          - {job: bridge, mode: cover}
+          - {job: xbar, mode: cover}
+          - {job: axi-mem-master, mode: cover}
+          - {job: icache, mode: cover}
+          - {job: if-cache, mode: cover}
+          - {job: sv32, mode: cover}
+          - {job: scalar-regs, mode: cover}
+          - {job: vector-regs, mode: cover}
+          - {job: vector-execute, mode: cover}
+          - {job: mul-prod, mode: cover}
+          - {job: mul-recombine, mode: cover}
+          - {job: divider, mode: cover}
+          - {job: atomic-mem, mode: cover}
+          - {job: csr-trap, mode: cover}
+          - {job: dcache-memory, mode: cover}
+          - {job: sdram-adapter, mode: cover}
+          - {job: sdram-memory, mode: cover}
+          - {job: sdram-pins, mode: cover}
+          - {job: soc-mmio-memory, mode: cover}
     env:
       OSS_CAD_SUITE_VERSION: "2026-11-16"
       RISCV_FORMAL_DIR: third_party/riscv-formal

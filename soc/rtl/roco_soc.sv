@@ -28,6 +28,9 @@
 
 module roco_soc #(
     parameter int CLK_HZ = 96_000_000,
+    /* Power-up delay for the SDRAM controller, in clock cycles. Shortened by
+       formal cover runs so the CPU reaches running traffic inside the bound. */
+    parameter int SDRAM_POWERUP = CLK_HZ / 5000,
     parameter int BAUD = 115200,
     parameter bit BOOT_OVERRIDE = 1'b0,
     parameter int ICACHE_LINES = 128,
@@ -714,6 +717,7 @@ module roco_soc #(
   // ------------------------------------------------------- SDRAM controller
   sdram_ctrl #(
       .CLK_HZ(CLK_HZ),
+      .T_POWERUP(SDRAM_POWERUP),
       .CL(3)
   ) u_sdram (
 `ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL

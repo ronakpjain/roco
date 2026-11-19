@@ -150,6 +150,10 @@ module soc_mmio_memory (
         assert (stored_word == expected_word);
       end
       if (cycle == 9'(Deadline)) assert (halted);
+      cover (write_high);
+      cover (retired == 4'd4);
+      cover (refetched_after_fence);
+      cover (refilled_after_fence);
       cover (halted && buttons == 2'd3 && initial_word[15:8] != 8'd3);
     end
   end

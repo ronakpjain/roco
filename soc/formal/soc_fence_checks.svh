@@ -58,6 +58,11 @@ always_ff @(posedge clk) begin
       assert (f_fence_pending && f_fence_clean && f_fence_drained);
       assert (!dcache_flush && !icache_flush && !ic_cpu_rsp);
     end
+    cover (core_fence_req);
+    cover (dcache_flush);
+    cover (icache_flush);
+    cover (fence_done);
+    cover (cache_rst);
     if (f_fence_history && !$past(rst)) begin
       if ($past(dcache_flush && !dcache_flush_done)) assert (dcache_flush);
       if ($past(ic_mem_req && !ic_mem_ready))

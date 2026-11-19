@@ -36,6 +36,12 @@ always_ff @(posedge clk) begin
       assert (!dmem_in_sdram);
       assert (paddr[15:0] == dmem_addr[15:0] && pwrite == f_mmio_we);
     end
+    cover (f_soc_apb_access);
+    cover (uart_tx_valid && !boot_tx_valid);
+    cover (f_soc_exit_write);
+    cover (halted);
+    cover (core_rst && !boot_cache_maintenance);
+    cover (!core_rst);
   end
   if (f_soc_past_valid && !rst && !$past(rst)) begin
     assert (core_rst == (boot_cache_maintenance || !$past(boot_done_eff)));

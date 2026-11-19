@@ -9,6 +9,11 @@ always_ff @(posedge clk) begin
       assert (imem_rsp_data == formal_watch_data);
     if (!halt && !flush && if_consume && watched_slot[q_head] && formal_coherent)
       assert (!if_fault && if_instr == formal_watch_data);
+    cover (formal_response_watch);
+    cover (q_count != 3'd0 && watched_slot[q_head]);
+    cover (!halt && !flush && if_consume && watched_slot[q_head] && formal_coherent);
+    cover (fault_push);
+    cover (q_count != 3'd0 && q_fault[q_head]);
   end
 end
 for (genvar slot = 0; slot < DEPTH; slot++) begin : g_soc_fetch_data

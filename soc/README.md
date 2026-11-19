@@ -59,7 +59,10 @@ its pipeline register:
 ## Implemented ISA
 
 - RV32I base integer instructions.
-- Integer multiply/divide, LR/SC and atomic memory operations.
+- Integer multiply/divide, LR/SC and atomic memory operations, on cached
+  SDRAM words and on uncached MMIO registers alike. A cached atomic takes its
+  old value from the EX cache lookup; an uncached one reads the old value over
+  the uncached data port and then performs exactly one write.
 - Zicsr: `CSRRW/CSRRS/CSRRC` and immediate forms.
 - M/S/U privilege modes, trap delegation through `medeleg`, and
   `MRET`/`SRET`.
@@ -132,6 +135,13 @@ writeback. Stores and refills update both copies. Hits are consumed in
 MEM. Both caches are blocking on a miss: one memory transaction is
 outstanding per cache.
 
+Atomic read-modify-write keeps the port busy across two phases. For a cached
+word the EX lookup already supplies the old value, so MEM commits the single
+write directly. A word outside SDRAM has no cache to answer that lookup, so
+MEM publishes `dmem_amo_read` for one phase and the peripheral's read response
+is captured before the write is issued. `sw/tests/atomic_mmio.S` checks the
+returned old value and that exactly one write reaches the register.
+
 The D-cache data array is split into four byte-lane memories so ECP5
 block RAMs implement byte enables. A dirty victim is written back before
 the new line is fetched; a store miss fetches the line and then merges
@@ -145,7 +155,9 @@ Transactions move 32-bit words (two halfword beats), reads are pipelined
 one word per two cycles, and the controller keeps a row open until a
 different row or a refresh is needed. Power-up wait, precharge, two
 auto-refreshes, mode register, tRCD/tRP/tRFC/tMRD/tWR waits and periodic
-auto-refresh are implemented. A timing-checking behavioural model
+auto-refresh are implemented. The power-up wait is the `SDRAM_POWERUP`
+parameter (default `CLK_HZ / 5000`); formal cover runs shorten it so the CPU
+reaches running traffic inside a bounded search. A timing-checking behavioural model
 (`sim/sdram_model.sv`) flags protocol violations in simulation.
 
 ## Memory map
@@ -218,6 +230,7 @@ make lint        # Verilator lint of the core, SDRAM controller and SoC
 make test_core   # directed pipeline smoke test
 make test_cpi    # run core and SoC CPI regressions
 make test_atomic_order # atomic ordering under cache conflicts
+make test_atomic_mmio # uncached atomics return the old value and write once
 make test_vector_reduce # randomized reduction arithmetic checks
 make test_vector_c # C workload through roco_cc
 make test_mm     # MMU unit test: translation, permissions, faults
@@ -225,6 +238,7 @@ make test_vm     # Sv32 software test on the core and through the SoC
 make test_sdram  # SDRAM controller: bursts, refresh, retention
 make test_soc    # same program through caches, AXI4, SDRAM, and APB
 make test_bus    # crossbar, SDRAM adapter, and APB bridge regressions
+make test_dcache # D-cache refill, eviction, forwarding and flush
 make test_isa    # official riscv-tests rv32ui on the bare core
 make test_isa_soc # official riscv-tests rv32ui through the SoC
 make test_boot   # boot the minimal hello image over UART in simulation
@@ -255,8 +269,16 @@ syntax of staged SystemVerilog.
 
 ## Verification status
 
-See [formal verification](docs/formal.md) for the RVFI/RV32I, AXI4 crossbar,
-and AXI4-to-APB4 bounded checks and how to run them.
+See [formal verification](docs/formal.md) for the RVFI/RV32I, cache, AXI4,
+SDRAM and whole-SoC checks and how to run them. Every gated job also runs
+`cover` mode, so a witness state that becomes unreachable fails CI instead of
+leaving a proof that passes vacuously:
+
+```sh
+bash formal/run.sh soc-fetch-memory prove
+bash formal/run.sh icache cover
+COVER_FAST=1 DEPTH=80 bash formal/run.sh soc-fence cover
+```
 
 Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
 
@@ -270,6 +292,8 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
   cached SoC. `ma_data` is excluded by design (see above).
 - SDRAM controller: bursts, row/bank changes, refresh and data
   retention pass with zero timing-check violations.
+- `sw/tests/atomic_mmio.S`: uncached AMO returns the peripheral's old value
+  and writes exactly once.
 - Hello program: PASS through the backdoor preload and through the
   UART bootloader.
 
@@ -286,6 +310,9 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
   conflict or concurrent I/D miss costs a page-table walk.
 - A/D bits are software-managed, and `SFENCE.VMA` always flushes
   everything rather than a single address or ASID.
+- An atomic to an uncached address is a read followed by one write. The value
+  the peripheral returns is the operand of the operation; the pair is not
+  atomic against other bus masters, and the SoC has only the CPU as a master.
 - Boot is over UART only. Booting from the W25Q128 flash needs an SPI
   controller and a flash-resident loader.
 - The SoC wires the machine timer interrupt but leaves the external
@@ -305,7 +332,8 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
 | `rtl/common/` | Shared RV32 control encodings |
 | `constraints/roco.lpf` | ECP5 pin locations and clock constraint |
 | `sim/` | Testbenches and the SDRAM behavioural model |
+| `formal/` | SymbiYosys jobs, RTL checkers and RVFI harnesses |
 | `sw/` | crt0, linker script, hello/cache demo, VM tests |
 | `tests/` | riscv-tests environment and linker script |
 | `scripts/` | ISA runner, image converter, host bootloader |
-| `docs/` | Block diagram source and preview |
+| `docs/` | Bus, timing and formal documentation, block diagram |

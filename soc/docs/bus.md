@@ -18,6 +18,12 @@ the SDRAM controller cannot pause its read stream. The MMU walker keeps an
 outstanding request stable through a TLB flush or warm reset, then discards its
 response rather than installing a stale translation.
 
+An atomic to an uncached address uses that port twice. The MEM stage publishes
+`dmem_amo_read` for its operand-capture phase, which the SoC turns into a
+single-beat read (with the write strobe masked); the following phase sends the
+one write with the computed data. A cached atomic never touches this port,
+because the EX cache lookup already answered it.
+
 The APB block decodes the low 16 address bits, preserving the existing register
 aliases. Unmapped offsets read zero and ignore writes. Devices see side effects
 only on APB completion; the CPU waits for the AXI response before committing the

@@ -158,7 +158,7 @@ jobs:
       matrix:
         # test_boot includes cold boot, parser restart and two-image reload.
         # test_soc includes the cached/uncached fetch boundary regression.
-        target: [test_core, test_soc, test_boot, test_dcache]
+        target: [test_core, test_soc, test_boot, test_dcache, test_atomic_mmio]
     steps:
       - name: Check out source
         uses: actions/checkout@v5

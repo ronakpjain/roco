@@ -77,6 +77,10 @@ suites run 41 RV32UI, 8 RV32UM, and 10 RV32UA tests on each of the core
 and SoC testbenches (118 total).
 The SDRAM and UART boot paths have separate simulations.
 
+Every gated formal job also runs `cover` mode, so a witness state that becomes
+unreachable fails CI rather than leaving a proof that passes vacuously; see
+[formal verification](formal.md).
+
 CSRRS/CSRRC write intent follows the encoded source register, including a
 nonzero register containing zero, as specified by
 [Zicsr](https://docs.riscv.org/reference/isa/unpriv/zicsr.html).

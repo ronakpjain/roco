@@ -33,9 +33,11 @@ Exploratory jobs such as the monolithic `core prove` and `core-multiply prove`
 remain runnable locally but are not gates.
 
 The workflow also runs a simulation matrix for `test_core`, `test_soc`,
-`test_boot` and `test_dcache`, building the sibling `cc` toolchain from source.
-`test_boot` includes parser restart and two-image cache-coherence reload.
-`test_soc` includes the cached/uncached instruction-fetch boundary regression.
+`test_boot`, `test_dcache` and `test_atomic_mmio`, building the sibling `cc`
+toolchain from source. `test_boot` includes parser restart and two-image
+cache-coherence reload. `test_soc` includes the cached/uncached
+instruction-fetch boundary regression. `test_atomic_mmio` checks that an
+uncached atomic returns the peripheral's old value and writes exactly once.
 Program failures, timeouts and SDRAM model errors fail the test process and
 the CI job. Changes to either `soc/` or `cc/` trigger this workflow.
 
@@ -75,8 +77,8 @@ forward progress under arbitrary stalls.
 
 ### Cover reachability
 
-Every job also runs in `cover` mode from the same workflow, at the depth its
-own states need. A `cover` statement sits next to the assertion it motivates
+Every job has a `cover` mode, and the workflow gates it wherever the search
+finishes quickly. A `cover` statement sits next to the assertion it motivates
 and names the state that assertion needs: an owned lookup, the watched word
 crossing the fabric, a fence phase, a rejected burst, a diverted fetch. A
 cover run fails when any statement is unreached, so an antecedent that has
@@ -85,8 +87,7 @@ proof that passes vacuously. Cover runs prove reachability only, never
 correctness, and they assume nothing: an unreached statement is either a real
 gap in the property or a bound that is too small.
 
-The workflow gates `cover` for every job whose search finishes quickly. The
-whole-SoC k-induction jobs cannot be gated that way: their traffic needs the
+The whole-SoC k-induction jobs are the exception: their traffic needs the
 SDRAM power-up sequence and a boot image, and the unrolled whole-SoC model is
 too large for a word-level solver to search that deep. Their checks stay
 available at full depth from the command line:
@@ -518,6 +519,12 @@ failure, same-address invalidation, traps between operations, and arbitrary
 memory backpressure. It models upstream serialization (a new lookup is
 launched only when no older operation is pending); it does not verify that the
 core enforces that contract or that its AXI/cache path implements it.
+
+The contract includes the uncached read window: while `dmem_amo_read` is
+asserted the stage publishes the write direction but neither commit validity
+nor a commit request, so the SoC can read the old value from a peripheral
+before the single write. `make test_atomic_mmio` checks the peripheral side,
+including that exactly one write reaches the register.
 
 `vector-regs` checks all three read ports against an arbitrary tracked register
 and byte, including whole-register writes, legal 8/16/32-bit element writes,

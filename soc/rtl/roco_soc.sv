@@ -122,6 +122,7 @@ module roco_soc #(
       f_instruction_coherent <= 1'b0;
     else if (icache_flush) f_instruction_coherent <= 1'b1;
     if (!rst && f_instruction_coherent) assert (f_dc_arch_data == native_cell);
+    if (!rst && core_rst && !boot_cache_maintenance) assert (f_instruction_coherent);
     if (!rst && icache_flush) begin
       assert (!dmem_req);
       assert (f_dc_arch_data == native_cell);
@@ -262,6 +263,11 @@ module roco_soc #(
 
   // ---------------------------------------------------------------- CPU
   roco_cpu u_cpu (
+`ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
+      .formal_watch_word(cell_addr),
+      .formal_watch_data(f_dc_arch_data),
+      .formal_instruction_coherent(f_instruction_coherent),
+`endif
       .clk(clk),
       .rst(core_rst),
       .boot_addr(BOOT_OVERRIDE ? 32'h1000_0000 : boot_addr),

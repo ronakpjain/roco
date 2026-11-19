@@ -272,10 +272,33 @@ ordinary fences as well as boot maintenance.
 
 Only initial global reset and the external ideal BL2/CL3 memory device are
 assumed; no cache, CPU or internal bus state is constrained. This is a cache
-response data proof. It does not yet establish that every instruction
-consumed from the fetch queue or retired by the CPU uses the current
-post-fence bytes, or compose the complete ISA semantics with this memory
-system. Those obligations remain open.
+response data proof. `soc-fetch-memory` below carries it to the CPU's
+instruction port; the fetch queue, instruction retirement and the complete
+ISA semantics with this memory system remain open.
+
+## Whole-SoC instruction fetch link after FENCE.I (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-fetch-memory prove
+```
+
+This retains the complete `soc-fence-memory` harness and adds the CPU's own
+instruction port. For the same arbitrary physical word, a store from the CPU
+data port ends the instruction-coherent interval, the real FENCE.I
+invalidation handshake starts the next one, and the fetched response for the
+word must carry the stored bytes in between.
+
+The MMU forwards a response's virtual and physical tags together, so the
+checker relates the physical response address to the fetch request that
+generated it and back to the virtual PC of the pipeline. A valid response
+must present the address of its own request and reach the CPU unchanged.
+The CPU's coherent interval closes on a store to the word and reopens only
+on the fence redirect, so the redirect and every response it admits agree
+with the SoC-level flag.
+
+Only initial global reset and the external ideal BL2/CL3 memory device are
+assumed. This proves the bytes arriving at the fetch stage, not the queue
+contents or decoded instructions.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

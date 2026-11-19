@@ -25,6 +25,11 @@
 `default_nettype none
 
 module roco_cpu (
+`ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
+  input logic [22:0] formal_watch_word,
+  input logic [31:0] formal_watch_data,
+  input logic formal_instruction_coherent,
+`endif
 `ifdef ROCO_VECTOR_MEM_STREAM
   input logic [1:0] formal_vec_width,
 `endif
@@ -1274,6 +1279,9 @@ module roco_cpu (
   assign if_imem_rsp_valid = mmu_i_rsp_valid;
   assign if_imem_rsp_addr = mmu_i_rsp_addr;
   assign if_imem_rsp_data = mmu_i_rsp_data;
+`ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
+  `include "soc_fetch_link_checks.svh"
+`endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) cache_request_live_q <= 1'b0;
     else cache_request_live_q <= mmu_ic_req && !ex_redirect_en && !mem_redirect && !mmu_flush;

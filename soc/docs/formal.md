@@ -361,6 +361,24 @@ until ready. Cover reached a store stalled on a stale-prediction redirect
 that later committed. These are safety proofs, not liveness guarantees or
 proofs of fetch coherence, I-cache misses, or Sv32.
 
+### Instruction-cache refill and lookup
+
+```sh
+bash formal/run.sh icache prove
+SOLVER=bitwuzla bash formal/run.sh icache cover
+```
+
+`icache` passed unbounded k-induction at the production geometry (128
+lines, four words per line). It checks one-cycle hit/miss reporting and
+response addresses, aligned refill requests, busy and request acceptance,
+refill beat placement, tag/valid installation, and invalidation during an
+outstanding refill. One arbitrary row and word are tracked, so the check
+applies to every row and lane. The backing bus may stall indefinitely and
+supply arbitrary data, but must return exactly four ordered beats for each
+accepted request. Covers reach a hit, a stalled address request and a fill
+discarded by invalidation. This job checks the cache, not the fetch queue,
+D-cache coherence, or when `FENCE.I` signals completion.
+
 ### Remaining whole-core proof obligations
 
 - Extend the scalar proof to the actual fetch/cache protocol, including

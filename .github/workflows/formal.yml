@@ -30,6 +30,7 @@ jobs:
         include:
           - {job: bridge, mode: prove}
           - {job: xbar, mode: prove}
+          - {job: icache, mode: prove, solver: bitwuzla}
           - {job: core-accounting, mode: prove, riscv-formal: true}
           - {job: core-gpr-writeback, mode: prove, riscv-formal: true}
           - {job: core-no-divide, mode: prove, riscv-formal: true, solver: bitwuzla}

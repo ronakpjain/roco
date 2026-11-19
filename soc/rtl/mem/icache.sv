@@ -176,4 +176,7 @@ module icache #(
     end
   end
 
+`ifdef ROCO_ICACHE_FORMAL
+  `include "icache_checks.svh"
+`endif
 endmodule

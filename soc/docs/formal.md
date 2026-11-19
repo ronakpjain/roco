@@ -140,7 +140,14 @@ The standalone `sdram-memory` job and this job share the handshake scoreboard,
 pin-cell model and induction assertions. AXI request stability and WLAST,
 which are assumptions in the standalone job, become assertions here. The
 SoC ingress, cache ownership and refill-beat checks run alongside them.
-Reset starts a new memory epoch. This proves the actual SDRAM slave boundary;
+Independent native-port address counters follow accepted I-cache and D-cache
+bursts through routing and AXI response conversion. Every refill of the
+tracked word must match memory. Another word updates only from native D-cache
+and boot-loader writes, including byte enables, and must equal the AXI copy.
+Together these assertions connect native cache/boot traffic to the SDRAM pins;
+they do not assume the cache's backing-read data contract internally.
+Reset starts a new memory epoch. This proves native memory traffic through
+the fabric and SDRAM boundary;
 it does not yet prove coherent CPU loads or instruction fetch against CPU
 stores, or coherence between dirty cache lines and UART boot writes.
 

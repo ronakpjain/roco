@@ -62,10 +62,79 @@ logic [15:0] sd_dq_in;
 always_comb assume (sdram_dq_in == sd_dq_in);
 `include "sdram_memory_checks.svh"
 `include "axi_sdram_checks.svh"
+assign f_watch = cell_addr[3:0] - base[5:2];
 
 // Relate the independently observed AW/W count to the slave scoreboard.
 // This discharges WLAST using the actual master and crossbar state.
 always_ff @(posedge clk) begin
   if (!rst)
     assert (9'(f_ram_write_left) == (active && writing && !final_w ? length - transferred : 9'd0));
+end
+
+logic [22:0] dc_write_word, boot_write_word;
+logic [31:0] native_cell;
+logic dc_write_fire, boot_write_fire;
+assign dc_write_fire = dc_mem_wvalid && dc_mem_wready;
+assign boot_write_fire = boot_mem_wvalid && boot_mem_wready;
+always_ff @(posedge clk) begin
+  if (rst) begin
+    {dc_write_word, boot_write_word} <= '0;
+    native_cell <= initial_cell;
+  end else begin
+    if (dc_mem_req && dc_mem_ready && dc_mem_we) dc_write_word <= dc_mem_word_addr;
+    if (boot_mem_req && boot_mem_ready) boot_write_word <= boot_mem_word_addr;
+    if (f_ram_write_left != 0) begin
+      assert (active && writing && supported && !final_w);
+      assert (base[24:2] + 23'(transferred) ==
+              (f_ram_write_is_boot ? boot_write_word : dc_write_word));
+    end
+    assert (w_fire == (dc_write_fire || boot_write_fire));
+    assert (!(dc_write_fire && boot_write_fire));
+    if (dc_write_fire) begin
+      if (dc_write_word == cell_addr)
+        native_cell <= {
+          overlay(native_cell[31:16], dc_mem_wdata[31:16], dc_mem_wbe[3:2]),
+          overlay(native_cell[15:0], dc_mem_wdata[15:0], dc_mem_wbe[1:0])
+        };
+      dc_write_word <= dc_write_word + 23'd1;
+    end
+    if (boot_write_fire) begin
+      if (boot_write_word == cell_addr)
+        native_cell <= {
+          overlay(native_cell[31:16], boot_mem_wdata[31:16], boot_mem_wbe[3:2]),
+          overlay(native_cell[15:0], boot_mem_wdata[15:0], boot_mem_wbe[1:0])
+        };
+      boot_write_word <= boot_write_word + 23'd1;
+    end
+    assert (native_cell == axi_cell);
+  end
+end
+
+// Track cache-side burst addresses independently of both the slave
+// scoreboard and the memory-device word. Check the data at the native
+// refill ports, after routing and response conversion in the AXI masters.
+logic [22:0] dc_read_word, ic_read_word;
+always_ff @(posedge clk) begin
+  if (rst) begin
+    {dc_read_word, ic_read_word} <= '0;
+  end else begin
+    if (dc_mem_req && dc_mem_ready && !dc_mem_we) dc_read_word <= dc_mem_word_addr;
+    if (ic_mem_req && ic_mem_ready) ic_read_word <= ic_mem_word_addr;
+    if (f_ram_read_d) begin
+      assert (active && !writing && supported && length == 8);
+      assert (base[24:2] + 23'(transferred) == dc_read_word);
+    end
+    if (f_ram_read_i) begin
+      assert (active && !writing && supported && length == 4);
+      assert (base[24:2] + 23'(transferred) == ic_read_word);
+    end
+    if (dc_mem_rvalid) begin
+      if (dc_read_word == cell_addr) assert (dc_mem_rdata == axi_cell);
+      dc_read_word <= dc_read_word + 23'd1;
+    end
+    if (ic_mem_rvalid) begin
+      if (ic_read_word == cell_addr) assert (ic_mem_rdata == axi_cell);
+      ic_read_word <= ic_read_word + 23'd1;
+    end
+  end
 end

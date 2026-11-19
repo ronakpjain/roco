@@ -351,6 +351,11 @@ module roco_cpu_mmu #(
   assign ptw_ar_payload.burst = `AXI4_BURST_INCR;
   assign ptw_ar_payload.prot = 3'b001;
   assign ptw_r_ready = 1'b1;
+`ifdef ROCO_SOC_RAM_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst && wstate != W_IDLE) assert (in_sdram(w_pte_addr) && w_pte_addr[1:0] == 0);
+  end
+`endif
 
   assign pte_ppn = pte_data_q[29:10];
   assign level0_pte_addr = {pte_ppn, w_vaddr[21:12], 2'b00};

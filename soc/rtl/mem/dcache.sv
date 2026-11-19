@@ -473,6 +473,15 @@ module dcache #(
     end
   end
 
+`ifdef ROCO_SOC_RAM_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst && (state == S_START || state == S_WB_REQ || state == S_WB_RD ||
+                 state == S_WB_WR || state == S_FILL_REQ)) begin
+      assert ((miss_line_word & LINE_MASK) == miss_line_word);
+    end
+  end
+`endif
+
 `ifdef ROCO_SOC_FENCE_FORMAL
   (* anyconst *) logic [IDX_BITS-1:0] f_flush_index;
   always_ff @(posedge clk) begin

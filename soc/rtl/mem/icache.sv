@@ -182,6 +182,12 @@ module icache #(
     end
   end
 
+`ifdef ROCO_SOC_RAM_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst && state == S_REQ) assert ((fill_word_addr & LINE_MASK) == fill_word_addr);
+  end
+`endif
+
 `ifdef ROCO_SOC_FENCE_FORMAL
   (* anyconst *) logic [IDX_BITS-1:0] f_flush_line;
   logic f_flush_past;

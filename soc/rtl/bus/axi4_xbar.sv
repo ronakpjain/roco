@@ -77,6 +77,10 @@ module axi4_xbar (
   output axi4_ar_t s1_ar,
   input logic s1_ar_ready,
   output logic s1_r_ready,
+`ifdef ROCO_SOC_RAM_FORMAL
+  output logic f_ram_wphase,
+  output logic f_ram_wowner_boot,
+`endif
   input axi4_r_t s1_r
 );
   localparam logic [2:0] NO_OWNER = 3'd7;
@@ -165,9 +169,38 @@ module axi4_xbar (
     assign aw_req[1][m] = aw.valid && !aw_sdram;
   end
 
+`ifdef ROCO_SOC_RAM_FORMAL
+  assign f_ram_wphase = wr[0] == Data;
+  assign f_ram_wowner_boot = wo[0] == 2;
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      if (rd[0] != Idle && rd[1] != Idle) assert (ro[0] != ro[1]);
+      if (wr[0] != Idle && wr[1] != Idle) assert (wo[0] != wo[1]);
+    end
+  end
+`endif
+
   for (genvar s = 0; s < 2; s++) begin : g_slave
     assign r_pick[s] = pick(ar_req[s] & ~r_reserved, rr[s]);
     assign w_pick[s] = pick(aw_req[s] & ~w_reserved, rw[s]);
+
+`ifdef ROCO_SOC_RAM_FORMAL
+    // Induction must not invent an owner outside the master array.
+    always_ff @(posedge clk) begin
+      if (!rst) begin
+        if (rd[s] != Idle) begin
+          assert (ro[s] < 5);
+          if (s == 0) assert (ro[s] != 4);
+          if (s == 1) assert (ro[s] == 4);
+        end
+        if (wr[s] != Idle) begin
+          assert (wo[s] < 5);
+          if (s == 0) assert (wo[s] == 1 || wo[s] == 2);
+          if (s == 1) assert (wo[s] == 4);
+        end
+      end
+    end
+`endif
 
     // Lock the owner before asserting downstream VALID, including while
     // READY is low. The originating master holds the address payload.

@@ -92,6 +92,17 @@ module uart_boot (
   assign mem_wvalid = (state == S_WR_BEAT);
   assign range_sum = {1'b0, base_q} + {1'b0, len_q};
 
+`ifdef ROCO_SOC_RAM_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      if (boot_done) assert (state == S_MAGIC);
+      // A restarted loader is still in MAGIC during the extra cycle when
+      // the CPU can remain released from reset.
+      if ($past(boot_done) && !$past(rst)) assert (state == S_MAGIC);
+    end
+  end
+`endif
+
   // Reflected CRC-32, one byte per cycle, eight shifts.
   always_comb begin
     crc_x = crc_reg ^ {24'd0, rx_data};

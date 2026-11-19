@@ -21,6 +21,9 @@ module axi4_mem_master (
   output logic [31:0] rdata,
   output logic rlast,
   output logic write_done,
+`ifdef ROCO_SOC_RAM_FORMAL
+  output logic [4:0] f_write_left,
+`endif
   output axi4_ar_t ar,
   input logic ar_ready,
   input axi4_r_t r,
@@ -61,6 +64,9 @@ module axi4_mem_master (
   assign rlast = r.last;
   assign b_ready = state == Reply;
   assign write_done = state == Reply && b.valid;
+`ifdef ROCO_SOC_RAM_FORMAL
+  assign f_write_left = state == Write ? 5'(remaining) + 5'd1 : 5'd0;
+`endif
 
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin

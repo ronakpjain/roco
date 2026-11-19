@@ -109,6 +109,9 @@ module roco_cpu (
   input logic dmem_ready,
   output logic dmem_req,  // Ready-qualified commit strobe.
   output logic dmem_valid,  // In-order validity before memory readiness.
+`ifdef ROCO_SOC_RAM_FORMAL
+  output logic f_mem_packet,
+`endif
   output logic dmem_we,
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
@@ -406,6 +409,12 @@ module roco_cpu (
   assign dmem_lu_addr = lookup_paddr[31:2];
   assign dmem_lu_offset = lookup_paddr[1:0];
   assign dmem_lu_funct3 = idex_funct3;
+`ifdef ROCO_SOC_RAM_FORMAL
+  // Observe the owning MEM packet even on cycles when AMO preparation or
+  // a core halt suppresses the externally visible dmem_valid.
+  assign f_mem_packet = exmem_valid && (exmem_is_load || exmem_is_store || exmem_is_amo ||
+                        exmem_is_lr || exmem_is_sc || exmem_is_vload || exmem_is_vstore);
+`endif
   // Hold the faulting instruction while registering the MMU response.
   // Trap delegation and fetch redirection then start from a register.
   // MEM holds already stall the pipeline directly. Qualify an EX

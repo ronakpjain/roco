@@ -100,6 +100,28 @@ bytes equal a preceding CPU store for every legal program. The latter still
 requires composing the CPU/D-cache data contract, fabric coherence and
 instruction-fetch refinement.
 
+## Whole-SoC SDRAM AXI ingress (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-ram prove
+```
+
+The actual `roco_soc` with normal boot and default geometry satisfies the
+SDRAM slave's AXI input contract. Only initial reset is assumed. AR/AW
+are aligned, 32-bit INCR bursts within the SDRAM window and within one row;
+AR, AW and W hold their payloads during stalls. A downstream handshake
+scoreboard checks that AW and W use the same master and WLAST agrees with
+AWLEN. It also checks that the MMIO master cannot own SDRAM traffic and that
+a UART boot restart does not cancel a stalled boot write.
+
+At the CPU boundary, every live memory packet retains the physical word
+address and SDRAM/MMIO selection of its EX lookup, including while halt or
+AMO preparation suppresses `dmem_valid`. A newer lookup cannot replace the
+selection before the older live packet commits. These results discharge the
+AXI input assumptions of `sdram-memory` on the real slave wires. They do
+not yet discharge the D-cache contract's held address/format and backing
+read-data assumptions at its native ports.
+
 ## Whole-SoC memory and MMIO integration (bounded)
 
 ```sh

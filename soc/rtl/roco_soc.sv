@@ -74,6 +74,9 @@ module roco_soc #(
   logic dmem_ready;
   logic dmem_req;
   logic dmem_valid;
+`ifdef ROCO_SOC_RAM_FORMAL
+  logic f_mem_packet;
+`endif
   logic dmem_we;
   logic [31:0] dmem_addr;
   logic [31:0] dmem_wdata;
@@ -238,6 +241,9 @@ module roco_soc #(
       .dmem_ready(dmem_ready),
       .dmem_req(dmem_req),
       .dmem_valid(dmem_valid),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_mem_packet(f_mem_packet),
+`endif
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),
@@ -333,6 +339,10 @@ module roco_soc #(
   logic i_rready, d_rready, boot_rready, mmio_rready, ram_rready, periph_rready;
   logic i_bready, d_bready, boot_bready, mmio_bready, ram_bready, periph_bready;
   logic unused_i_wready, unused_i_done, unused_d_done, unused_boot_done;
+`ifdef ROCO_SOC_RAM_FORMAL
+  logic [4:0] f_d_write_left, f_boot_write_left;
+  logic f_ram_wphase, f_ram_wowner_boot;
+`endif
   logic unused_boot_rvalid, unused_boot_rlast, unused_ptw_awready, unused_ptw_wready;
   logic [31:0] unused_boot_rdata;
   logic unused_mmio_accept, mmio_read_done, mmio_write_done, unused_mmio_wready, unused_mmio_rlast;
@@ -357,6 +367,9 @@ module roco_soc #(
       .rdata(ic_mem_rdata),
       .rlast(ic_mem_rlast),
       .write_done(unused_i_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(),
+`endif
       .ar(i_ar),
       .ar_ready(i_arready),
       .r(i_r),
@@ -384,6 +397,9 @@ module roco_soc #(
       .rdata(dc_mem_rdata),
       .rlast(dc_mem_rlast),
       .write_done(unused_d_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(f_d_write_left),
+`endif
       .ar(d_ar),
       .ar_ready(d_arready),
       .r(d_r),
@@ -411,6 +427,9 @@ module roco_soc #(
       .rdata(unused_boot_rdata),
       .rlast(unused_boot_rlast),
       .write_done(unused_boot_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(f_boot_write_left),
+`endif
       .ar(boot_ar),
       .ar_ready(boot_arready),
       .r(boot_r),
@@ -438,6 +457,9 @@ module roco_soc #(
       .rdata(mmio_rsp_data),
       .rlast(unused_mmio_rlast),
       .write_done(mmio_write_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(),
+`endif
       .ar(mmio_ar),
       .ar_ready(mmio_arready),
       .r(mmio_r),
@@ -509,6 +531,10 @@ module roco_soc #(
       .s0_ar_ready(ram_arready),
       .s0_r(ram_r),
       .s0_r_ready(ram_rready),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_ram_wphase(f_ram_wphase),
+      .f_ram_wowner_boot(f_ram_wowner_boot),
+`endif
       .s0_aw(ram_aw),
       .s0_aw_ready(ram_awready),
       .s0_w(ram_w),
@@ -769,6 +795,9 @@ module roco_soc #(
 `endif
 `ifdef ROCO_SOC_FENCE_FORMAL
   `include "soc_fence_checks.svh"
+`endif
+`ifdef ROCO_SOC_RAM_FORMAL
+  `include "soc_ram_checks.svh"
 `endif
 
 endmodule

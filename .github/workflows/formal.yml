@@ -45,6 +45,7 @@ jobs:
           - {job: core-atomic-stream, mode: prove, riscv-formal: true, solver: bitwuzla}
           - {job: scalar-regs, mode: prove}
           - {job: vector-regs, mode: prove}
+          - {job: vector-execute, mode: prove, solver: bitwuzla}
           - {job: mul-prod, mode: prove}
           - {job: mul-recombine, mode: prove}
           - {job: core, mode: bmc-fast, depth: 9, riscv-formal: true}

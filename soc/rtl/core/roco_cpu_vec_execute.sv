@@ -47,4 +47,47 @@ module roco_cpu_vec_execute (
       if (!active_bytes[k]) result[8*k+:8] = fill_bytes[k] ? 8'hff : old_vd[8*k+:8];
     end
   end
+`ifdef ROCO_VECTOR_EXECUTE_FORMAL
+  // Check each lane independently at all supported widths. The reduction
+  // value comes from the separately checked reduction tree.
+  for (genvar size = 0; size < 3; size++) begin : g_check_size
+    localparam int Width = 8 << size;
+    for (genvar lane = 0; lane < 128 / Width; lane++) begin : g_check_lane
+      logic [Width-1:0] left, right, expected;
+      assign left = vs2[Width*lane+:Width];
+      assign right = form == 0 ? vs1[Width*lane+:Width] : scalar[Width-1:0];
+      always_comb begin
+        case (op)
+          `RV32_VOP_ADD: expected = left + right;
+          `RV32_VOP_SUB: expected = left - right;
+          `RV32_VOP_AND: expected = left & right;
+          `RV32_VOP_OR: expected = left | right;
+          default: expected = left ^ right;
+        endcase
+        if (op == `RV32_VOP_MOVE) begin
+          expected = right;
+        end else if (form == 2 && op != `RV32_VOP_SCALAR) begin
+          expected = lane == 0 ? reduction[Width-1:0] : 0;
+        end else if (op == `RV32_VOP_SCALAR && form != 2) begin
+          expected = lane < 32 / Width ? Width'(scalar >> (Width * lane)) : old_vd[Width*lane+:Width];
+        end
+      end
+      for (genvar b = 0; b < Width / 8; b++) begin : g_check_byte
+        localparam int Offset = Width * lane + 8 * b;
+        always @* begin
+          if (sew == 3'(size)) begin
+            assert (result[Offset+:8] == (active_bytes[Offset/8] ? expected[8*b+:8] :
+                                         fill_bytes[Offset/8] ? 8'hff : old_vd[Offset+:8]));
+          end
+        end
+      end
+    end
+  end
+  always @* begin
+    cover (sew == 0 && form == 0 && op == `RV32_VOP_ADD && active_bytes == '1 && result != 0);
+    cover (sew == 1 && form == 3 && op == `RV32_VOP_MOVE && active_bytes == '1 && result != 0);
+    cover (sew == 2 && form == 2 && op == `RV32_VOP_REDSUM && active_bytes == 16'h000f &&
+           fill_bytes == '1 && result[31:0] != 0);
+  end
+`endif
 endmodule

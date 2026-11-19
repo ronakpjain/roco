@@ -239,6 +239,21 @@ completion and restart after a trap. A single scalar RVFI memory event cannot
 express those effects. Use a separate vector reference/checker alongside the
 scalar `riscv-formal` jobs.
 
+### Vector execution datapath
+
+```sh
+bash formal/run.sh vector-execute prove
+SOLVER=bitwuzla bash formal/run.sh vector-execute cover
+```
+
+`vector-execute` proves the combinational vector lane arithmetic, moves,
+result selection, and byte-level active/undisturbed/agnostic merge for
+arbitrary operands at all three widths. The reduction proof checks that
+each carry-save group conserves the sum modulo SEW, that ungrouped
+terms pass through, and that the final two terms produce the result.
+This does not prove how the core decodes an instruction or generates its
+lane masks.
+
 ### CSR trap and interrupt contract
 
 ```sh

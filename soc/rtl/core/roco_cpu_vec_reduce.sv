@@ -23,6 +23,9 @@ module roco_cpu_vec_reduce (
     logic [WIDTH-1:0] terms[0:6][0:LANES];
     for (genvar lane = 0; lane < LANES; lane = lane + 1) begin : g_lane
       assign terms[0][lane] = (5'(lane) < vl) ? source[WIDTH*lane+:WIDTH] : '0;
+`ifdef ROCO_VECTOR_REDUCE_FORMAL
+      always @* assert (terms[0][lane] == ((vl > 5'(lane)) ? source[WIDTH*lane+:WIDTH] : '0));
+`endif
     end
     assign terms[0][LANES] = seed[WIDTH-1:0];
     for (genvar level = 0; level < 6; level = level + 1) begin : g_level
@@ -38,9 +41,19 @@ module roco_cpu_vec_reduce (
         assign c = terms[level][3*g+2];
         assign terms[level+1][2*g] = a ^ b ^ c;
         assign terms[level+1][2*g+1] = ((a & b) | (a & c) | (b & c)) << 1;
+`ifdef ROCO_VECTOR_REDUCE_FORMAL
+        // Each CSA group conserves the total modulo SEW. With the
+        // ungrouped terms preserved, this telescopes across all levels.
+        always @*
+          assert ((terms[level+1][2*g] + terms[level+1][2*g+1]) ==
+                          (terms[level][3*g] + terms[level][3*g+1] + terms[level][3*g+2]));
+`endif
       end
       for (genvar k = 0; k < INPUTS % 3; k = k + 1) begin : g_remainder
         assign terms[level+1][2*GROUPS+k] = terms[level][3*GROUPS+k];
+`ifdef ROCO_VECTOR_REDUCE_FORMAL
+        always @* assert (terms[level+1][2*GROUPS+k] == terms[level][3*GROUPS+k]);
+`endif
       end
       for (genvar k = OUTPUTS; k < LANES + 1; k = k + 1) begin : g_unused
         assign terms[level+1][k] = '0;
@@ -49,6 +62,13 @@ module roco_cpu_vec_reduce (
     logic [WIDTH-1:0] sum;
     assign sum = terms[6][0] + terms[6][1];
     assign sums[size] = 32'(sum);
+`ifdef ROCO_VECTOR_REDUCE_FORMAL
+    always @* begin
+      assert (terms[0][LANES] == seed[WIDTH-1:0]);
+      assert (term_count(LANES + 1, 6) == 2);
+      if (sew == 3'(size)) assert (result == 32'(WIDTH'(terms[6][0] + terms[6][1])));
+    end
+`endif
   end
   assign result = (sew == 3'd0) ? sums[0] : (sew == 3'd1) ? sums[1] : sums[2];
 endmodule

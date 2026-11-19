@@ -122,6 +122,28 @@ AXI input assumptions of `sdram-memory` on the real slave wires. They do
 not yet discharge the D-cache contract's held address/format and backing
 read-data assumptions at its native ports.
 
+## Whole-SoC SDRAM memory coherence (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh soc-sdram-memory prove
+```
+
+This runs the SDRAM memory checker on the actual default `roco_soc`, with
+normal UART boot, every CPU/cache/page-walk master, and no internal cutpoints.
+Only initial reset and an ideal sparse BL2/CL3 memory device at the external
+SDRAM data pins are assumed. Subsequent resets and other external inputs are
+unconstrained. An arbitrary word tracks accepted AXI writes independently
+from the actual WRITE pins and byte masks; AXI reads of that word must return
+the resulting value, and B cannot precede completion at the pins.
+
+The standalone `sdram-memory` job and this job share the handshake scoreboard,
+pin-cell model and induction assertions. AXI request stability and WLAST,
+which are assumptions in the standalone job, become assertions here. The
+SoC ingress, cache ownership and refill-beat checks run alongside them.
+Reset starts a new memory epoch. This proves the actual SDRAM slave boundary;
+it does not yet prove coherent CPU loads or instruction fetch against CPU
+stores, or coherence between dirty cache lines and UART boot writes.
+
 ## D-cache caller ownership (unbounded)
 
 ```sh

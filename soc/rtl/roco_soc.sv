@@ -60,6 +60,14 @@ module roco_soc #(
   output logic [4:0] trace_rd,
   output logic [31:0] trace_wdata
 );
+`ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL
+  `include "axi_sdram_state.svh"
+  logic f_ctrl_busy, f_ctrl_read_owned, f_ctrl_we;
+  logic [22:0] f_ctrl_addr;
+  logic [3:0] f_ctrl_len;
+  logic [4:0] f_ctrl_read_count, f_ctrl_write_count, f_ctrl_pins_written;
+  logic [14:0] f_pin_row;
+`endif
 
   // ------------------------------------------------------------- Core buses
   logic imem_req;
@@ -561,6 +569,18 @@ module roco_soc #(
       .s1_b_ready(periph_bready)
   );
   axi4_sdram_adapter u_sdram_axi (
+`ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL
+      .f_watch(f_watch),
+      .f_phase(f_phase),
+      .f_captured(f_captured),
+      .f_beat(f_beat),
+      .f_len(f_len),
+      .f_id(f_id),
+      .f_addr(f_addr),
+      .f_write(f_write),
+      .f_error(f_error),
+      .f_read_word(f_read_word),
+`endif
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
       .f_read_left(f_adapter_read_left),
 `endif
@@ -618,6 +638,17 @@ module roco_soc #(
       .CLK_HZ(CLK_HZ),
       .CL(3)
   ) u_sdram (
+`ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL
+      .f_ctrl_busy(f_ctrl_busy),
+      .f_ctrl_read_owned(f_ctrl_read_owned),
+      .f_ctrl_we(f_ctrl_we),
+      .f_ctrl_addr(f_ctrl_addr),
+      .f_ctrl_len(f_ctrl_len),
+      .f_ctrl_read_count(f_ctrl_read_count),
+      .f_ctrl_write_count(f_ctrl_write_count),
+      .f_ctrl_pins_written(f_ctrl_pins_written),
+      .f_pin_row(f_pin_row),
+`endif
       .clk(clk),
       .rst(rst),
       .req_valid(c_req),
@@ -809,6 +840,9 @@ module roco_soc #(
 `endif
 `ifdef ROCO_SOC_RAM_FORMAL
   `include "soc_ram_checks.svh"
+`endif
+`ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL
+  `include "soc_sdram_memory_checks.svh"
 `endif
 
 endmodule

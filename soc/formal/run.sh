@@ -238,7 +238,7 @@ case "$job" in
     proof_depth=4
     proof_lowering=''
     ;;
-  soc-control|soc-fence|soc-ram|soc-dcache-client)
+  soc-control|soc-fence|soc-ram|soc-dcache-client|soc-sdram-memory)
     top=roco_soc
     depth=8
     sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv)
@@ -248,6 +248,10 @@ case "$job" in
     if [[ "$job" == soc-ram ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL'; fi
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
+    if [[ "$job" == soc-sdram-memory ]]; then
+      defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_SDRAM_MEMORY_FORMAL -DROCO_SDRAM_ADAPTER_FORMAL -DROCO_SDRAM_PIN_FORMAL -DROCO_SDRAM_LINK_FORMAL -DROCO_SDRAM_MEMORY_FORMAL'
+      proof_depth=10
+    fi
     proof_lowering='opt_clean'
     ;;
   soc-mmio-memory)
@@ -324,7 +328,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -334,7 +338,7 @@ elif [[ "$job" == core-divide-cutpoint ]]; then
   out="${out}_cutpoint"
 elif [[ "$job" == sdram-link || "$job" == sdram-memory ]]; then
   out="${out}_${job#sdram-}"
-elif [[ "$job" == soc-fence || "$job" == soc-ram || "$job" == soc-dcache-client ]]; then
+elif [[ "$job" == soc-fence || "$job" == soc-ram || "$job" == soc-dcache-client || "$job" == soc-sdram-memory ]]; then
   out="${out}_${job#soc-}"
 fi
 mkdir -p "$out"
@@ -396,6 +400,9 @@ formal/sdram_memory_checks.svh
 formal/dcache_memory_checks.svh
 formal/soc_fence_checks.svh
 formal/soc_ram_checks.svh
+formal/axi_sdram_state.svh
+formal/axi_sdram_checks.svh
+formal/soc_sdram_memory_checks.svh
 EOF
 fi
 

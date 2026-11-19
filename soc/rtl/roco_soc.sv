@@ -343,6 +343,10 @@ module roco_soc #(
   logic [4:0] f_d_write_left, f_boot_write_left;
   logic f_ram_wphase, f_ram_wowner_boot;
 `endif
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  logic f_ram_read_d, f_ram_read_i;
+  logic [8:0] f_adapter_read_left;
+`endif
   logic unused_boot_rvalid, unused_boot_rlast, unused_ptw_awready, unused_ptw_wready;
   logic [31:0] unused_boot_rdata;
   logic unused_mmio_accept, mmio_read_done, mmio_write_done, unused_mmio_wready, unused_mmio_rlast;
@@ -528,6 +532,10 @@ module roco_soc #(
       .m4_b(mmio_b),
       .m4_b_ready(mmio_bready),
       .s0_ar(ram_ar),
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+      .f_ram_read_d(f_ram_read_d),
+      .f_ram_read_i(f_ram_read_i),
+`endif
       .s0_ar_ready(ram_arready),
       .s0_r(ram_r),
       .s0_r_ready(ram_rready),
@@ -553,6 +561,9 @@ module roco_soc #(
       .s1_b_ready(periph_bready)
   );
   axi4_sdram_adapter u_sdram_axi (
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+      .f_read_left(f_adapter_read_left),
+`endif
       .clk(clk),
       .rst(rst),
       .ar(ram_ar),

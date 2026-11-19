@@ -26,6 +26,9 @@ module axi4_sdram_adapter (
   input logic wready,
   output logic [31:0] wdata,
   output logic [3:0] wbe,
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  output logic [8:0] f_read_left,
+`endif
 `ifdef ROCO_SDRAM_ADAPTER_FORMAL
   input logic [3:0] f_watch,
   output logic [5:0] f_phase,
@@ -87,6 +90,10 @@ module axi4_sdram_adapter (
   assign b_payload.valid = state == Reply;
   assign b_payload.id = id_q;
   assign b_payload.resp = error_q ? `AXI4_RESP_SLVERR : `AXI4_RESP_OKAY;
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  assign f_read_left = !write_q && (state == Issue || state == Read) ?
+                       {1'b0, len_q} - {1'b0, beat} + 9'd1 : 9'd0;
+`endif
 
 `ifdef ROCO_SDRAM_ADAPTER_FORMAL
   assign f_phase = {

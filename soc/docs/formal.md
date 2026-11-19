@@ -136,6 +136,14 @@ held ID/EX memory classes exclude scalar control/system instructions and that
 scalar and vector memory classes are mutually exclusive. No internal state
 is assumed.
 
+The real cache backing ports are checked through the actual AXI masters,
+crossbar, SDRAM adapter and controller. Independent handshake counters prove
+four ordered beats per I-cache read and eight per D-cache read, with `LAST`
+only on the final beat. D-cache requests are aligned eight-word bursts;
+native requests and write payloads remain stable under backpressure. These
+checks do not assume anything about SDRAM input data. The `soc-ram` CI gate
+also includes this complete assertion set.
+
 The scoreboard starts a new epoch on CPU reset. UART boot restart can reset
 the CPU without resetting the D-cache, so cancellation of outstanding cache
 work across that boundary must also be checked separately. Flush exclusion

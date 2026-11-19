@@ -81,6 +81,10 @@ module axi4_xbar (
   output logic f_ram_wphase,
   output logic f_ram_wowner_boot,
 `endif
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  output logic f_ram_read_d,
+  output logic f_ram_read_i,
+`endif
   input axi4_r_t s1_r
 );
   localparam logic [2:0] NO_OWNER = 3'd7;
@@ -178,6 +182,11 @@ module axi4_xbar (
       if (wr[0] != Idle && wr[1] != Idle) assert (wo[0] != wo[1]);
     end
   end
+`endif
+
+`ifdef ROCO_SOC_DC_CLIENT_FORMAL
+  assign f_ram_read_d = rd[0] == Data && ro[0] == 1;
+  assign f_ram_read_i = rd[0] == Data && ro[0] == 0;
 `endif
 
   for (genvar s = 0; s < 2; s++) begin : g_slave

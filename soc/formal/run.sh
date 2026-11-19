@@ -245,7 +245,7 @@ case "$job" in
     defines='-DROCO_SOC_CONTROL_FORMAL'
     if [[ "$job" == soc-fence ]]; then defines='-DROCO_SOC_FENCE_FORMAL'; fi
     if [[ "$job" == soc-dcache-client ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL'; fi
-    if [[ "$job" == soc-ram ]]; then defines='-DROCO_SOC_RAM_FORMAL'; fi
+    if [[ "$job" == soc-ram ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL'; fi
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
     proof_lowering='opt_clean'

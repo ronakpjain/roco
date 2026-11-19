@@ -586,5 +586,28 @@ in the same cycle, and concurrent read and write responses.
 
 This checks routing, not whether endpoints generate correct `LAST`, IDs, or
 burst lengths. It does not prove arbitration fairness. The AXI memory master
-and SDRAM adapter still need separate jobs for burst beat/address progression
-and response accounting before composing the checks at the SoC boundary.
+still needs a separate contract before composing the checks at the SoC boundary.
+
+## AXI4-to-SDRAM adapter (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh sdram-adapter prove
+SOLVER=bitwuzla DEPTH=260 bash formal/run.sh sdram-adapter cover
+```
+
+K-induction proves the actual adapter against a separate handshake scoreboard.
+It checks request direction, word address and burst length, write payload and
+strobes, read data and `LAST`, response IDs and status, and that a successful
+write waits for controller drain before returning B. A symbolic beat index
+checks each entry of the read buffer, including a full 16-word burst arriving
+while AXI R is stalled. Unsupported addresses, alignment, sizes and burst
+shapes return `SLVERR` without a controller request; even rejected 256-beat
+transactions are counted to completion. All four read/write covers reached,
+including both maximum-length rejected transaction cases.
+
+The environment holds AXI request channels stable during backpressure, uses
+`WLAST` consistent with AWLEN, and sends controller read beats only after an
+accepted read, at most as many as requested. There is no progress assumption:
+AXI and controller stalls may be indefinite, and reset may recur. This does not
+prove controller pin timing, refresh, or that the actual SoC endpoints meet the
+assumptions. Those are separate obligations, not implied by the adapter proof.

@@ -26,6 +26,18 @@ module axi4_sdram_adapter (
   input logic wready,
   output logic [31:0] wdata,
   output logic [3:0] wbe,
+`ifdef ROCO_SDRAM_ADAPTER_FORMAL
+  input logic [3:0] f_watch,
+  output logic [5:0] f_phase,
+  output logic [4:0] f_captured,
+  output logic [7:0] f_beat,
+  f_len,
+  output logic [3:0] f_id,
+  output logic [22:0] f_addr,
+  output logic f_write,
+  f_error,
+  output logic [31:0] f_read_word,
+`endif
   input logic rvalid,
   input logic [31:0] rdata
 );
@@ -75,6 +87,25 @@ module axi4_sdram_adapter (
   assign b_payload.valid = state == Reply;
   assign b_payload.id = id_q;
   assign b_payload.resp = error_q ? `AXI4_RESP_SLVERR : `AXI4_RESP_OKAY;
+
+`ifdef ROCO_SDRAM_ADAPTER_FORMAL
+  assign f_phase = {
+    state == Reply,
+    state == WriteDrain,
+    state == Write,
+    state == Read,
+    state == Issue,
+    state == Idle
+  };
+  assign f_captured = captured;
+  assign f_beat = beat;
+  assign f_len = len_q;
+  assign f_id = id_q;
+  assign f_addr = addr_q;
+  assign f_write = write_q;
+  assign f_error = error_q;
+  assign f_read_word = read_buf[f_watch];
+`endif
 
   // The controller can send a whole burst while AXI RREADY is low. Keep
   // all 16 words and expose only entries that have already been written.

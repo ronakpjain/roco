@@ -125,6 +125,12 @@ module roco_cpu_branch_predictor #(
   end
 
 `ifdef ROCO_RVFI_PC_CHECKS
+  `define ROCO_BTB_FORMAL
+`endif
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  `define ROCO_BTB_FORMAL
+`endif
+`ifdef ROCO_BTB_FORMAL
   // A matching tag and immediate stand in for a wide direct-target compare
   // in ID/EX. Prove that the BTB maintains the relation this relies on.
   for (genvar slot = 0; slot < ENTRIES; slot++) begin : g_direct_target
@@ -139,4 +145,5 @@ module roco_cpu_branch_predictor #(
     end
   end
 `endif
+  `undef ROCO_BTB_FORMAL
 endmodule

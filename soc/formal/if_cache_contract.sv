@@ -80,6 +80,7 @@ module if_cache_contract (
   );
 
   roco_cpu_if_stage fetch (
+      .oldest_pc(),
       .clk(clk),
       .rst(rst),
       .halt(halt),

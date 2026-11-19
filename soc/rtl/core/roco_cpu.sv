@@ -474,13 +474,9 @@ module roco_cpu (
   assign trace_rd = commit_rd;
   assign trace_wdata = commit_wdata;
 
-`ifdef ROCO_RVFI_PC_CHECKS
-  logic [31:0] rvfi_fetch_head_pc;
-`endif
+  logic [31:0] fetch_oldest_pc;
   roco_cpu_if_stage u_if (
-`ifdef ROCO_RVFI_PC_CHECKS
-      .rvfi_fetch_head_pc(rvfi_fetch_head_pc),
-`endif
+      .oldest_pc(fetch_oldest_pc),
 `ifdef ROCO_RVFI_INSN_CHECKS
       .rvfi_queue_live(rvfi_queue_live),
       .rvfi_queue_insn(rvfi_queue_insn),
@@ -689,7 +685,7 @@ module roco_cpu (
   end
   assign rvfi_mem_regwrite = exmem_regwrite;
   assign idex_successor = idex_pred_taken ? saved_target : idex_pc + 32'd4;
-  assign frontend_pc = ex_redirect_en ? ex_redirect_pc : rvfi_fetch_head_pc;
+  assign frontend_pc = ex_redirect_en ? ex_redirect_pc : fetch_oldest_pc;
   assign after_mem_pc = !ex_redirect_en && idex_valid ? idex_pc : frontend_pc;
   assign rvfi_oldest_pc = rvfi_fwd_trap_pending ? rvfi_exception.pc :
                           exmem_valid ? exmem_pc : after_mem_pc;
@@ -710,7 +706,7 @@ module roco_cpu (
           assert (idex_pred_jalr_carry[30:0] == idex_pred_jalr_base[30:0] - 31'd1);
         end
         if (!ex_redirect_en && !rvfi_fwd_trap_pending) begin
-          assert (idex_successor == rvfi_fetch_head_pc);
+          assert (idex_successor == fetch_oldest_pc);
           // EX cannot depend on the live data of a long-latency MEM
           // producer; ID must have inserted the dependency bubble.
           if (!rvfi_fwd_mem_ready && (idex_rs1_from_mem || idex_rs2_from_mem))
@@ -825,7 +821,8 @@ module roco_cpu (
                    idex_csr_addr == 12'h304 || idex_csr_addr == 12'h344)));
       end
       if (exmem_valid) begin
-        assert (!exmem_is_vload && !exmem_is_vstore && !exmem_is_mul);
+        assert (!exmem_is_vload && !exmem_is_vstore);
+        assert (!exmem_is_mul);
 `ifndef ROCO_ATOMIC_STREAM_CHECKS
         assert (!exmem_is_amo && !exmem_is_lr && !exmem_is_sc);
 `endif
@@ -930,7 +927,17 @@ module roco_cpu (
   end
 `endif
 
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  logic formal_irq_pending, formal_trap_pending;
+  logic [31:0] formal_irq_epc;
+  `include "irq_pipeline_checks.svh"
+`endif
   roco_cpu_ex_stage u_ex (
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+      .formal_irq_pending(formal_irq_pending),
+      .formal_trap_pending(formal_trap_pending),
+      .formal_irq_epc(formal_irq_epc),
+`endif
 `ifdef ROCO_RVFI
       .rvfi_idex_rs1(rvfi_idex_rs1),
       .rvfi_idex_rs2(rvfi_idex_rs2),
@@ -1023,7 +1030,7 @@ module roco_cpu (
       .idex_is_sfence(idex_is_sfence),
       .idex_is_fence_i(idex_is_fence_i),
       .fence_hold(fence_req || mem_wait),
-      .irq_next_pc(if_valid ? if_pc : fetch_pc),
+      .irq_next_pc(fetch_oldest_pc),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
       .redirect_from_mem(mem_redirect || ex_redirect_en),

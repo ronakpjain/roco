@@ -577,4 +577,12 @@ module roco_cpu_csr (
     end
   end
 
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (mideleg_q == 0 && medeleg_q == 0 && satp_q == 0);
+      assert (mepc_q[1:0] == 0 && sepc_q[1:0] == 0 && !mtvec_q[1]);
+    end
+  end
+`endif
 endmodule

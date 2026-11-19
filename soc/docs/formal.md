@@ -281,6 +281,26 @@ and bounded completion in the always-ready environment. It passed 48 bounded
 steps and reached the post-return instruction. This is not a general CSR,
 interrupt, or privilege-delegation proof.
 
+### Pipeline interrupt precision
+
+```sh
+bash formal/run.sh core-irq prove
+SOLVER=bitwuzla bash formal/run.sh core-irq cover
+```
+
+`core-irq` passed unbounded k-induction on the real pipeline. The fetch
+set mixes scalar I/M/A, CSR accesses and MRET. IRQ inputs and data-port
+backpressure are arbitrary. A retirement-driven PC scoreboard checks
+that interrupt entry saves the next unretired PC, redirects to the
+correct direct or vectored M-mode entry, and flags the first handler
+report without consuming an extra RVFI order number. The proof forbids
+entry with unfinished memory operations or deferred divide writes, or
+capture against stale CSR interrupt enables. Covers reach entry after a
+MEM hold and after a divide, capture both in EX and in an EX bubble, and
+the first handler event. The job uses bare addressing, M-target traps
+with delegation disabled, no external halt, and no vector instructions.
+Delegation arbitration is checked by `csr-trap`, not by this pipeline job.
+
 ### Sv32 walker and TLBs
 
 ```sh

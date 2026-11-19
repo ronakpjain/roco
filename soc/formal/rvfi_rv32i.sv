@@ -25,6 +25,13 @@ module rvfi_rv32i #(
   (* anyseq *) logic [31:0] fetch_word;
   (* anyseq *) logic [31:0] other_load_word;
   (* anyseq *) logic mem_accept;
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  (* anyseq *) logic irq_timer, irq_external;
+`else
+  logic irq_timer, irq_external;
+  assign irq_timer = 0;
+  assign irq_external = 0;
+`endif
   logic [31:0] load_word, dmem_addr, dmem_wdata;
   logic [3:0] dmem_be;
   logic dmem_req, dmem_valid, dmem_we, dmem_ready;
@@ -98,8 +105,8 @@ module rvfi_rv32i #(
       .rst(rst),
       .boot_addr(BootAddr),
       .halt(1'b0),
-      .irq_timer(1'b0),
-      .irq_external(1'b0),
+      .irq_timer(irq_timer),
+      .irq_external(irq_external),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
       .imem_rsp_valid(imem_rsp_valid),
@@ -247,7 +254,10 @@ module rvfi_rv32i #(
   endfunction
 
   logic fetch_supported;
-`ifdef ROCO_FORMAL_SIMPLE_FETCH
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  `include "irq_fetch_filter.svh"
+  assign fetch_supported = irq_fetch_allowed(fetch_word);
+`elsif ROCO_FORMAL_SIMPLE_FETCH
   // A syntactic RV32I restriction for jobs that need no instruction
   // semantics: plain RV32I opcodes, FENCE without FENCE.I, SYSTEM CSR
   // accesses plus ECALL/EBREAK. Excludes M, A, vector, privilege returns,

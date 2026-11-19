@@ -19,6 +19,11 @@ module roco_cpu_ex_stage (
   input logic [4:0] rvfi_idex_rs2,
   output roco_rvfi_meta_t rvfi_exmem,
   output roco_rvfi_meta_t rvfi_exception,
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  output logic formal_irq_pending,
+  formal_trap_pending,
+  output logic [31:0] formal_irq_epc,
+`endif
   output logic rvfi_trap_entry,
   output logic rvfi_sync_exception,
   output logic [31:0] rvfi_trap_vector,
@@ -731,7 +736,11 @@ module roco_cpu_ex_stage (
   // state updates and the trap-vector selection/redirect payload mux.
   assign cancel_ex = redirect_from_mem || trap_pending;
   assign ex_redirect_int = ex_redirect && !ex_trap && !fence_hold && !halt && !cancel_ex;
-  assign irq_take = irq_req && !ex_redirect && !vec_arith_prepare &&
+  // Sample eligibility after older CSR writes and deferred divider writes.
+  // Taking the interrupt after EX must not leave an architectural effect
+  // from before the saved EPC outstanding in the handler.
+  assign irq_take = irq_req && !csr_issue && !csr_commit_q && !div_busy &&
+                    !(idex_valid && idex_is_div) && !ex_redirect && !vec_arith_prepare &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
                     !fence_hold && !halt && !rst && !cancel_ex;
@@ -1227,7 +1236,9 @@ module roco_cpu_ex_stage (
   assign rvfi_fwd_held_rs1 = rvfi_held_rs1;
   assign rvfi_fwd_held_rs2 = rvfi_held_rs2;
 `endif
-
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  `include "irq_ex_checks.svh"
+`endif
   assign rvfi_trap_entry = trap_commit && !halt;
   assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;
   assign rvfi_trap_vector = csr_trap_vector;

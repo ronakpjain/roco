@@ -24,6 +24,7 @@ module tb_if_prediction;
   logic consume;
   assign consume = valid && consume_enable;
   roco_cpu_if_stage dut (
+      .oldest_pc(),
       .clk(clk),
       .rst(rst),
       .halt(1'b0),

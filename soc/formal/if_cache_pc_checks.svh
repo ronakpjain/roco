@@ -10,7 +10,7 @@ always @(posedge clk) begin
 
   if (!rst) begin
     assert (q_count <= 3'(DEPTH) && q_tail == q_head + q_count[1:0]);
-    assert (stream_head == (boot_load ? boot_addr : q_empty ? queue_end : if_pc));
+    assert (stream_head == oldest_pc);
     assert (pc_if[1:0] == 0 && last_req[1:0] == 0 && request_pc[1:0] == 0);
     assert (prediction_pending == (imem_rsp_valid || imem_retry_previous));
     if (prediction_pending) begin

@@ -8,8 +8,11 @@
 `default_nettype none
 `include "roco_cpu_defs.svh"
 
-module roco_cpu_id_stage (
 `ifdef ROCO_RVFI_PC_CHECKS
+`define ROCO_ID_OPERAND_CHECKS
+`endif
+module roco_cpu_id_stage (
+`ifdef ROCO_ID_OPERAND_CHECKS
   input logic [4:0] rvfi_idex_rs1,
   rvfi_idex_rs2,
 `endif
@@ -367,19 +370,34 @@ module roco_cpu_id_stage (
   end
 
 `ifdef ROCO_RVFI_PC_CHECKS
+  `define ROCO_ID_REPLAY_CHECKS
+`endif
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  `define ROCO_ID_REPLAY_CHECKS
+`endif
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  `define ROCO_ID_REPLAY_ATOMICS
+`endif
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  `define ROCO_ID_REPLAY_ATOMICS
+`endif
+`ifdef ROCO_ID_REPLAY_CHECKS
   // An arbitrarily long MEM stall can hold EX past the induction window.
   // Relate the registered control bits to their instruction throughout it.
   logic [31:0] replay_imm;
   logic [2:0] replay_funct3;
   logic [3:0] replay_alu_op;
   logic replay_regwrite, replay_load, replay_store, replay_illegal;
-`ifdef ROCO_ATOMIC_STREAM_CHECKS
+`ifdef ROCO_ID_REPLAY_ATOMICS
   logic replay_amo, replay_lr, replay_sc;
   logic [4:0] replay_amo_op;
 `endif
   logic replay_branch, replay_jal, replay_jalr, replay_ecall, replay_ebreak;
   logic replay_use_rs1, replay_use_rs2, replay_a_pc, replay_b_imm;
   logic replay_jump;
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+  logic replay_mret, replay_csr;
+`endif
   assign replay_jump = replay_jal || replay_jalr;
   roco_cpu_decoder replay_decode (
       .instr(idex_instr),
@@ -398,7 +416,7 @@ module roco_cpu_id_stage (
       .regwrite(replay_regwrite),
       .is_load(replay_load),
       .is_store(replay_store),
-`ifdef ROCO_ATOMIC_STREAM_CHECKS
+`ifdef ROCO_ID_REPLAY_ATOMICS
       .is_amo(replay_amo),
       .is_lr(replay_lr),
       .is_sc(replay_sc),
@@ -417,14 +435,22 @@ module roco_cpu_id_stage (
       .is_branch(replay_branch),
       .is_jal(replay_jal),
       .is_jalr(replay_jalr),
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+      .is_csr(replay_csr),
+`else
       .is_csr(),
+`endif
       .csr_uimm(),
       .csr_op(),
       .csr_addr(),
       .illegal(replay_illegal),
       .ecall(replay_ecall),
       .ebreak(replay_ebreak),
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+      .mret(replay_mret),
+`else
       .mret(),
+`endif
       .sret(),
       .is_sfence(),
       .is_fence_i()
@@ -433,7 +459,7 @@ module roco_cpu_id_stage (
     if (!rst && idex_valid) begin
       assert (idex_funct3 == replay_funct3 && idex_imm == replay_imm);
       assert (idex_is_load == replay_load && idex_is_store == replay_store);
-`ifdef ROCO_ATOMIC_STREAM_CHECKS
+`ifdef ROCO_ID_REPLAY_ATOMICS
       assert (idex_is_amo == replay_amo && idex_is_lr == replay_lr && idex_is_sc == replay_sc);
       assert (idex_amo_op == replay_amo_op);
 `endif
@@ -441,9 +467,16 @@ module roco_cpu_id_stage (
       assert (idex_ecall == replay_ecall && idex_ebreak == replay_ebreak && idex_illegal == replay_illegal);
       assert (idex_alu_op == replay_alu_op && idex_regwrite == replay_regwrite);
       assert (idex_rd == idex_instr[11:7]);
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
+      assert (idex_mret == replay_mret && idex_is_csr == replay_csr);
+`endif
+`ifdef ROCO_RVFI_PC_CHECKS
       assert (idex_wb_select == {replay_jump, 2'b00, !replay_jump});
+`endif
+`ifdef ROCO_ID_OPERAND_CHECKS
       assert (rvfi_idex_rs1 == (replay_use_rs1 ? idex_instr[19:15] : 5'd0));
       assert (rvfi_idex_rs2 == (replay_use_rs2 ? idex_instr[24:20] : 5'd0));
+`endif
       assert (idex_alu_a_from_mem == (idex_rs1_from_mem && !replay_a_pc));
       assert (idex_alu_b_from_mem == (idex_rs2_from_mem && !replay_b_imm));
       assert (idex_alu_a_val == (replay_a_pc ? idex_pc : idex_rs1_val));
@@ -456,5 +489,8 @@ module roco_cpu_id_stage (
     end
   end
 `endif
+  `undef ROCO_ID_REPLAY_CHECKS
+  `undef ROCO_ID_REPLAY_ATOMICS
+  `undef ROCO_ID_OPERAND_CHECKS
 
 endmodule

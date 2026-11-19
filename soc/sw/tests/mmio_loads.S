@@ -1,5 +1,6 @@
 # MMIO formatting uses the lookup's offset and width, including signed
-# partial reads and unimplemented byte-offset addresses returning zero.
+# partial reads. The APB bridge decodes word addresses, so byte and halfword
+# lanes alias the register word the way they alias memory.
 .section .text.init
 .globl _start
 _start:
@@ -22,9 +23,11 @@ _start:
   lw t1, 0(s0)
   bne t1, t0, fail
   lbu t1, 1(s0)
-  bnez t1, fail
+  li t2, 0x80
+  bne t1, t2, fail
   lhu t1, 2(s0)
-  bnez t1, fail
+  li t2, 0x7654
+  bne t1, t2, fail
   # Alternate a byte-aligned MMIO word and cached stack words.
   la s1, scratch
   li t0, 0x80ff7f01

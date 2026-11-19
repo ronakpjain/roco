@@ -928,8 +928,9 @@ write waits for controller drain before returning B. A symbolic beat index
 checks each entry of the read buffer, including a full 16-word burst arriving
 while AXI R is stalled. Unsupported addresses, alignment, sizes and burst
 shapes return `SLVERR` without a controller request; even rejected 256-beat
-transactions are counted to completion. All four read/write covers reached,
-including both maximum-length rejected transaction cases.
+transactions are counted to completion. The gated cover run reaches the 16-beat
+read and write transfers; `COVER_DEEP=1` also reaches both maximum-length
+rejected transaction cases.
 
 The environment holds AXI request channels stable during backpressure, uses
 `WLAST` consistent with AWLEN, and sends controller read beats only after an

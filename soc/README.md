@@ -180,7 +180,9 @@ reaches running traffic inside a bounded search. A timing-checking behavioural m
 | `0x8000_1000` | R/W | `tohost`: write halts the core, value is the exit code |
 
 These are physical addresses. With paging enabled, virtual pages are
-mapped onto them; page tables must live in SDRAM. Instruction fetch
+mapped onto them; page tables must live in SDRAM. The APB bridge decodes word
+addresses, so a byte or halfword load inside a register word returns that lane
+of the register; offsets that name no register read zero and ignore writes. Instruction fetch
 outside SDRAM returns instruction 0 (illegal), which traps through the
 current trap vector. Initially M-mode programs are linked at
 `0x1000_0000`.

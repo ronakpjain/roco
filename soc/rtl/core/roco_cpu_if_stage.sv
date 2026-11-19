@@ -307,13 +307,18 @@ module roco_cpu_if_stage (
   // slots: M, vector, AMO/LR/SC, FENCE.I/SFENCE, privilege returns, and CSR
   // accesses that could enable data translation. Only ECALL/EBREAK remain
   // from the SYSTEM funct3-zero space, matching both fetch restriction sets.
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  localparam bit ExcludeAtomics = 1'b0;
+`else
+  localparam bit ExcludeAtomics = 1'b1;
+`endif
   function automatic logic excluded_enc(input logic [31:0] w);
     excluded_enc =
         (w[6:0] == 7'h33 && w[31:25] == 7'd1) ||
         (w[6:0] == 7'h57) ||
         (w[6:0] == 7'h07) ||
         (w[6:0] == 7'h27) ||
-        (w[6:0] == 7'h2f) ||
+        (ExcludeAtomics && w[6:0] == 7'h2f) ||
         (w[6:0] == 7'h0f && w[14:12] != 3'b000) ||
         (w[6:0] == 7'h73 && w[14:12] == 3'b000 &&
          !(w == 32'h0000_0073 || w == 32'h0010_0073)) ||

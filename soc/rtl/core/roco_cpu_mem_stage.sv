@@ -47,6 +47,11 @@ module roco_cpu_mem_stage (
   output logic [2:0] vec_mem_sew,
   output logic [31:0] vec_mem_wdata,
   output logic vec_element_commit,
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  output logic formal_res_valid,
+  output logic [29:0] formal_res_word,
+  output logic formal_amo_ready,
+`endif
   /* Any trap this cycle cancels a reservation. */
   input logic trap_taken,
   input logic exmem_is_sfence,
@@ -130,6 +135,14 @@ module roco_cpu_mem_stage (
   logic [29:0] res_addr;
   logic commit_now;
   logic store_now;
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  assign formal_res_valid = res_valid;
+  assign formal_res_word = res_addr;
+  assign formal_amo_ready = amo_ready;
+  always @(posedge clk) begin
+    if (!rst && amo_ready) assert (exmem_valid && exmem_is_amo);
+  end
+`endif
 
   // The EX lookup supplies the old word at the start of MEM. Compute the
   // RMW value here and commit its one write on the same edge as retirement.

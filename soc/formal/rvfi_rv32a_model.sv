@@ -3,6 +3,10 @@
 // Companion to riscv-formal's RV32I model. The reservation is for one
 // physical word on this uniprocessor, bare-address, no-DMA platform.
 module rvfi_rv32a_model (
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  output logic spec_reserved,
+  output logic [29:0] spec_reserved_word,
+`endif
   input logic clk,
   rst,
   input logic rvfi_valid,
@@ -35,6 +39,10 @@ module rvfi_rv32a_model (
   assign lr = funct5 == Lr;
   assign sc = funct5 == Sc;
   assign sc_success = reserved && reserved_word == rvfi_rs1_rdata[31:2];
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  assign spec_reserved = reserved;
+  assign spec_reserved_word = reserved_word;
+`endif
   assign old_word = rvfi_mem_rdata;
   assign operand = rvfi_rs2_rdata;
 

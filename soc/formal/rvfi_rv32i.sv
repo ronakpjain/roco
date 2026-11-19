@@ -43,6 +43,10 @@ module rvfi_rv32i #(
   logic trace_valid;
   logic [31:0] trace_pc, trace_instr;
   (* anyconst *) logic [4:0] tracked_reg;
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  logic formal_res_valid, formal_amo_ready;
+  logic [29:0] formal_res_word;
+`endif
 `ifdef ROCO_RVFI_PC_CHECKS
   logic [31:0] rvfi_oldest_pc, trace_wdata;
   logic [4:0] trace_rd;
@@ -64,6 +68,11 @@ module rvfi_rv32i #(
 `endif
 
   roco_cpu dut (
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+      .formal_res_valid(formal_res_valid),
+      .formal_res_word(formal_res_word),
+      .formal_amo_ready(formal_amo_ready),
+`endif
 `ifdef ROCO_RVFI_PC_CHECKS
       .rvfi_oldest_pc(rvfi_oldest_pc),
       .rvfi_mem_regwrite(rvfi_mem_regwrite),
@@ -172,6 +181,10 @@ module rvfi_rv32i #(
         written_lanes <= 0;
       end else begin
         assert (physical_word == architectural_word);
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+        if (formal_amo_ready && dmem_addr[31:2] == watched_addr)
+          assert (trace_wdata == physical_word);
+`endif
         assert (dmem_req == (dmem_valid && dmem_ready));
         if (StallMemory && !$past(rst) && $past(dmem_valid && !dmem_ready)) begin
           assert (dmem_valid && $stable({dmem_addr, dmem_we}));
@@ -311,7 +324,14 @@ module rvfi_rv32i #(
         .spec_mem_wdata()
     );
     always @(posedge clk) begin
-      if (!rst && live[slot]) assert (supported || extra_trap(word) || plain_fence(word));
+      if (!rst && live[slot])
+        assert (supported || extra_trap(
+            word
+        ) || plain_fence(
+            word
+        ) || (Atomics && atomic_fetch(
+            word
+        )));
     end
   end
 `endif
@@ -434,7 +454,21 @@ module rvfi_rv32i #(
         .spec_mem_wdata(base_spec.wdata)
     );
     if (Atomics) begin : g_atomic
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+      logic spec_reserved;
+      logic [29:0] spec_reserved_word;
+      always @(posedge clk) begin
+        if (!rst) begin
+          assert (formal_res_valid == spec_reserved);
+          if (spec_reserved) assert (formal_res_word == spec_reserved_word);
+        end
+      end
+`endif
       rvfi_rv32a_model atomic_model (
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+          .spec_reserved(spec_reserved),
+          .spec_reserved_word(spec_reserved_word),
+`endif
           .clk(clk),
           .rst(rst),
           .rvfi_valid(rvfi_valid),

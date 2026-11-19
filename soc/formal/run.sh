@@ -17,7 +17,7 @@ case "$mode" in
 esac
 
 case "$job" in
-  core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply)
+  core|core-accounting|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
       parameters="chparam -set AccountingOnly 1 $top;"
@@ -27,7 +27,7 @@ case "$job" in
       parameters="chparam -set CoherentMemory 1 $top;"
     elif [[ "$job" == core-memory-port ]]; then
       parameters="chparam -set CoherentMemory 1 -set AccountingOnly 1 $top;"
-    elif [[ "$job" == core-atomic ]]; then
+    elif [[ "$job" == core-atomic* ]]; then
       parameters="chparam -set CoherentMemory 1 -set Atomics 1 $top;"
     elif [[ "$job" == core-gpr || "$job" == core-gpr-storage || "$job" == core-forward ]]; then
       parameters="chparam -set AccountingOnly 1 -set RegisterOnly 1 $top;"
@@ -48,7 +48,7 @@ case "$job" in
     sources=(rtl/core/*.sv formal/rvfi_rv32i.sv formal/rvfi_rv32a_model.sv "$ref/isa_rv32i.v")
     while read -r insn; do sources+=("$ref/insn_$insn.v"); done < "$ref/isa_rv32i.txt"
     defines='-DROCO_RVFI -DROCO_RVFI_RV32I_CHECKS -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
-    if [[ "$job" == core-atomic ]]; then defines+=' -DROCO_RVFI_RV32A_CHECKS'; fi
+    if [[ "$job" == core-atomic* ]]; then defines+=' -DROCO_RVFI_RV32A_CHECKS'; fi
     if [[ "$job" == core-gpr || "$job" == core-gpr-writeback || "$job" == core-gpr-storage ]]; then
       defines+=' -DROCO_RVFI_GPR_WRITEBACK_CHECKS'
     fi
@@ -61,14 +61,19 @@ case "$job" in
     fi
     if [[ "$job" == core-forward ]]; then
       defines+=' -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_FORMAL_SIMPLE_FETCH'
-    elif [[ "$job" == core-isa || "$job" == core-isa-stall ]]; then
+    elif [[ "$job" == core-isa* || "$job" == core-atomic-stream ]]; then
       defines+=' -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS -DROCO_RVFI_FORWARD_CHECKS -DROCO_RVFI_INSN_CHECKS -DROCO_RVFI_NO_DIV_CHECKS -DROCO_RVFI_PC_CHECKS'
     fi
     if [[ "$job" == core-isa-stall ]]; then defines+=' -DROCO_RVFI_STALL_CHECKS'; fi
-    if [[ "$job" == core-no-divide || "$job" == core-forward || "$job" == core-isa* ]]; then
+    if [[ "$job" == core-atomic-stream ]]; then defines+=' -DROCO_ATOMIC_STREAM_CHECKS'; fi
+    if [[ "$job" == core-no-divide || "$job" == core-forward || "$job" == core-isa* || "$job" == core-atomic-stream ]]; then
       proof_engine="smtbmc ${SOLVER:-z3}"
       proof_depth=6
       proof_lowering=''
+    fi
+    if [[ "$job" == core-atomic-stream ]]; then
+      # Decoder ROM constants must hold in the induction step, not only at reset.
+      proof_lowering='memory_map -rom-only; opt'
     fi
     if [[ -n "${ROCO_FORMAL_PDR:-}" ]]; then
       proof_engine='abc pdr'
@@ -203,7 +208,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {core|core-accounting|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"

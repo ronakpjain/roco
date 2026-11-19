@@ -54,6 +54,11 @@ module roco_cpu (
   output logic [31:0] rvfi_gpr_hist_value,
 `endif
 `endif
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  output logic formal_res_valid,
+  output logic [29:0] formal_res_word,
+  output logic formal_amo_ready,
+`endif
 `ifdef ROCO_RVFI_DIV_CHECKS
   output logic rvfi_div_start,
   rvfi_div_wb_valid,
@@ -718,6 +723,16 @@ module roco_cpu (
         if (rvfi_exmem.rs2 == 0) assert (rvfi_exmem.rs2_data == 0);
         assert (exmem_is_load == (exmem_instr[6:0] == 7'h03));
         assert (exmem_is_store == (exmem_instr[6:0] == 7'h23));
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+        assert (exmem_is_lr == (exmem_instr[6:0] == 7'h2f && exmem_instr[31:27] == 2));
+        assert (exmem_is_sc == (exmem_instr[6:0] == 7'h2f && exmem_instr[31:27] == 3));
+        assert (exmem_is_amo == (exmem_instr[6:0] == 7'h2f && !exmem_is_lr && !exmem_is_sc));
+        if (exmem_is_lr || exmem_is_sc || exmem_is_amo) begin
+          assert (exmem_alu == rvfi_exmem.vaddr && exmem_alu[1:0] == 0);
+          assert (exmem_funct3 == 2 && exmem_be == 4'hf);
+          assert (exmem_amo_op == exmem_instr[31:27]);
+        end
+`endif
         if (exmem_is_load || exmem_is_store) begin
           // Preserve the subword offset and access width even while the
           // packet waits; the ISA model's reported address is word-aligned.
@@ -799,16 +814,22 @@ module roco_cpu (
       // stage registers inherit them one edge later.
       if (idex_valid) begin
         assert (!idex_is_vec && !idex_is_vset && !idex_is_vload && !idex_is_vstore);
-        assert (!idex_is_amo && !idex_is_lr && !idex_is_sc && !idex_is_mul);
+        assert (!idex_is_mul);
+`ifndef ROCO_ATOMIC_STREAM_CHECKS
+        assert (!idex_is_amo && !idex_is_lr && !idex_is_sc);
+`endif
         assert (!idex_is_sfence && !idex_is_fence_i && !idex_mret && !idex_sret);
         assert (!(idex_is_csr &&
                   (idex_csr_addr == 12'h180 || idex_csr_addr == 12'h300 ||
                    idex_csr_addr == 12'h302 || idex_csr_addr == 12'h303 ||
                    idex_csr_addr == 12'h304 || idex_csr_addr == 12'h344)));
       end
-      if (exmem_valid)
-        assert (!exmem_is_vload && !exmem_is_vstore && !exmem_is_amo && !exmem_is_lr &&
-                !exmem_is_sc && !exmem_is_mul);
+      if (exmem_valid) begin
+        assert (!exmem_is_vload && !exmem_is_vstore && !exmem_is_mul);
+`ifndef ROCO_ATOMIC_STREAM_CHECKS
+        assert (!exmem_is_amo && !exmem_is_lr && !exmem_is_sc);
+`endif
+      end
       if (wb_we && fwd_watch_nonzero && wb_rd == rvfi_gpr_watch_addr) assert (wb_data == fwd_hist0);
       assert (rvfi_gpr_watch_value == fwd_hist1);
       // The scoreboard advanced past hist1 only through a retirement whose
@@ -1249,6 +1270,11 @@ module roco_cpu (
       .exmem_mul_hi(exmem_mul_hi),
       .exmem_mul_sum(exmem_mul_sum),
       .exmem_mul_carry(exmem_mul_carry),
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+      .formal_res_valid(formal_res_valid),
+      .formal_res_word(formal_res_word),
+      .formal_amo_ready(formal_amo_ready),
+`endif
       .trap_taken(ex_trap_taken || satp_write),
       .vec_mem_we(vec_mem_we),
       .vec_mem_wd(vec_mem_wd),

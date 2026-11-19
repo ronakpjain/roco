@@ -373,6 +373,10 @@ module roco_cpu_id_stage (
   logic [2:0] replay_funct3;
   logic [3:0] replay_alu_op;
   logic replay_regwrite, replay_load, replay_store, replay_illegal;
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+  logic replay_amo, replay_lr, replay_sc;
+  logic [4:0] replay_amo_op;
+`endif
   logic replay_branch, replay_jal, replay_jalr, replay_ecall, replay_ebreak;
   logic replay_use_rs1, replay_use_rs2, replay_a_pc, replay_b_imm;
   logic replay_jump;
@@ -394,10 +398,17 @@ module roco_cpu_id_stage (
       .regwrite(replay_regwrite),
       .is_load(replay_load),
       .is_store(replay_store),
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+      .is_amo(replay_amo),
+      .is_lr(replay_lr),
+      .is_sc(replay_sc),
+      .amo_op(replay_amo_op),
+`else
       .is_amo(),
       .is_lr(),
       .is_sc(),
       .amo_op(),
+`endif
       .is_vec(),
       .is_vset(),
       .is_vload(),
@@ -422,6 +433,10 @@ module roco_cpu_id_stage (
     if (!rst && idex_valid) begin
       assert (idex_funct3 == replay_funct3 && idex_imm == replay_imm);
       assert (idex_is_load == replay_load && idex_is_store == replay_store);
+`ifdef ROCO_ATOMIC_STREAM_CHECKS
+      assert (idex_is_amo == replay_amo && idex_is_lr == replay_lr && idex_is_sc == replay_sc);
+      assert (idex_amo_op == replay_amo_op);
+`endif
       assert (idex_is_branch == replay_branch && idex_is_jal == replay_jal && idex_is_jalr == replay_jalr);
       assert (idex_ecall == replay_ecall && idex_ebreak == replay_ebreak && idex_illegal == replay_illegal);
       assert (idex_alu_op == replay_alu_op && idex_regwrite == replay_regwrite);

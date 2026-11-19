@@ -205,9 +205,20 @@ instructions, and compares atomic retirements with a separate reservation and
 RMW model. It reuses the symbolic coherent word at the data port and checks
 that SC lookups don't race older reservation updates. Failed SC can cause a
 cache-side access, but must not write memory. The 12-step bounded run passed;
-cover reached successful SC, failed SC, AMO and misaligned atomics. It is not
-an unbounded proof, and it does not model MMIO, other agents, or multicore
-ordering.
+cover reached successful SC, failed SC, AMO and misaligned atomics.
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh core-atomic-stream prove
+```
+
+`core-atomic-stream` passed unbounded k-induction for arbitrary mixed RV32I
+and supported A instruction streams in bare M-mode with one-cycle fetch,
+always-ready data memory, and no interrupts. It checks PC continuity, GPR
+operands and writeback, AMO and LR/SC results, the reservation history and
+lookup interlock, and the actual byte-lane writes and coherent reads at an
+arbitrary address. The separate `atomic-mem` proof covers backpressure at
+MEM; this whole-core proof does not cover data stalls, MMIO, DMA, or
+multicore ordering.
 
 For vector, a fixed whole-core program sets VL=2, loads two elements, and
 stores them back at a different address. The source data and element width are

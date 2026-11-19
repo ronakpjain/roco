@@ -17,7 +17,7 @@ assign advance = !halt && !fence_hold && !cancel_ex;
 assign send_element = want_mem && model_active && advance && aligned && elem < model_vl;
 assign send_empty = want_mem && !model_active && advance && model_vl == 0;
 
-logic packet, packet_mem, packet_load, packet_last;
+logic packet, packet_mem, packet_load, packet_last, packet_set;
 logic [31:0] packet_addr, packet_pc, packet_insn;
 logic [4:0] packet_elem;
 logic [3:0] packet_be;
@@ -27,6 +27,7 @@ always @(posedge clk) begin
     model_active <= 0;
     elem <= 0;
     packet <= 0;
+    packet_set <= 0;
   end else begin
     if (want_set && advance) model_vl <= avl > max_vl ? max_vl : avl;
     if (cancel_ex) model_active <= 0;
@@ -42,6 +43,7 @@ always @(posedge clk) begin
     end
     if (!halt && !fence_hold) begin
       packet <= send_element || send_empty;
+      packet_set <= want_set && advance;
       packet_mem <= send_element;
       packet_load <= load_insn;
       packet_last <= send_empty || elem + 1 == model_vl;
@@ -66,6 +68,7 @@ always @(posedge clk) begin
       // select itself so a fabricated combination cannot OR a live ALU
       // value into the vset result while idex is held.
       assert (idex_wb_select == 4'b0010);
+      assert (idex_rd == idex_instr[11:7] && idex_regwrite);
       if (advance) begin
         assert (vec_vset_vl == (avl > max_vl ? max_vl : avl));
         assert (vec_vset_vtype == {24'd0, idex_instr[27:20]});
@@ -100,6 +103,8 @@ always @(posedge clk) begin
         assert (elem <= model_vl);
         assert (vmem_k == elem && vmem_addr == expected_addr && lookup_is_vec_q);
         if (elem != 0) assert (aligned);
+        if (!load_insn && idex_instr[11:7] == formal_vec_reg)
+          assert (vec_vd_q[8*formal_vec_byte+:8] == reference_vec_byte);
       end
     end
     if (advance && want_mem) begin
@@ -117,12 +122,20 @@ always @(posedge clk) begin
       assert (exmem_is_vstore == (packet_mem && !packet_load));
       assert (exmem_vec_last == packet_last && !exmem_regwrite && !exmem_vec_we);
       if (packet_mem) begin
+        // ID/EX owns the instruction until its final element leaves MEM.
+        assert (model_active && packet_insn == owner_word && packet_pc == owner_pc);
         assert (exmem_alu == packet_addr && exmem_be == packet_be);
+        assert (packet_elem < max_vl && (packet_addr & natural_mask) == 0);
         assert (exmem_vec_elem == packet_elem[3:0] && exmem_vec_sew == {1'b0, formal_vec_width});
         assert (exmem_rd == packet_insn[11:7]);
       end
     end
-    if (exmem_valid && exmem_instr[6:0] == 7'h57) assert (exmem_wbval == 32'(model_vl));
+    assert (packet_set == (exmem_valid && exmem_instr[6:0] == 7'h57));
+    if (packet_set) begin
+      assert (exmem_pc == packet_pc && exmem_instr == packet_insn);
+      assert (exmem_rd == packet_insn[11:7] && exmem_regwrite);
+      assert (exmem_wbval == 32'(model_vl));
+    end
     cover (send_element && elem == 1 && formal_vec_width == 0);
     cover (send_element && elem == 1 && formal_vec_width == 1);
     cover (send_element && elem == 1 && formal_vec_width == 2);

@@ -13,6 +13,11 @@
 `include "roco_cpu_defs.svh"
 
 module roco_cpu_vec (
+`ifdef ROCO_VECTOR_MEM_STREAM
+  input logic [4:0] formal_vec_reg,
+  input logic [3:0] formal_vec_byte,
+  output logic [7:0] formal_vec_stored,
+`endif
   input logic clk,
   input logic rst,
   /* Operand read ports (EX). */
@@ -108,12 +113,30 @@ module roco_cpu_vec (
       end
     end
   end
+`ifdef ROCO_VECTOR_MEM_STREAM
+  logic [127:0] formal_vec_row;
+  assign formal_vec_stored = formal_vec_row[8*formal_vec_byte+:8];
+  always @(posedge clk) begin
+    if (!rst) begin
+      assert (full_we_q == (!$past(rst) && $past(ex_we)));
+      assert (elem_we_q == (!$past(rst) && $past(!ex_we && mem_we)));
+      if (elem_we_q)
+        assert ({elem_wd_q, elem_index_q, elem_sew_q, elem_data_q} == $past(
+            {mem_wd, mem_elem, mem_sew, mem_wdata}
+        ));
+    end
+  end
+`endif
   for (genvar b = 0; b < 16; b = b + 1) begin : g_byte
     logic [7:0] data[0:31];
     logic write_byte;
     logic [7:0] write_data;
     assign write_byte = full_we_q || (elem_we_q && (initialize_reg || elem_byte_mask[b]));
     assign write_data = full_we_q ? full_data_q[8*b+:8] : elem_wdata[8*b+:8];
+
+`ifdef ROCO_VECTOR_MEM_STREAM
+    assign formal_vec_row[8*b+:8] = valid_regs[formal_vec_reg] ? data[formal_vec_reg] : 8'd0;
+`endif
 
     assign vs1_data[8*b+:8] = (full_we_q && full_wd_q == vs1) ? full_data_q[8*b+:8] :
                                     (elem_we_q && elem_wd_q == vs1 && elem_byte_mask[b]) ? elem_wdata[8*b+:8] :

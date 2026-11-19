@@ -16,6 +16,9 @@
 module roco_cpu_ex_stage (
 `ifdef ROCO_VECTOR_MEM_STREAM
   input logic [1:0] formal_vec_width,
+  input logic [4:0] formal_vec_reg,
+  input logic [3:0] formal_vec_byte,
+  input logic [7:0] reference_vec_byte,
 `endif
 `ifdef ROCO_RVFI
   input logic [4:0] rvfi_idex_rs1,

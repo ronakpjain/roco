@@ -966,6 +966,9 @@ module roco_cpu (
   roco_cpu_ex_stage u_ex (
 `ifdef ROCO_VECTOR_MEM_STREAM
       .formal_vec_width(formal_vec_width),
+      .formal_vec_reg(formal_vec_reg),
+      .formal_vec_byte(formal_vec_byte),
+      .reference_vec_byte(reference_vec_byte),
 `endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
       .formal_irq_pending(formal_irq_pending),
@@ -1147,6 +1150,11 @@ module roco_cpu (
                       exmem_vec_data : vec_rf_vd_data;
 
   roco_cpu_vec u_vec (
+`ifdef ROCO_VECTOR_MEM_STREAM
+      .formal_vec_reg(formal_vec_reg),
+      .formal_vec_byte(formal_vec_byte),
+      .formal_vec_stored(formal_vec_stored),
+`endif
       .clk(clk),
       .rst(rst),
       .vs1(idex_instr[19:15]),

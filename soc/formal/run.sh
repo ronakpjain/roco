@@ -27,7 +27,10 @@ case "$job" in
       parameters="chparam -set CoherentMemory 1 $top;"
     elif [[ "$job" == core-m-stream ]]; then
       parameters="chparam -set AccountingOnly 1 -set RegisterOnly 1 -set StallMemory 1 $top;"
-    elif [[ "$job" == core-irq || "$job" == core-vector-mem-stream ]]; then
+    elif [[ "$job" == core-vector-mem-stream ]]; then
+      # Reuse the RVFI-to-GPR storage check without the scalar ISA/operand checks.
+      parameters="chparam -set AccountingOnly 1 -set RegisterOnly 1 -set StorageOnly 1 -set StallMemory 1 $top;"
+    elif [[ "$job" == core-irq ]]; then
       parameters="chparam -set AccountingOnly 1 -set StallMemory 1 $top;"
     elif [[ "$job" == core-memory-port ]]; then
       parameters="chparam -set CoherentMemory 1 -set AccountingOnly 1 $top;"
@@ -80,7 +83,7 @@ case "$job" in
     fi
     if [[ "$job" == core-vector-mem-stream ]]; then
       depth=24
-      defines+=' -DROCO_VECTOR_MEM_STREAM'
+      defines+=' -DROCO_VECTOR_MEM_STREAM -DROCO_RVFI_GPR_STATE -DROCO_RVFI_GPR_WRITEBACK_CHECKS'
       proof_engine="smtbmc ${SOLVER:-bitwuzla}"
       proof_depth=6
       proof_lowering='memory_map -rom-only; opt'

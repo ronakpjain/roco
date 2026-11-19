@@ -220,6 +220,9 @@ module dcache #(
   // Only the live lookup and saved miss address belong on its read path.
   assign forward_raddr = (pending_miss && !recovery_ready) ?
                          lu_addr_q[IDX_HI:2] : lu_addr[IDX_HI:2];
+`ifdef ROCO_DCACHE_MEMORY_FORMAL
+  `include "dcache_memory_checks.svh"
+`endif
   // Read and align small banks in parallel. Select one bank before the
   // register; MEM merges the resulting one-hot data with an OR tree.
   for (genvar bank = 0; bank < BANK_COUNT; bank = bank + 1) begin : g_forward_bank
@@ -235,6 +238,14 @@ module dcache #(
     assign word_data = {
       bank_lane3[read_addr], bank_lane2[read_addr], bank_lane1[read_addr], bank_lane0[read_addr]
     };
+`ifdef ROCO_DCACHE_MEMORY_FORMAL
+    assign f_forward_cell[bank] = {
+      bank_lane3[f_location[BANK_ADDR_BITS-1:0]],
+      bank_lane2[f_location[BANK_ADDR_BITS-1:0]],
+      bank_lane1[f_location[BANK_ADDR_BITS-1:0]],
+      bank_lane0[f_location[BANK_ADDR_BITS-1:0]]
+    };
+`endif
     always_ff @(posedge clk) begin
       forward_bank_data[bank] <= (forward_raddr >> BANK_ADDR_BITS) == bank ? format_load(
           word_data, forward_offset, forward_funct3

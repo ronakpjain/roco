@@ -537,6 +537,35 @@ it does not prove EX's branch decision or the SoC's D-cache writeback and
 redirect, a hit arriving during halt, a backed-up queue, and consumption of
 the tracked word.
 
+### Write-back D-cache coherence (unbounded)
+
+```sh
+SOLVER=bitwuzla bash formal/run.sh dcache-memory prove
+SOLVER=bitwuzla bash formal/run.sh dcache-memory cover
+```
+
+K-induction proves the actual D-cache at the default SoC geometry (128 lines,
+eight words per line). For one arbitrary word, a CPU-side shadow updates on
+ready-qualified stores and a backing-store shadow updates on accepted write
+beats. Assertions track the word across hits, byte stores, both physical data
+copies, conflicts, dirty evictions and partial refills. A ready load must
+return the architectural word on the raw port and the correctly formatted
+value on the forwarding port, including a lookup alongside an older store to
+the same word. Dirty writebacks must present the latest value, and flush
+completion must leave backing memory coherent. The native memory request and
+write channels also hold valid payloads during stalls.
+
+The caller has one lookup outstanding, holds its address and load-format
+inputs while waiting unless issuing the next lookup on the commit edge, and
+starts and holds flush only when no demand is pending. The backing port may
+stall indefinitely and supplies exactly a line's worth of ordered responses
+if it completes a read, with coherent data only at the tracked word. Each
+reset starts a fresh memory epoch. Cover mode uses four lines to reach dirty
+eviction, changed data surviving flush, and same-cycle store/load forwarding.
+This is a cache contract, not a proof that the CPU and the SoC fabric satisfy
+its interface assumptions or that FENCE.I is architecturally coherent across
+both caches.
+
 ### Remaining whole-core proof obligations
 
 - Extend the scalar proof to the actual fetch/cache protocol, including

@@ -254,6 +254,19 @@ case "$job" in
       formal/soc_mmio_memory.sv)
     defines=''
     ;;
+  dcache-memory)
+    top=dcache
+    depth=64
+    sources=(rtl/mem/dcache.sv)
+    defines='-DROCO_DCACHE_MEMORY_FORMAL'
+    parameters="chparam -set LINE_WORDS 8 -set NUM_LINES 128 $top;"
+    if [[ "$mode" == cover ]]; then
+      parameters="chparam -set LINE_WORDS 8 -set NUM_LINES 4 $top;"
+    fi
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
+    proof_depth=6
+    proof_lowering='opt_clean'
+    ;;
   sdram-pins)
     top=sdram_ctrl
     depth=8
@@ -308,7 +321,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -375,6 +388,7 @@ formal/vector_mem_commit_checks.svh
 formal/soc_control_checks.svh
 formal/sdram_pin_checks.svh
 formal/sdram_memory_checks.svh
+formal/dcache_memory_checks.svh
 EOF
 fi
 

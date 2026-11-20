@@ -934,6 +934,9 @@ module roco_soc #(
 `ifdef ROCO_SOC_CONTROL_FORMAL
   `include "soc_control_checks.svh"
 `endif
+`ifdef ROCO_SOC_MMIO_FORMAL
+  `include "soc_mmio_checks.svh"
+`endif
 `ifdef ROCO_SOC_FENCE_FORMAL
   `include "soc_fence_checks.svh"
 `endif

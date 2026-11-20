@@ -1,12 +1,15 @@
 // Bounded integration check at the actual SoC's external pins.
 `default_nettype none
 
-module soc_mmio_memory (
+module soc_mmio_memory #(
+    parameter int SdramPowerup = 520_000 / 5000,
+    parameter bit MmioOnly = 1'b0
+) (
   input logic clk
 );
   localparam int Deadline = 420;
   localparam logic [8:0] DataColumn = 9'd64;  // byte offset 128 in SDRAM
-  localparam logic [3:0] ProgramLength = 4'd10;
+  localparam logic [3:0] ProgramLength = MmioOnly ? 4'd5 : 4'd10;
 
   (* anyconst *) logic [1:0] buttons;
   (* anyconst *) logic [31:0] initial_word;
@@ -26,6 +29,7 @@ module soc_mmio_memory (
 
   roco_soc #(
       .CLK_HZ(520_000),
+      .SDRAM_POWERUP(SdramPowerup),
       .BOOT_OVERRIDE(1'b1),
       .ICACHE_LINES(2),
       .DCACHE_LINES(2)
@@ -58,19 +62,29 @@ module soc_mmio_memory (
   );
 
   function automatic logic [31:0] program_word(input logic [7:0] index);
-    case (index)
-      8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
-      8'd1: program_word = 32'h0140a103;  // lw x2, 20(x1)    (GPIO buttons)
-      8'd2: program_word = 32'h100001b7;  // lui x3, 0x10000
-      8'd3: program_word = 32'h082180a3;  // sb x2, 129(x3)
-      8'd4: program_word = 32'h0000100f;  // fence.i          (write back D-cache)
-      8'd5: program_word = 32'h0c01a003;  // lw x0, 192(x3)   (evict the data line)
-      8'd6: program_word = 32'h0801a203;  // lw x4, 128(x3)   (refill from SDRAM)
-      8'd7: program_word = 32'h0020a823;  // sw x2, 16(x1)    (GPIO LEDs)
-      8'd8: program_word = 32'h200012b7;  // lui x5, 0x20001
-      8'd9: program_word = 32'h0042a023;  // sw x4, 0(x5)     (exit and halt)
-      default: program_word = 32'h00000013;
-    endcase
+    if (MmioOnly) begin
+      case (index)
+        8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
+        8'd1: program_word = 32'h0140a103;  // lw x2, 20(x1)   (GPIO buttons)
+        8'd2: program_word = 32'h0020a823;  // sw x2, 16(x1)   (GPIO LEDs)
+        8'd3: program_word = 32'h200010b7;  // lui x1, 0x20001
+        8'd4: program_word = 32'h0020a023;  // sw x2, 0(x1)    (exit and halt)
+        default: program_word = 32'h00000013;
+      endcase
+    end else
+      case (index)
+        8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
+        8'd1: program_word = 32'h0140a103;  // lw x2, 20(x1)    (GPIO buttons)
+        8'd2: program_word = 32'h100001b7;  // lui x3, 0x10000
+        8'd3: program_word = 32'h082180a3;  // sb x2, 129(x3)
+        8'd4: program_word = 32'h0000100f;  // fence.i          (write back D-cache)
+        8'd5: program_word = 32'h0c01a003;  // lw x0, 192(x3)   (evict the data line)
+        8'd6: program_word = 32'h0801a203;  // lw x4, 128(x3)   (refill from SDRAM)
+        8'd7: program_word = 32'h0020a823;  // sw x2, 16(x1)    (GPIO LEDs)
+        8'd8: program_word = 32'h200012b7;  // lui x5, 0x20001
+        8'd9: program_word = 32'h0042a023;  // sw x4, 0(x5)     (exit and halt)
+        default: program_word = 32'h00000013;
+      endcase
   endfunction
 
   // Small pin-level BL2/CL3 model: immutable instructions, one writable
@@ -130,7 +144,7 @@ module soc_mmio_memory (
         if (!dqm[1]) stored_word[31:24] <= dq_out[15:8];
       end
 
-      if (trace_valid) begin
+      if (!MmioOnly && trace_valid) begin
         assert (!halted && retired < ProgramLength);
         assert (trace_pc == 32'h10000000 + (32'(retired) << 2));
         assert (trace_instr == program_word(8'(retired)));
@@ -143,18 +157,20 @@ module soc_mmio_memory (
         end
         retired <= retired + 1'b1;
       end
-      assert (halted == (retired == ProgramLength));
-      if (halted) begin
-        assert (leds == {2'd0, buttons});
-        assert (exit_code == expected_word);
-        assert (stored_word == expected_word);
+      if (!MmioOnly) begin
+        assert (halted == (retired == ProgramLength));
+        if (halted) begin
+          assert (leds == {2'd0, buttons});
+          assert (exit_code == expected_word);
+          assert (stored_word == expected_word);
+        end
+        if (cycle == 9'(Deadline)) assert (halted);
+        cover (write_high);
+        cover (retired == 4'd4);
+        cover (refetched_after_fence);
+        cover (refilled_after_fence);
+        cover (halted && buttons == 2'd3 && initial_word[15:8] != 8'd3);
       end
-      if (cycle == 9'(Deadline)) assert (halted);
-      cover (write_high);
-      cover (retired == 4'd4);
-      cover (refetched_after_fence);
-      cover (refilled_after_fence);
-      cover (halted && buttons == 2'd3 && initial_word[15:8] != 8'd3);
     end
   end
 endmodule

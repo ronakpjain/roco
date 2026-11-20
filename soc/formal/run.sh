@@ -17,6 +17,26 @@ case "$mode" in
 esac
 
 case "$job" in
+  soc-system)
+    # Run the end-to-end and component obligations separately. Report a
+    # failure if any job fails, while still collecting the remaining results.
+    case "$mode" in
+      prove) ;;
+      cover) export COVER_FAST=1 ;;
+      *) echo 'soc-system requires prove or cover mode.' >&2; exit 2 ;;
+    esac
+    jobs=(soc-isa-memory soc-mmio bridge xbar sv32 dcache-memory axi-mem-master sdram-memory)
+    failed=()
+    for part in "${jobs[@]}"; do
+      printf '\n=== %s %s ===\n' "$part" "$mode"
+      if ! bash formal/run.sh "$part" "$mode"; then failed+=("$part"); fi
+    done
+    if (( ${#failed[@]} )); then
+      printf '\n%s did not pass: %s\n' "$mode" "${failed[*]}" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
   core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply)
     top=rvfi_rv32i
     if [[ "$job" == core-accounting ]]; then
@@ -291,6 +311,27 @@ case "$job" in
       depth=${DEPTH:-80}
     fi
     ;;
+  soc-mmio)
+    top=roco_soc
+    depth=12
+    sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv)
+    defines='-DROCO_SOC_CONTROL_FORMAL -DROCO_SOC_MMIO_FORMAL'
+    if [[ "$mode" != cover ]]; then
+      # Reuse the actual fabric ownership and physical-address invariants.
+      defines+=' -DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_FENCE_FORMAL'
+    fi
+    proof_engine="smtbmc ${SOLVER:-bitwuzla}"
+    proof_depth=8
+    proof_lowering='memory_map -rom-only; opt_clean'
+    if [[ "$mode" == cover ]]; then
+      # Drive the actual SoC from an external SDRAM program; no internal
+      # CPU or bus cutpoints. The prove job keeps the production parameters.
+      top=soc_mmio_memory
+      sources+=(formal/soc_mmio_memory.sv)
+      parameters="chparam -set SdramPowerup 8 -set MmioOnly 1 $top;"
+      depth=160
+    fi
+    ;;
   soc-mmio-memory)
     top=soc_mmio_memory
     depth=422
@@ -370,11 +411,13 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {soc-system|soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
-if [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
+if [[ "$job" == soc-mmio ]]; then
+  out="${FORMAL_BUILD_DIR:-build/formal}/roco_soc_mmio"
+elif [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
   out="${out}_${job#core-}"
 elif [[ "$job" == core-divide-cutpoint ]]; then
   out="${out}_cutpoint"
@@ -450,6 +493,7 @@ formal/soc_fetch_queue_checks.svh
 formal/soc_fetch_link_checks.svh
 formal/soc_retire_memory_checks.svh
 formal/soc_isa_memory_checks.svh
+formal/soc_mmio_checks.svh
 EOF
 fi
 
@@ -463,6 +507,8 @@ if [[ ( "$job" == soc-retire-memory || "$job" == soc-isa-memory ) && "$mode" == 
     cover_sources+=' a:src=*soc_isa_memory_checks.svh* %u'
   fi
   cover_selection="chformal -cover -remove $cover_sources %n; chformal -assert -remove; opt_clean -purge;"
+elif [[ "$job" == soc-mmio && "$mode" == cover ]]; then
+  cover_selection='chformal -cover -remove a:src=*soc_mmio_checks.svh* %n; chformal -assert -remove; opt_clean -purge;'
 fi
 
 # Quote source paths for Yosys, including external references with spaces.

@@ -424,6 +424,44 @@ from each family at the reset word, or zero for the illegal-instruction
 witness, with other halfwords zero. All twelve witnesses must be reached.
 This cover program restriction is absent from the production safety proof.
 
+## Whole-SoC MMIO safety (unbounded)
+
+```sh
+bash formal/run.sh soc-mmio prove
+bash formal/run.sh soc-mmio cover
+```
+
+The proof uses the production `roco_soc`, with no internal cutpoints and only
+initial reset assumed. It includes the SoC control, fabric ownership, RAM
+routing and FENCE.I invariants. It checks that SDRAM addresses never reach APB,
+accepted GPIO reads return LEDs or buttons, and only a completed LED write
+with byte lane zero enabled changes the LEDs. It also checks UART enqueue,
+RX pop and overflow-clear qualification, APB-to-AXI response data and ordering,
+and read-data agreement on the CPU side of the crossbar. The inherited control
+assertions cover byte-masked syscon exit-code writes and halt ordering.
+
+The 160-step cover run reuses the pin-level harness below with a five-instruction
+GPIO/exit program and shorter SDRAM startup. The checker observes three witnesses:
+a GPIO buttons value of 3 returned to the CPU, an APB LED write setting 3,
+and syscon halt with a nonzero exit code. The program and short startup are
+cover-only and are not assumptions of the safety proof.
+
+## Whole-system proof suite
+
+```sh
+RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system prove
+RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
+```
+
+This runs the RV32I retirement/memory and MMIO jobs, plus the bridge, crossbar,
+Sv32, D-cache, AXI memory master and SDRAM memory component jobs. It runs all
+jobs even if one fails and returns failure if any obligation is unproved or
+any requested witness is unreached. `prove` checks unbounded safety; `cover`
+finds finite witnesses and is not a liveness proof. This suite is not an
+exhaustive SoC specification: full architectural register history and precise
+trap/retirement sequencing, non-RV32I instructions on the connected SoC,
+UART wire behavior, and hardware-level timing remain outside this suite.
+
 ## Whole-SoC memory and MMIO integration (bounded)
 
 ```sh

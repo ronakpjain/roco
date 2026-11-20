@@ -1238,6 +1238,16 @@ module roco_cpu_ex_stage (
     if (trap_capture && ex_trap) rvfi_exception <= rvfi_ex;
   end
 
+`ifdef ROCO_SOC_ISA_MEMORY_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst && idex_valid && scalar_is_mem && scalar_mem_ready && !cancel_ex) begin
+      assert (!exmem_valid);
+      assert (!lookup_is_vec_q);
+      assert (memory_addr_held == rvfi_held_rs1 + idex_imm);
+    end
+  end
+`endif
+
 `ifdef ROCO_RVFI_FORWARD_CHECKS
   // Observation points for the whole-core operand invariants: the operands
   // a scalar memory instruction saved when its lookup began, plus the

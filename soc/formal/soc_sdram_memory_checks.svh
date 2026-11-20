@@ -67,7 +67,17 @@ always_comb assume (sdram_dq_in == sd_dq_in);
 // No internal CPU, cache or bus signal is constrained.
 always_comb begin
   assume (cell_addr == 23'd0);
+`ifdef ROCO_SOC_ISA_MEMORY_FORMAL
+  // Also witness all nine base-ISA effect families. Operands are x0, so
+  // these one-instruction programs need no internal register initialization.
+  assume (initial_cell == 32'd0 || initial_cell == 32'h00700093 ||
+          initial_cell == 32'h000000b3 || initial_cell == 32'h100000b7 ||
+          initial_cell == 32'h00000097 || initial_cell == 32'h004000ef ||
+          initial_cell == 32'h000000e7 || initial_cell == 32'h00000263 ||
+          initial_cell == 32'h00002083 || initial_cell == 32'h00002023);
+`else
   assume (initial_cell == 32'h00000013 || initial_cell == 32'd0);
+`endif
   assume (other_halfword == 16'd0);
 end
 `endif

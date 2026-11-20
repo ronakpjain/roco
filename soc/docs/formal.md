@@ -391,6 +391,39 @@ pass; proof success alone does not establish reachability. The fast cover config
 configuration safety proof. The focused cover run reaches ID/EX at cycle 43
 and both retirement and synchronous exception reporting at cycle 44.
 
+## Whole-SoC RV32I retirement effects
+
+```sh
+RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-isa-memory prove
+COVER_FAST=1 DEPTH=80 RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-isa-memory cover
+```
+
+This extends `soc-retire-memory` with the upstream RV32I instruction model.
+For every normal retirement recognized by that model, the reported source
+indices, destination and result, next PC, aligned memory address, byte masks
+and stored bytes must match the specification. Held MEM packets retain the
+same semantic relation even before a retirement strobe, including virtual
+address calculation and preservation of the physical byte offset across
+translation. All assertions from the underlying cache, memory and instruction
+provenance jobs remain enabled. The induction flow maps read-only tables to
+combinational logic so inferred decoder ROM contents are fixed even when
+induction starts outside reset; writable memories stay symbolic arrays.
+
+There is no fetched-instruction filter and no new assumption in prove mode:
+other instruction sets, privilege transitions, interrupts, translation,
+external halt and cache maintenance remain available. These checks use the
+reported operand values; relating those values to architectural register
+history, proving precise trapping and proving the sequence of retired PCs
+remain separate obligations. Instructions outside the upstream RV32I model
+are also still open.
+
+The focused fast cover job retains the three provenance witnesses and adds
+one normal-retirement witness for each of OP-IMM, OP, LUI, AUIPC, JAL, JALR,
+BRANCH, LOAD and STORE. Its external memory chooses one concrete instruction
+from each family at the reset word, or zero for the illegal-instruction
+witness, with other halfwords zero. All twelve witnesses must be reached.
+This cover program restriction is absent from the production safety proof.
+
 ## Whole-SoC memory and MMIO integration (bounded)
 
 ```sh

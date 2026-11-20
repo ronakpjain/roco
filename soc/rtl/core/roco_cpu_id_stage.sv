@@ -14,6 +14,9 @@
 `ifdef ROCO_M_STREAM_CHECKS
 `define ROCO_ID_OPERAND_CHECKS
 `endif
+`ifdef ROCO_SOC_ISA_MEMORY_FORMAL
+`define ROCO_ID_OPERAND_CHECKS
+`endif
 module roco_cpu_id_stage (
 `ifdef ROCO_ID_OPERAND_CHECKS
   input logic [4:0] rvfi_idex_rs1,
@@ -385,6 +388,10 @@ module roco_cpu_id_stage (
   `define ROCO_ID_REPLAY_ATOMICS
 `endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
+  `define ROCO_ID_REPLAY_ATOMICS
+`endif
+`ifdef ROCO_SOC_ISA_MEMORY_FORMAL
+  `define ROCO_ID_REPLAY_CHECKS
   `define ROCO_ID_REPLAY_ATOMICS
 `endif
 `ifdef ROCO_ID_REPLAY_CHECKS

@@ -587,6 +587,9 @@ module roco_cpu (
 `elsif ROCO_M_STREAM_CHECKS
       .rvfi_idex_rs1(rvfi_idex_rs1),
       .rvfi_idex_rs2(rvfi_idex_rs2),
+`elsif ROCO_SOC_ISA_MEMORY_FORMAL
+      .rvfi_idex_rs1(rvfi_idex_rs1),
+      .rvfi_idex_rs2(rvfi_idex_rs2),
 `endif
 `ifdef ROCO_RVFI_GPR_STATE
       .rvfi_gpr_watch_addr(rvfi_gpr_watch_addr),
@@ -685,8 +688,13 @@ module roco_cpu (
   roco_rvfi_meta_t rvfi_exmem, rvfi_exception, rvfi_report;
 
   // Mirror ID/EX advancement. Bubbles and flushes invalidate the payload.
-  always_ff @(posedge clk) begin
-    if (!halt && !stall) begin
+  // Reset like the ID/EX payload: without it an arbitrary induction state
+  // can surface stale indices when reset drops while stalled.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      rvfi_idex_rs1 <= 5'd0;
+      rvfi_idex_rs2 <= 5'd0;
+    end else if (!halt && !stall) begin
       rvfi_idex_rs1 <= dec_use_rs1 ? dec_rs1 : 5'd0;
       rvfi_idex_rs2 <= dec_use_rs2 ? dec_rs2 : 5'd0;
     end
@@ -1300,6 +1308,9 @@ module roco_cpu (
 `endif
 `ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
   `include "soc_retire_memory_checks.svh"
+`endif
+`ifdef ROCO_SOC_ISA_MEMORY_FORMAL
+  `include "soc_isa_memory_checks.svh"
 `endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) cache_request_live_q <= 1'b0;

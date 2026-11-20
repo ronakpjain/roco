@@ -56,7 +56,7 @@ rvfi_isa_rv32i packet_model (
 // gating and the mul valid gate), so a set flag implies decode set. The
 // converse need not hold for vector flags: a VL-zero no-op retires a valid
 // vector packet with its flags clear.
-logic isa_idex_muldiv, isa_idex_vload, isa_idex_vstore;
+logic isa_idex_muldiv, isa_idex_vec, isa_idex_vload, isa_idex_vstore;
 logic [2:0] isa_idex_md_op;
 roco_cpu_decoder isa_idex_decode (
     .instr(idex_instr),
@@ -79,7 +79,7 @@ roco_cpu_decoder isa_idex_decode (
     .is_lr(),
     .is_sc(),
     .amo_op(),
-    .is_vec(),
+    .is_vec(isa_idex_vec),
     .is_vset(),
     .is_vload(isa_idex_vload),
     .is_vstore(isa_idex_vstore),
@@ -148,6 +148,8 @@ always_ff @(posedge clk) begin
   if (!rst && idex_valid) begin
     assert (idex_is_muldiv == isa_idex_muldiv);
     assert (idex_md_op == isa_idex_md_op);
+    // EX suppresses ordinary writeback for vector instructions.
+    assert (idex_is_vec == isa_idex_vec);
     assert (idex_is_vload == isa_idex_vload);
     assert (idex_is_vstore == isa_idex_vstore);
   end

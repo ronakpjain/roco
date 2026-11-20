@@ -57,6 +57,7 @@ rvfi_isa_rv32i packet_model (
 // converse need not hold for vector flags: a VL-zero no-op retires a valid
 // vector packet with its flags clear.
 logic isa_idex_muldiv, isa_idex_vec, isa_idex_vload, isa_idex_vstore;
+logic isa_idex_mret, isa_idex_sret;
 logic [2:0] isa_idex_md_op;
 roco_cpu_decoder isa_idex_decode (
     .instr(idex_instr),
@@ -94,8 +95,8 @@ roco_cpu_decoder isa_idex_decode (
     .illegal(),
     .ecall(),
     .ebreak(),
-    .mret(),
-    .sret(),
+    .mret(isa_idex_mret),
+    .sret(isa_idex_sret),
     .is_sfence(),
     .is_fence_i()
 );
@@ -150,6 +151,8 @@ always_ff @(posedge clk) begin
     assert (idex_md_op == isa_idex_md_op);
     // EX suppresses ordinary writeback for vector instructions.
     assert (idex_is_vec == isa_idex_vec);
+    // Return flags select a CSR target ahead of ordinary next-PC controls.
+    assert (idex_mret == isa_idex_mret && idex_sret == isa_idex_sret);
     assert (idex_is_vload == isa_idex_vload);
     assert (idex_is_vstore == isa_idex_vstore);
   end

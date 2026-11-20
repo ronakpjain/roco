@@ -76,10 +76,13 @@ jobs:
           - {job: soc-dcache-memory, mode: prove}
           - {job: soc-fence-memory, mode: prove}
           - {job: soc-fetch-memory, mode: prove}
+          - {job: soc-retire-memory, mode: prove}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422}
+          # Focused retirement witnesses use the fast SoC cover configuration.
+          - {job: soc-retire-memory, mode: cover, cover-fast: true, depth: 80}
           # Cover reachability: every witness statement must be reached, so a
           # vacuous or contradictory antecedent fails the job. The whole-SoC
-          # k-induction jobs stay out: their search needs a boot image and the
+          # inherited cover suites stay out: their search needs a boot image and the
           # SDRAM power-up sequence beyond what a word-level solver can unroll.
           - {job: bridge, mode: cover}
           - {job: xbar, mode: cover}
@@ -141,6 +144,7 @@ jobs:
           DEPTH: ${{ matrix.depth }}
           SOLVER: ${{ matrix.solver }}
           PROOF_TIMEOUT: ${{ matrix.proof-timeout }}
+          COVER_FAST: ${{ matrix.cover-fast }}
         run: |
           yosys -V
           sby --version

@@ -325,8 +325,8 @@ ordinary fences as well as boot maintenance.
 Only initial global reset and the external ideal BL2/CL3 memory device are
 assumed; no cache, CPU or internal bus state is constrained. This is a cache
 response data proof. `soc-fetch-memory` below carries it through the MMU and
-the fetch queue; instruction retirement and the complete ISA semantics with
-this memory system remain open.
+the fetch queue; `soc-retire-memory` extends provenance through retirement.
+Complete ISA semantics with this memory system remain open.
 
 ## Whole-SoC instruction fetch after FENCE.I (unbounded)
 
@@ -358,7 +358,38 @@ queue and a pre-fence entry cannot survive into the new interval.
 
 Only initial global reset and the external ideal BL2/CL3 memory device are
 assumed. This proves the bytes offered to the decoder, not their decode or
-architectural effect; retirement and the ISA model remain open.
+architectural effect. The retirement provenance extension below follows those
+bytes through the pipeline; the ISA model remains open.
+
+## Whole-SoC instruction retirement provenance (unbounded)
+
+```sh
+bash formal/run.sh soc-retire-memory prove
+COVER_FAST=1 DEPTH=80 bash formal/run.sh soc-retire-memory cover
+```
+
+This extends `soc-fetch-memory` with watched tags following the actual ID/EX
+and EX/MEM update enables. During an instruction-coherent interval, valid
+watched packets retain the fetched instruction bytes and virtual PC through
+normal retirement, trace output and RVFI. Synchronous exception capture and
+its pending RVFI report retain the same instruction and PC. Normal retirement
+and synchronous exception reporting cannot occur together.
+
+The proof retains production parameters, normal boot and the external memory
+model, with no added internal assumptions. It checks instruction provenance,
+not architectural results or next-PC semantics, and does not associate deferred
+divide writeback with its issuing instruction.
+
+CI includes both prove and cover rows. The cover row uses the existing fast
+configuration (boot override, shortened SDRAM startup and two-line caches),
+and external memory initialized with either NOP or an illegal zero instruction
+at the reset word (all other halfwords zero), with witnesses for a watched
+ID/EX packet, normal retirement and synchronous exception reporting. This job selects these three new witnesses; inherited
+unit covers include burst shapes the connected caches never issue and retain
+their own standalone cover jobs. A cover run must reach every witness to
+pass; proof success alone does not establish reachability. The fast cover configuration does not replace the production
+configuration safety proof. The focused cover run reaches ID/EX at cycle 43
+and both retirement and synchronous exception reporting at cycle 44.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

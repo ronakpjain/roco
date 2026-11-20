@@ -262,6 +262,7 @@ case "$job" in
       fi
       if [[ "$job" == soc-retire-memory ]]; then
         defines+=' -DROCO_SOC_RETIRE_MEMORY_FORMAL -DROCO_RVFI'
+        if [[ "$mode" == cover ]]; then defines+=' -DROCO_SOC_RETIRE_COVER'; fi
       fi
     fi
     proof_lowering='opt_clean'
@@ -436,9 +437,10 @@ fi
 
 # Retirement covers target the new pipeline witnesses. Inherited standalone
 # adapter covers include burst shapes the connected caches never issue.
+# Cover mode ignores assertions; drop their unused monitor state as well.
 cover_selection=''
 if [[ "$job" == soc-retire-memory && "$mode" == cover ]]; then
-  cover_selection='chformal -cover -remove a:src=*soc_retire_memory_checks.svh* %n;'
+  cover_selection='chformal -cover -remove a:src=*soc_retire_memory_checks.svh* %n; chformal -assert -remove; opt_clean -purge;'
 fi
 
 # Quote source paths for Yosys, including external references with spaces.

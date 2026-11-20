@@ -61,6 +61,16 @@ assign sd_dq_oe = sdram_dq_oe;
 logic [15:0] sd_dq_in;
 always_comb assume (sdram_dq_in == sd_dq_in);
 `include "sdram_memory_checks.svh"
+`ifdef ROCO_SOC_RETIRE_COVER
+// Concrete external memory choices for the three pipeline witnesses: the
+// reset instruction is either NOP (normal retirement) or zero (illegal trap).
+// No internal CPU, cache or bus signal is constrained.
+always_comb begin
+  assume (cell_addr == 23'd0);
+  assume (initial_cell == 32'h00000013 || initial_cell == 32'd0);
+  assume (other_halfword == 16'd0);
+end
+`endif
 `include "axi_sdram_checks.svh"
 assign f_watch = cell_addr[3:0] - base[5:2];
 

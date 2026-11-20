@@ -1244,6 +1244,17 @@ module roco_cpu_ex_stage (
       assert (!exmem_valid);
       assert (!lookup_is_vec_q);
       assert (memory_addr_held == rvfi_held_rs1 + idex_imm);
+      // RVFI reports zero for x0 independently of the setup-time copies.
+      if (rvfi_idex_rs1 == 0) assert (rvfi_held_rs1 == 0);
+      if (idex_is_store) begin
+        if (rvfi_idex_rs2 == 0) assert (rvfi_held_rs2 == 0);
+        assert (stall_store_data == (rvfi_held_rs2 << {memory_addr_held[1:0], 3'b000}));
+        case (idex_funct3)
+          3'b000: assert (stall_be == (4'b0001 << memory_addr_held[1:0]));
+          3'b001: assert (stall_be == (4'b0011 << memory_addr_held[1:0]));
+          default: assert (stall_be == 4'b1111);
+        endcase
+      end
     end
   end
 `endif

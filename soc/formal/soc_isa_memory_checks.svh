@@ -28,8 +28,8 @@ rvfi_isa_rv32i isa_model (
 // its semantic relation while held, before its retirement strobe is enabled.
 logic packet_valid, packet_trap;
 logic [4:0] packet_rs1, packet_rs2, packet_rd;
-logic [31:0] packet_result, packet_next_pc;
-logic [3:0] packet_rmask;
+logic [31:0] packet_result, packet_next_pc, packet_wdata;
+logic [3:0] packet_rmask, packet_wmask;
 rvfi_isa_rv32i packet_model (
     .rvfi_valid(exmem_valid),
     .rvfi_insn(exmem_instr),
@@ -46,8 +46,8 @@ rvfi_isa_rv32i packet_model (
     .spec_pc_wdata(packet_next_pc),
     .spec_mem_addr(),
     .spec_mem_rmask(packet_rmask),
-    .spec_mem_wmask(),
-    .spec_mem_wdata()
+    .spec_mem_wmask(packet_wmask),
+    .spec_mem_wdata(packet_wdata)
 );
 // Induction linkage: ID/EX and EX/MEM control flags match the decode of
 // their instruction words. Without this, induction can invent a valid RV32I
@@ -190,6 +190,11 @@ always_ff @(posedge clk) begin
         assert (rvfi_exmem.vaddr == rvfi_exmem.rs1_data +
             (exmem_is_load ? {{20{exmem_instr[31]}}, exmem_instr[31:20]} :
              {{20{exmem_instr[31]}}, exmem_instr[31:25], exmem_instr[11:7]}));
+      end
+      if (exmem_is_store) begin
+        assert (exmem_be == packet_wmask);
+        for (int lane = 0; lane < 4; lane++)
+        if (packet_wmask[lane]) assert (exmem_store_data[8*lane+:8] == packet_wdata[8*lane+:8]);
       end
     end
   end

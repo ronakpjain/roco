@@ -525,7 +525,13 @@ module roco_cpu (
   assign trace_wdata = commit_wdata;
 
   logic [31:0] fetch_oldest_pc;
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+  logic f_head_watch, f_sync_capture, f_sync_pending;
+`endif
   roco_cpu_if_stage u_if (
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+      .formal_head_watch(f_head_watch),
+`endif
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
       .formal_response_watch(if_imem_rsp_valid && imem_rsp_addr[31:2] == {7'd8, formal_watch_word}),
       .formal_watch_data(formal_watch_data),
@@ -1025,6 +1031,10 @@ module roco_cpu (
   `include "vector_mem_commit_checks.svh"
 `endif
   roco_cpu_ex_stage u_ex (
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+      .formal_sync_capture(f_sync_capture),
+      .formal_sync_pending(f_sync_pending),
+`endif
 `ifdef ROCO_VECTOR_MEM_STREAM
       .formal_vec_width(formal_vec_width),
       .formal_vec_reg(formal_vec_reg),
@@ -1287,6 +1297,9 @@ module roco_cpu (
   assign if_imem_rsp_data = mmu_i_rsp_data;
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
   `include "soc_fetch_link_checks.svh"
+`endif
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+  `include "soc_retire_memory_checks.svh"
 `endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) cache_request_live_q <= 1'b0;

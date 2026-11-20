@@ -14,6 +14,10 @@
 `include "roco_rvfi.svh"
 
 module roco_cpu_ex_stage (
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+  output logic formal_sync_capture,
+  output logic formal_sync_pending,
+`endif
 `ifdef ROCO_VECTOR_MEM_STREAM
   input logic [1:0] formal_vec_width,
   input logic [4:0] formal_vec_reg,
@@ -751,6 +755,10 @@ module roco_cpu_ex_stage (
                                      idex_is_lr || idex_is_sc || is_vec_mem)) &&
                     !fence_hold && !halt && !rst && !cancel_ex;
   assign trap_capture = (irq_take || ex_trap) && !fence_hold && !halt && !rst && !cancel_ex;
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+  assign formal_sync_capture = trap_capture && ex_trap;
+  assign formal_sync_pending = trap_pending && !trap_is_irq_q;
+`endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) trap_pending <= 1'b0;
     else if (!(trap_pending && csr_commit_q)) trap_pending <= trap_capture;

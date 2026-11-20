@@ -16,6 +16,9 @@
 `default_nettype none
 
 module roco_cpu_if_stage (
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+  output logic formal_head_watch,
+`endif
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
   input logic formal_response_watch,
   input logic [31:0] formal_watch_data,

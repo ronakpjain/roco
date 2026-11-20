@@ -1,6 +1,9 @@
 // Payload tags follow the actual queue RAM write, including speculative
 // writes into an unoccupied tail slot. Only occupied slots are checked.
 logic watched_slot[DEPTH];
+`ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
+assign formal_head_watch = !q_empty && watched_slot[q_head];
+`endif
 always_ff @(posedge clk) begin
   if (q_count < 3'(DEPTH)) watched_slot[q_tail] <= !fault_push && formal_response_watch;
   if (!rst) begin

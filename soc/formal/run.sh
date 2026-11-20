@@ -238,7 +238,7 @@ case "$job" in
     proof_depth=4
     proof_lowering=''
     ;;
-  soc-control|soc-fence|soc-ram|soc-dcache-client|soc-sdram-memory|soc-dcache-memory|soc-fence-memory|soc-fetch-memory)
+  soc-control|soc-fence|soc-ram|soc-dcache-client|soc-sdram-memory|soc-dcache-memory|soc-fence-memory|soc-fetch-memory|soc-retire-memory)
     top=roco_soc
     depth=8
     sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv)
@@ -248,17 +248,20 @@ case "$job" in
     if [[ "$job" == soc-ram ]]; then defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_FENCE_FORMAL'; fi
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
     proof_depth=5
-    if [[ "$job" == soc-sdram-memory || "$job" == soc-dcache-memory || "$job" == soc-fence-memory || "$job" == soc-fetch-memory ]]; then
+    if [[ "$job" == soc-sdram-memory || "$job" == soc-dcache-memory || "$job" == soc-fence-memory || "$job" == soc-fetch-memory || "$job" == soc-retire-memory ]]; then
       defines='-DROCO_SOC_RAM_FORMAL -DROCO_SOC_DC_CLIENT_FORMAL -DROCO_SOC_FENCE_FORMAL -DROCO_SOC_SDRAM_MEMORY_FORMAL -DROCO_SDRAM_ADAPTER_FORMAL -DROCO_SDRAM_PIN_FORMAL -DROCO_SDRAM_LINK_FORMAL -DROCO_SDRAM_MEMORY_FORMAL'
       proof_depth=10
-      if [[ "$job" == soc-dcache-memory || "$job" == soc-fence-memory || "$job" == soc-fetch-memory ]]; then
+      if [[ "$job" == soc-dcache-memory || "$job" == soc-fence-memory || "$job" == soc-fetch-memory || "$job" == soc-retire-memory ]]; then
         defines+=' -DROCO_DCACHE_MEMORY_FORMAL -DROCO_SOC_DCACHE_MEMORY_FORMAL'
       fi
-      if [[ "$job" == soc-fence-memory || "$job" == soc-fetch-memory ]]; then
+      if [[ "$job" == soc-fence-memory || "$job" == soc-fetch-memory || "$job" == soc-retire-memory ]]; then
         defines+=' -DROCO_ICACHE_FORMAL -DROCO_SOC_ICACHE_MEMORY_FORMAL'
       fi
-      if [[ "$job" == soc-fetch-memory ]]; then
+      if [[ "$job" == soc-fetch-memory || "$job" == soc-retire-memory ]]; then
         defines+=' -DROCO_SOC_FETCH_MEMORY_FORMAL'
+      fi
+      if [[ "$job" == soc-retire-memory ]]; then
+        defines+=' -DROCO_SOC_RETIRE_MEMORY_FORMAL -DROCO_RVFI'
       fi
     fi
     proof_lowering='opt_clean'
@@ -349,7 +352,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -359,7 +362,7 @@ elif [[ "$job" == core-divide-cutpoint ]]; then
   out="${out}_cutpoint"
 elif [[ "$job" == sdram-link || "$job" == sdram-memory ]]; then
   out="${out}_${job#sdram-}"
-elif [[ "$job" == soc-fence || "$job" == soc-ram || "$job" == soc-dcache-client || "$job" == soc-sdram-memory || "$job" == soc-dcache-memory || "$job" == soc-fence-memory || "$job" == soc-fetch-memory ]]; then
+elif [[ "$job" == soc-fence || "$job" == soc-ram || "$job" == soc-dcache-client || "$job" == soc-sdram-memory || "$job" == soc-dcache-memory || "$job" == soc-fence-memory || "$job" == soc-fetch-memory || "$job" == soc-retire-memory ]]; then
   out="${out}_${job#soc-}"
 fi
 mkdir -p "$out"
@@ -427,7 +430,15 @@ formal/soc_sdram_memory_checks.svh
 formal/soc_icache_memory_checks.svh
 formal/soc_fetch_queue_checks.svh
 formal/soc_fetch_link_checks.svh
+formal/soc_retire_memory_checks.svh
 EOF
+fi
+
+# Retirement covers target the new pipeline witnesses. Inherited standalone
+# adapter covers include burst shapes the connected caches never issue.
+cover_selection=''
+if [[ "$job" == soc-retire-memory && "$mode" == cover ]]; then
+  cover_selection='chformal -cover -remove a:src=*soc_retire_memory_checks.svh* %n;'
 fi
 
 # Quote source paths for Yosys, including external references with spaces.
@@ -436,6 +447,7 @@ printf -v files ' "%s"' "${sources[@]}"
   read_verilog -formal -sv -DSYNTHESIS $defines -Irtl/common -Iformal $files;
   $parameters
   prep -top $top -flatten;
+  $cover_selection
   async2sync; dffunmap;
   write_smt2 -wires \"$out/design.smt2\"
 "

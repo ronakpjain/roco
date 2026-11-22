@@ -80,6 +80,7 @@ jobs:
           - {job: soc-isa-memory, mode: prove, riscv-formal: true}
           - {job: soc-mmio, mode: prove}
           - {job: soc-gpr, mode: prove}
+          - {job: soc-trap, mode: prove}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422}
           # Focused retirement witnesses use the fast SoC cover configuration.
           - {job: soc-retire-memory, mode: cover, cover-fast: true, depth: 80}

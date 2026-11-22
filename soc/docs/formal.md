@@ -465,6 +465,28 @@ with value 3 reaching `x2`. The program is not used in prove mode.
 This does not establish that every in-flight operand is forwarded from that
 history, or that the divider result itself matches an ISA model.
 
+## Whole-SoC synchronous trap entry and retirement order (unbounded)
+
+```sh
+bash formal/run.sh soc-trap prove
+bash formal/run.sh soc-trap cover
+```
+
+On the production SoC, the checker retains the original synchronous EX
+exception and verifies that the retimed trap-entry logic preserves its
+instruction, PC, cause and trap value. The faulting instruction cannot
+enter MEM; at trap entry there is no concurrent normal retirement, scalar
+RVFI destination or memory access, and the registered redirect goes to the
+trap vector. An older syscon halt can suppress entry. RVFI order advances once
+per normal retirement or synchronous exception; interrupt entry itself does
+not consume an order number.
+
+Cover uses short external SDRAM programs for ECALL, EBREAK, a misaligned JALR,
+and a Sv32 load page fault. It does not constrain the safety run. The proof
+checks propagation and event order, not whether every exception should be
+raised according to the ISA, interrupt EPC precision, or the full sequence of
+normal retirement PCs.
+
 ## Whole-system proof suite
 
 ```sh
@@ -472,15 +494,14 @@ RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system prove
 RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
 ```
 
-This runs the RV32I retirement/memory, scalar register storage and MMIO jobs,
-plus the bridge, crossbar, Sv32, D-cache, AXI memory master and SDRAM memory
-component jobs. It runs all
-jobs even if one fails and returns failure if any obligation is unproved or
-any requested witness is unreached. `prove` checks unbounded safety; `cover`
-finds finite witnesses and is not a liveness proof. This suite is not an
-exhaustive SoC specification: full architectural register history and precise
-trap/retirement sequencing, non-RV32I instructions on the connected SoC,
-UART wire behavior, and hardware-level timing remain outside this suite.
+This runs the RV32I retirement/memory, scalar register storage, synchronous
+trap entry and MMIO jobs, plus the bridge, crossbar, Sv32, D-cache, AXI memory
+master and SDRAM memory component jobs. It runs all jobs even if one fails,
+and returns failure if any obligation is unproved or any witness is unreached.
+`prove` checks unbounded safety; `cover` finds finite witnesses and is not a
+liveness proof. The suite does not cover operand forwarding from architectural
+history, precise IRQ sequencing, full retirement-PC continuity, non-RV32I ISA
+semantics, UART wire behavior, or hardware-level timing.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

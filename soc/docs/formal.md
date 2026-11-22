@@ -506,6 +506,29 @@ checks propagation and event order, not whether every exception should be
 raised according to the ISA, interrupt EPC precision, or the full sequence of
 normal retirement PCs.
 
+## Whole-SoC retirement PC and interrupt entry (unbounded)
+
+```sh
+bash formal/run.sh soc-pc prove
+bash formal/run.sh soc-pc cover
+```
+
+`soc-pc` checks the architectural PC from the boot address through every
+normal retirement, synchronous exception, and IRQ entry. It relates that
+PC to the oldest live pipeline instruction and checks the prediction and
+PC chain through occupied fetch slots, cache misses, Sv32 faults and
+retries, redirects, and fences. It accounts for vector element commits
+that do not retire and for the final vector element still owning EX.
+
+IRQ entry saves the first unretired PC and atomically redirects to the
+selected handler, with the appropriate machine or supervisor EPC, cause,
+and saved status. An older scalar instruction can retire on the IRQ entry
+edge. Outstanding memory, fence or divider effects cannot cross entry.
+Covers use the real SoC timer and a short external program: entry with and
+without a concurrent retirement, the first handler event, and deferral
+when FENCE.I is in EX. This is a sequencing proof, not a comprehensive ISA
+exception classifier or a proof that an IRQ is eventually taken.
+
 ## Whole-SoC RV32M effects (unbounded)
 
 ```sh
@@ -538,13 +561,14 @@ RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
 ```
 
 This runs the RV32I retirement/memory, scalar register storage and operand
-forwarding, synchronous trap entry and MMIO jobs, plus the bridge, crossbar,
-Sv32, D-cache, AXI memory master and SDRAM memory component jobs. It runs all jobs even if one fails,
-and returns failure if any obligation is unproved or any witness is unreached.
-`prove` checks unbounded safety; `cover` finds finite witnesses and is not a
-liveness proof. The suite does not cover precise IRQ sequencing, full
-retirement-PC continuity, non-RV32I ISA semantics, UART wire behavior, or
-hardware-level timing.
+forwarding, synchronous trap entry, retirement PC/IRQ, RV32M and MMIO jobs,
+plus the bridge,
+crossbar, Sv32, D-cache, AXI memory master, SDRAM memory and multiplier
+component jobs. It runs all jobs even if one fails, and returns failure if
+any obligation is unproved or any witness is unreached. `prove` checks
+unbounded safety; `cover` finds finite witnesses and is not a liveness proof.
+The suite does not cover comprehensive ISA trap classification, atomic or
+vector ISA semantics, UART wire behavior, or hardware-level timing.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

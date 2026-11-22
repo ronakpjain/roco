@@ -266,7 +266,14 @@ module roco_soc #(
   assign boot_mem_ready = boot_axi_ready && !boot_cache_maintenance;
 
   // ---------------------------------------------------------------- CPU
+`ifdef ROCO_SOC_GPR_FORMAL
+  (* anyconst *) logic [4:0] f_gpr_watch_addr;
+`endif
   roco_cpu u_cpu (
+`ifdef ROCO_SOC_GPR_FORMAL
+      .rvfi_gpr_watch_addr(f_gpr_watch_addr),
+      .rvfi_gpr_watch_value(),
+`endif
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
       .formal_watch_word(cell_addr),
       .formal_watch_data(f_dc_arch_data),

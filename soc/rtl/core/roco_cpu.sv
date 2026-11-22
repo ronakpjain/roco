@@ -1316,6 +1316,9 @@ module roco_cpu (
 `ifdef ROCO_SOC_ISA_MEMORY_FORMAL
   `include "soc_isa_memory_checks.svh"
 `endif
+`ifdef ROCO_SOC_GPR_FORMAL
+  `include "soc_gpr_checks.svh"
+`endif
   always_ff @(posedge clk or posedge rst) begin
     if (rst) cache_request_live_q <= 1'b0;
     else cache_request_live_q <= mmu_ic_req && !ex_redirect_en && !mem_redirect && !mmu_flush;

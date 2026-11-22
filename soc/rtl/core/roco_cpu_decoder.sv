@@ -176,14 +176,15 @@ module roco_cpu_decoder (
           3'b111: begin  // vsetvli / vsetivli / vsetvl
             is_vset = 1'b1;
             regwrite = 1'b1;
-            // The asynchronous form takes its AVL from rs1.
-            use_rs1 = !instr[31];
+            // vsetvl reads both AVL and vtype from GPRs. The immediate
+            // AVL form reads neither; vsetvli reads only rs1.
+            use_rs2 = instr[31:25] == 7'b1000000;
+            use_rs1 = !instr[31] || use_rs2;
             alu_op = `RV32_ALU_ADD;
           end
           3'b000: begin  // .vv
           end
-          3'b011: begin  // .vi
-            use_rs1 = 1'b1;
+          3'b011: begin  // .vi: rs1 field contains an immediate
           end
           3'b100: begin  // .vx
             use_rs1 = 1'b1;
@@ -192,7 +193,6 @@ module roco_cpu_decoder (
             if (instr[31:26] == `RV32_VOP_SCALAR) begin
               regwrite = 1'b1;
             end
-            use_rs1 = 1'b1;
           end
           3'b110: begin  // vmv.s.x
             use_rs1 = 1'b1;

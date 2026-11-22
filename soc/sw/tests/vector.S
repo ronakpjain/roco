@@ -1,6 +1,6 @@
 # Directed Zve32x vector test.
 #
-# Exercises vsetvli/vsetivli, unit-stride vector load and store, the
+# Exercises vsetvli/vsetivli/vsetvl, unit-stride vector load and store, the
 # element-wise add forms, vmv between vector and scalar registers, the
 # reduction sum, and the tail policy.
 
@@ -70,6 +70,19 @@ _start:
   csrr t3, vlenb
   li t2, 16
   bne t3, t2, fail_1
+
+  # vsetvl must wait for both the deferred AVL and the loaded vtype.
+  la t4, vtype_e32
+  li t0, 8
+  li t1, 2
+  divu t0, t0, t1
+  lw t2, 0(t4)
+  vsetvl t1, t0, t2
+  li t3, 4
+  bne t1, t3, fail_1
+  csrr t3, vtype
+  li t4, 0xd0
+  bne t3, t4, fail_1
 
   # 2: load, add, store
   vle32.v v1, (s1)
@@ -322,3 +335,5 @@ vbuf_bytes:
 .balign 16
 vbuf_byte_out:
   .space 32
+vtype_e32:
+  .word 0xd0  # e32, m1, ta, ma

@@ -454,7 +454,9 @@ module roco_cpu (
       d_fault_q <= 1'b0;
       d_fault_cause_q <= '0;
     end else begin
-      d_fault_q <= mmu_d_fault;
+      // Only a request still waiting for a translation can take a data
+      // fault on the next cycle. A completed lookup releases ID/EX.
+      d_fault_q <= mmu_d_fault && !ex_lu_hit;
       d_fault_cause_q <= mmu_d_fault_cause;
     end
   end

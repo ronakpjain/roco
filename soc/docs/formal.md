@@ -513,14 +513,14 @@ RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system prove
 RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
 ```
 
-This runs the RV32I retirement/memory, scalar register storage, synchronous
-trap entry and MMIO jobs, plus the bridge, crossbar, Sv32, D-cache, AXI memory
-master and SDRAM memory component jobs. It runs all jobs even if one fails,
+This runs the RV32I retirement/memory, scalar register storage and operand
+forwarding, synchronous trap entry and MMIO jobs, plus the bridge, crossbar,
+Sv32, D-cache, AXI memory master and SDRAM memory component jobs. It runs all jobs even if one fails,
 and returns failure if any obligation is unproved or any witness is unreached.
 `prove` checks unbounded safety; `cover` finds finite witnesses and is not a
-liveness proof. The suite does not cover operand forwarding from architectural
-history, precise IRQ sequencing, full retirement-PC continuity, non-RV32I ISA
-semantics, UART wire behavior, or hardware-level timing.
+liveness proof. The suite does not cover precise IRQ sequencing, full
+retirement-PC continuity, non-RV32I ISA semantics, UART wire behavior, or
+hardware-level timing.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

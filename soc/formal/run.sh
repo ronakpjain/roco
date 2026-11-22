@@ -25,7 +25,7 @@ case "$job" in
       cover) export COVER_FAST=1 ;;
       *) echo 'soc-system requires prove or cover mode.' >&2; exit 2 ;;
     esac
-    jobs=(soc-isa-memory soc-gpr soc-trap soc-mmio bridge xbar sv32 dcache-memory axi-mem-master sdram-memory)
+    jobs=(soc-isa-memory soc-gpr soc-gpr-forward soc-trap soc-mmio bridge xbar sv32 dcache-memory axi-mem-master sdram-memory)
     failed=()
     for part in "${jobs[@]}"; do
       printf '\n=== %s %s ===\n' "$part" "$mode"

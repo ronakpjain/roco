@@ -1289,6 +1289,9 @@ module roco_cpu_ex_stage (
 `ifdef ROCO_M_STREAM_CHECKS
   `include "m_ex_checks.svh"
 `endif
+`ifdef ROCO_SOC_M_FORMAL
+  `include "soc_m_ex_checks.svh"
+`endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_ex_checks.svh"
 `endif

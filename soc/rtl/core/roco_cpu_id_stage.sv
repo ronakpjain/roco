@@ -415,14 +415,12 @@ module roco_cpu_id_stage (
   logic replay_branch, replay_jal, replay_jalr, replay_ecall, replay_ebreak;
   logic replay_use_rs1, replay_use_rs2, replay_a_pc, replay_b_imm;
   logic replay_jump;
+  logic replay_mret, replay_csr;
 `ifdef ROCO_SOC_GPR_FORWARD_FORMAL
   logic replay_muldiv, replay_vec, replay_vset, replay_vload, replay_vstore;
   logic replay_sret, replay_sfence, replay_fence_i;
   logic [2:0] replay_md_op;
   logic [5:0] replay_vec_funct6;
-`endif
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
-  logic replay_mret, replay_csr;
 `endif
   assign replay_jump = replay_jal || replay_jalr;
   roco_cpu_decoder replay_decode (
@@ -474,22 +472,14 @@ module roco_cpu_id_stage (
       .is_branch(replay_branch),
       .is_jal(replay_jal),
       .is_jalr(replay_jalr),
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
       .is_csr(replay_csr),
-`else
-      .is_csr(),
-`endif
       .csr_uimm(),
       .csr_op(),
       .csr_addr(),
       .illegal(replay_illegal),
       .ecall(replay_ecall),
       .ebreak(replay_ebreak),
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
       .mret(replay_mret),
-`else
-      .mret(),
-`endif
 `ifdef ROCO_SOC_GPR_FORWARD_FORMAL
       .sret(replay_sret),
       .is_sfence(replay_sfence),
@@ -517,7 +507,8 @@ module roco_cpu_id_stage (
       assert (idex_is_vec == replay_vec && idex_is_vset == replay_vset);
       assert (idex_is_vload == replay_vload && idex_is_vstore == replay_vstore);
       assert (idex_vec_funct6 == replay_vec_funct6);
-      assert (idex_sret == replay_sret);
+      assert (idex_mret == replay_mret && idex_sret == replay_sret);
+      assert (idex_is_csr == replay_csr);
       assert (idex_is_sfence == replay_sfence && idex_is_fence_i == replay_fence_i);
       if (idex_ifault) assert (idex_instr == 32'h0000_0013);
 `endif

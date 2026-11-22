@@ -506,6 +506,30 @@ checks propagation and event order, not whether every exception should be
 raised according to the ISA, interrupt EPC precision, or the full sequence of
 normal retirement PCs.
 
+## Whole-SoC RV32M effects (unbounded)
+
+```sh
+bash formal/run.sh mul-prod prove
+bash formal/run.sh mul-recombine prove
+bash formal/run.sh soc-m prove
+bash formal/run.sh soc-m cover
+```
+
+On the production SoC, `soc-m` composes the scalar forwarding assertions
+with the real multiplier and divider. The two multiplier component proofs
+establish signed partial products and carry-save recombination. The SoC
+proof connects those units to decoded operands, the EX/MEM terms, and the
+retired destination, result and PC. The real divider is checked against the
+radix-2 reference at each phase, with an in-order RVFI instruction event and
+a separately arbitrated write to the destination captured at launch. The
+proof excludes younger dependent reads, writes and a second divide until
+completion. It is a safety result, not a guarantee of progress across halt
+or arbitrary external stalls.
+
+The short pin-level cover program witnesses all four multiply retirements,
+all four deferred divide/remainder writes, a blocked dependent instruction,
+and the dependent read after divider completion.
+
 ## Whole-system proof suite
 
 ```sh

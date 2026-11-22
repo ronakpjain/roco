@@ -304,7 +304,7 @@ module roco_cpu_mem_stage (
 
 `ifdef ROCO_M_STREAM_CHECKS
   always @(posedge clk) begin
-    if (!rst && exmem_valid && exmem_is_mul) begin
+    if (!rst && !halt && exmem_valid && exmem_is_mul) begin
       assert (commit_valid && !dmem_req && commit_wdata == mul_result);
     end
   end

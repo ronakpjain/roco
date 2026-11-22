@@ -311,7 +311,7 @@ case "$job" in
       depth=${DEPTH:-80}
     fi
     ;;
-  soc-gpr|soc-gpr-forward|soc-trap)
+  soc-gpr|soc-gpr-forward|soc-m|soc-trap)
     top=roco_soc
     depth=12
     sources=(rtl/core/*.sv rtl/bus/*.sv rtl/mem/*.sv rtl/periph/*.sv rtl/roco_soc.sv)
@@ -320,8 +320,12 @@ case "$job" in
       defines+=' -DROCO_SOC_TRAP_FORMAL'
     else
       defines+=' -DROCO_RVFI_GPR_STATE -DROCO_SOC_GPR_FORMAL'
-      if [[ "$job" == soc-gpr-forward ]]; then
+      if [[ "$job" == soc-gpr-forward || "$job" == soc-m ]]; then
         defines+=' -DROCO_RVFI_FORWARD_CHECKS -DROCO_SOC_GPR_FORWARD_FORMAL'
+      fi
+      if [[ "$job" == soc-m ]]; then
+        defines+=' -DROCO_SOC_M_FORMAL -DROCO_M_STREAM_CHECKS -DROCO_RVFI_DIV_CHECKS'
+        defines+=' -DROCO_DIVIDER_FORMAL -DROCO_SOC_TRAP_FORMAL'
       fi
     fi
     proof_engine="smtbmc ${SOLVER:-bitwuzla}"
@@ -333,6 +337,7 @@ case "$job" in
       parameters="chparam -set SdramPowerup 8 -set MmioOnly 1 $top;"
       if [[ "$job" == soc-trap ]]; then parameters+=" chparam -set TrapProgram 1 $top;"; fi
       if [[ "$job" == soc-gpr-forward ]]; then parameters+=" chparam -set ForwardProgram 1 $top;"; fi
+      if [[ "$job" == soc-m ]]; then parameters+=" chparam -set MProgram 1 $top;"; fi
       depth=160
     fi
     ;;
@@ -436,11 +441,11 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {soc-system|soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio|soc-gpr|soc-gpr-forward|soc-trap|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {soc-system|soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio|soc-gpr|soc-gpr-forward|soc-m|soc-trap|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
-if [[ "$job" == soc-mmio || "$job" == soc-gpr || "$job" == soc-gpr-forward || "$job" == soc-trap ]]; then
+if [[ "$job" =~ ^soc-(mmio|gpr|gpr-forward|m|trap)$ ]]; then
   out="${FORMAL_BUILD_DIR:-build/formal}/roco_soc_${job#soc-}"
 elif [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
   out="${out}_${job#core-}"
@@ -521,6 +526,8 @@ formal/soc_isa_memory_checks.svh
 formal/soc_mmio_checks.svh
 formal/soc_gpr_checks.svh
 formal/soc_gpr_forward_checks.svh
+formal/soc_m_checks.svh
+formal/soc_m_ex_checks.svh
 formal/soc_trap_checks.svh
 formal/soc_trap_ex_checks.svh
 EOF
@@ -536,10 +543,11 @@ if [[ ( "$job" == soc-retire-memory || "$job" == soc-isa-memory ) && "$mode" == 
     cover_sources+=' a:src=*soc_isa_memory_checks.svh* %u'
   fi
   cover_selection="chformal -cover -remove $cover_sources %n; chformal -assert -remove; opt_clean -purge;"
-elif [[ ( "$job" == soc-mmio || "$job" == soc-gpr || "$job" == soc-gpr-forward || "$job" == soc-trap ) && "$mode" == cover ]]; then
+elif [[ "$job" =~ ^soc-(mmio|gpr|gpr-forward|m|trap)$ && "$mode" == cover ]]; then
   check_name=${job#soc-}
   cover_sources="a:src=*soc_${check_name//-/_}_checks.svh*"
   if [[ "$job" == soc-trap ]]; then cover_sources='a:src=*soc_trap_ex_checks.svh*'; fi
+  if [[ "$job" == soc-m ]]; then cover_sources+=' a:src=*soc_m_ex_checks.svh* %u'; fi
   cover_selection="chformal -cover -remove $cover_sources %n; chformal -assert -remove; opt_clean -purge;"
 fi
 

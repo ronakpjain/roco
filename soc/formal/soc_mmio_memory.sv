@@ -5,7 +5,8 @@ module soc_mmio_memory #(
     parameter int SdramPowerup = 520_000 / 5000,
     parameter bit MmioOnly = 1'b0,
     parameter bit TrapProgram = 1'b0,
-    parameter bit ForwardProgram = 1'b0
+    parameter bit ForwardProgram = 1'b0,
+    parameter bit MProgram = 1'b0
 ) (
   input logic clk
 );
@@ -16,6 +17,7 @@ module soc_mmio_memory #(
   (* anyconst *) logic [1:0] buttons;
   (* anyconst *) logic [1:0] cover_trap_kind;
   (* anyconst *) logic cover_vector_mem;
+  (* anyconst *) logic [2:0] cover_m_variant;
   (* anyconst *) logic [31:0] initial_word;
   logic rst;
   logic [8:0] cycle;
@@ -103,6 +105,14 @@ module soc_mmio_memory #(
         8'd3: program_word = 32'hcd017057;  // vsetivli x0, 2, e32, m1, ta, ma
         8'd4: program_word = 32'h00700193;  // addi x3, x0, 7
         8'd5: program_word = 32'h4201e0d7;  // vmv.s.x v1, x3
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (MProgram) begin
+      case (index)
+        8'd0: program_word = 32'hff800093;  // addi x1, x0, -8
+        8'd1: program_word = 32'h00300113;  // addi x2, x0, 3
+        8'd2: program_word = 32'h022081b3 | {17'd0, cover_m_variant, 12'd0};
+        8'd3: program_word = 32'h00118213;  // addi x4, x3, 1
         default: program_word = 32'h00000013;
       endcase
     end else if (MmioOnly) begin

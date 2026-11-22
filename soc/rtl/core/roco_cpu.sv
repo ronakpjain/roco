@@ -1329,6 +1329,9 @@ module roco_cpu (
 `ifdef ROCO_SOC_GPR_FORWARD_FORMAL
   `include "soc_gpr_forward_checks.svh"
 `endif
+`ifdef ROCO_SOC_M_FORMAL
+  `include "soc_m_checks.svh"
+`endif
 `ifdef ROCO_SOC_TRAP_FORMAL
   `include "soc_trap_checks.svh"
 `endif

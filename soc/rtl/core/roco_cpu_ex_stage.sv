@@ -692,7 +692,13 @@ module roco_cpu_ex_stage (
         ex_target_misaligned = ex_jump_target[1];
       end
 
-      if (idex_ifault) begin
+      // A branch can also have a misaligned fall-through address. Check
+      // its origin without involving the late branch direction compare.
+      if (idex_is_branch && (|idex_pc[1:0])) begin
+        ex_trap = 1'b1;
+        ex_trap_cause = `RV32_CAUSE_INSTR_MISALIGNED;
+        ex_trap_tval = idex_pc;
+      end else if (idex_ifault) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_INSTR_PAGE_FAULT;
         ex_trap_tval = idex_pc;
@@ -772,7 +778,10 @@ module roco_cpu_ex_stage (
                            `RV32_CAUSE_STORE_MISALIGNED : `RV32_CAUSE_LOAD_MISALIGNED;
     sync_tval_candidate = mem_access_addr;
     sync_target_candidate = 1'b0;
-    if (idex_ifault) begin
+    if (idex_is_branch && (|idex_pc[1:0])) begin
+      sync_cause_candidate = `RV32_CAUSE_INSTR_MISALIGNED;
+      sync_tval_candidate = idex_pc;
+    end else if (idex_ifault) begin
       sync_cause_candidate = `RV32_CAUSE_INSTR_PAGE_FAULT;
       sync_tval_candidate = idex_pc;
     end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal) begin

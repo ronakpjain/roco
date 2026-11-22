@@ -8,20 +8,21 @@ module soc_mmio_memory #(
     parameter bit ForwardProgram = 1'b0,
     parameter bit MProgram = 1'b0,
     parameter bit PcProgram = 1'b0,
-    parameter bit AProgram = 1'b0
+    parameter bit AProgram = 1'b0,
+    parameter bit VProgram = 1'b0
 ) (
   input logic clk
 );
   localparam int Deadline = 420;
   localparam logic [8:0] DataColumn = 9'd64;  // byte offset 128 in SDRAM
   localparam logic [3:0] ProgramLength = MmioOnly ?
-      (PcProgram ? 4'd8 : ForwardProgram ? 4'd6 : AProgram ? 4'd4 : 4'd5) : 4'd10;
+      (PcProgram ? 4'd8 : ForwardProgram ? 4'd6 : AProgram ? 4'd4 : VProgram ? 4'd5 : 4'd5) : 4'd10;
 
   (* anyconst *) logic [1:0] buttons;
   (* anyconst *) logic [1:0] cover_trap_kind;
   (* anyconst *) logic cover_vector_mem;
   (* anyconst *) logic [2:0] cover_m_variant;
-  (* anyconst *) logic [1:0] cover_irq_case, cover_atomic_case;
+  (* anyconst *) logic [1:0] cover_irq_case, cover_atomic_case, cover_vector_case;
   (* anyconst *) logic [31:0] initial_word;
   logic rst;
   logic [8:0] cycle;
@@ -132,6 +133,32 @@ module soc_mmio_memory #(
           endcase
         end
         8'd3: program_word = 32'h1810a22f;  // sc.w x4, x1, (x1)
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (VProgram) begin
+      case (index)
+        8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
+        8'd1: program_word = 32'h01008093;  // addi x1, x1, 16 (LEDs)
+        8'd2: begin
+          case (cover_vector_case)
+            2'd1: program_word = 32'hcc017057;  // vsetivli x0, 2, e8 (EEW32 illegal)
+            2'd2: program_word = 32'hcd007057;  // vsetivli x0, 0, e32 (empty)
+            2'd3: program_word = 32'hcc017057;  // vsetivli x0, 2, e8
+            default: program_word = 32'hcd017057;  // vsetivli x0, 2, e32
+          endcase
+        end
+        8'd3: begin
+          case (cover_vector_case)
+            2'd3: program_word = 32'h02008087;  // vle8.v v1, (x1)
+            default: program_word = 32'h0200e087;  // vle32.v v1, (x1)
+          endcase
+        end
+        8'd4: begin
+          case (cover_vector_case)
+            2'd3: program_word = 32'h020080a7;  // vse8.v v1, (x1)
+            default: program_word = 32'h0200e0a7;  // vse32.v v1, (x1)
+          endcase
+        end
         default: program_word = 32'h00000013;
       endcase
     end else if (PcProgram) begin

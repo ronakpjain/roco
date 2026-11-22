@@ -4,7 +4,7 @@ logic model_active, want_mem, want_set, load_insn, advance;
 logic [4:0] elem;
 logic [31:0] base, expected_addr, owner_pc, owner_word;
 logic [31:0] natural_mask;
-logic aligned, send_element, send_empty;
+logic aligned, send_element, send_empty, group_ok;
 assign load_insn = idex_instr[6:0] == 7'h07;
 assign want_mem = idex_valid && (load_insn || idex_instr[6:0] == 7'h27);
 assign want_set = idex_valid && idex_instr[6:0] == 7'h57;
@@ -12,9 +12,10 @@ assign avl = idex_instr[19:15];
 assign max_vl = 5'd16 >> formal_vec_width;
 assign natural_mask = (32'd1 << formal_vec_width) - 1;
 assign aligned = (base & natural_mask) == 0;
+assign group_ok = model_vl == 0 || formal_vec_width == vec_vtype_sew;
 assign expected_addr = base + (32'(elem) << formal_vec_width);
 assign advance = !halt && !fence_hold && !cancel_ex;
-assign send_element = want_mem && model_active && advance && aligned && elem < model_vl;
+assign send_element = want_mem && model_active && advance && aligned && elem < model_vl && group_ok;
 assign send_empty = want_mem && !model_active && advance && model_vl == 0;
 
 logic packet, packet_mem, packet_load, packet_last, packet_set;
@@ -60,6 +61,9 @@ end
 always @(posedge clk) begin
   if (!rst) begin
     assert (model_vl == vec_vl && model_vl <= max_vl && vec_vstart == 0);
+    // vtype only changes through the program's matching vsets. Before the
+    // first vset it holds reset; vill would also satisfy the empty case.
+    assert (vec_vtype_sew == formal_vec_width || (vec_vl == 0 && vec_vtype_sew == 0));
     assert (csr_priv == `RV32_PRIV_M && satp == 0 && !irq_req);
     assert (!csr_wr_en && !lu_stall && !dmem_lu_fault);
     assert (vec_vset_en == (want_set && advance));
@@ -109,10 +113,15 @@ always @(posedge clk) begin
     end
     if (advance && want_mem) begin
       assert (ex_lu_present == send_element);
-      assert (ex_trap == (model_active && elem < model_vl && !aligned));
+      assert (ex_trap == ((model_active && elem < model_vl && !aligned) ||
+                          (model_vl != 0 && !group_ok)));
       if (ex_trap) begin
-        assert (ex_trap_tval == expected_addr && elem == 0);
-        assert (ex_trap_cause == (load_insn ? 32'd4 : 32'd6));
+        if (model_vl != 0 && !group_ok) begin
+          assert (ex_trap_cause == `RV32_CAUSE_ILLEGAL && ex_trap_tval == idex_instr);
+        end else begin
+          assert (ex_trap_tval == expected_addr && elem == 0);
+          assert (ex_trap_cause == (load_insn ? 32'd4 : 32'd6));
+        end
       end
     end
     if (exmem_valid && (exmem_instr[6:0] == 7'h07 || exmem_instr[6:0] == 7'h27)) assert (packet);

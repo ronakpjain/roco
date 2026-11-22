@@ -1063,6 +1063,9 @@ module roco_cpu (
 `ifdef ROCO_VECTOR_MEM_STREAM
   `include "vector_mem_commit_checks.svh"
 `endif
+`ifdef ROCO_SOC_VECTOR_MEMORY_FORMAL
+  `include "soc_vector_memory_checks.svh"
+`endif
   roco_cpu_ex_stage u_ex (
 `ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
       .formal_sync_capture(f_sync_capture),
@@ -1070,6 +1073,8 @@ module roco_cpu (
 `endif
 `ifdef ROCO_VECTOR_MEM_STREAM
       .formal_vec_width(formal_vec_width),
+`endif
+`ifdef ROCO_VECTOR_REG_STATE
       .formal_vec_reg(formal_vec_reg),
       .formal_vec_byte(formal_vec_byte),
       .reference_vec_byte(reference_vec_byte),
@@ -1254,7 +1259,7 @@ module roco_cpu (
                       exmem_vec_data : vec_rf_vd_data;
 
   roco_cpu_vec u_vec (
-`ifdef ROCO_VECTOR_MEM_STREAM
+`ifdef ROCO_VECTOR_REG_STATE
       .formal_vec_reg(formal_vec_reg),
       .formal_vec_byte(formal_vec_byte),
       .formal_vec_stored(formal_vec_stored),

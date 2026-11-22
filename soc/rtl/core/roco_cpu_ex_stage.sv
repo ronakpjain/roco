@@ -20,6 +20,8 @@ module roco_cpu_ex_stage (
 `endif
 `ifdef ROCO_VECTOR_MEM_STREAM
   input logic [1:0] formal_vec_width,
+`endif
+`ifdef ROCO_VECTOR_REG_STATE
   input logic [4:0] formal_vec_reg,
   input logic [3:0] formal_vec_byte,
   input logic [7:0] reference_vec_byte,
@@ -1293,6 +1295,9 @@ module roco_cpu_ex_stage (
 
 `ifdef ROCO_VECTOR_MEM_STREAM
   `include "vector_mem_ex_checks.svh"
+`endif
+`ifdef ROCO_SOC_VECTOR_MEMORY_FORMAL
+  `include "soc_vector_memory_ex_checks.svh"
 `endif
 `ifdef ROCO_M_STREAM_CHECKS
   `include "m_ex_checks.svh"

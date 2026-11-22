@@ -13,7 +13,7 @@
 `include "roco_cpu_defs.svh"
 
 module roco_cpu_vec (
-`ifdef ROCO_VECTOR_MEM_STREAM
+`ifdef ROCO_VECTOR_REG_STATE
   input logic [4:0] formal_vec_reg,
   input logic [3:0] formal_vec_byte,
   output logic [7:0] formal_vec_stored,
@@ -113,7 +113,7 @@ module roco_cpu_vec (
       end
     end
   end
-`ifdef ROCO_VECTOR_MEM_STREAM
+`ifdef ROCO_VECTOR_REG_STATE
   logic [127:0] formal_vec_row;
   assign formal_vec_stored = formal_vec_row[8*formal_vec_byte+:8];
   always @(posedge clk) begin
@@ -135,7 +135,7 @@ module roco_cpu_vec (
     assign write_byte = full_we_q || (elem_we_q && (initialize_reg || elem_byte_mask[b]));
     assign write_data = full_we_q ? full_data_q[8*b+:8] : elem_wdata[8*b+:8];
 
-`ifdef ROCO_VECTOR_MEM_STREAM
+`ifdef ROCO_VECTOR_REG_STATE
     assign formal_vec_row[8*b+:8] = valid_regs[formal_vec_reg] ? data[formal_vec_reg] : 8'd0;
 `endif
 

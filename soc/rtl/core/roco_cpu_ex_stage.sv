@@ -1293,6 +1293,9 @@ module roco_cpu_ex_stage (
   assign rvfi_trap_entry = trap_commit && !halt;
   assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;
   assign rvfi_trap_vector = csr_trap_vector;
+`ifdef ROCO_SOC_TRAP_FORMAL
+  `include "soc_trap_ex_checks.svh"
+`endif
 `ifdef ROCO_RVFI_PC_CHECKS
   always @(posedge clk) begin
     if (!rst) begin

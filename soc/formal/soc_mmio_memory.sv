@@ -3,7 +3,8 @@
 
 module soc_mmio_memory #(
     parameter int SdramPowerup = 520_000 / 5000,
-    parameter bit MmioOnly = 1'b0
+    parameter bit MmioOnly = 1'b0,
+    parameter bit TrapProgram = 1'b0
 ) (
   input logic clk
 );
@@ -12,6 +13,7 @@ module soc_mmio_memory #(
   localparam logic [3:0] ProgramLength = MmioOnly ? 4'd5 : 4'd10;
 
   (* anyconst *) logic [1:0] buttons;
+  (* anyconst *) logic [1:0] cover_trap_kind;
   (* anyconst *) logic [31:0] initial_word;
   logic rst;
   logic [8:0] cycle;
@@ -62,7 +64,28 @@ module soc_mmio_memory #(
   );
 
   function automatic logic [31:0] program_word(input logic [7:0] index);
-    if (MmioOnly) begin
+    if (TrapProgram && cover_trap_kind == 2'd3) begin
+      case (index)
+        8'd0: program_word = 32'h800000b7;  // lui x1, 0x80000: Sv32, root outside SDRAM
+        8'd1: program_word = 32'h18009073;  // csrw satp, x1
+        8'd2: program_word = 32'h000200b7;  // lui x1, 0x20: MPRV=1, MPP=U
+        8'd3: program_word = 32'h30009073;  // csrw mstatus, x1
+        8'd4: program_word = 32'h00002103;  // lw x2, 0(x0): load page fault
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (TrapProgram) begin
+      case (index)
+        8'd0: program_word = 32'h00100093;  // addi x1, x0, 1
+        8'd1: begin
+          case (cover_trap_kind)
+            2'd0: program_word = 32'h00000073;  // ecall
+            2'd1: program_word = 32'h00100073;  // ebreak
+            default: program_word = 32'h00208067;  // jalr x0, 2(x1), target 2
+          endcase
+        end
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (MmioOnly) begin
       case (index)
         8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
         8'd1: program_word = 32'h0140a103;  // lw x2, 20(x1)   (GPIO buttons)

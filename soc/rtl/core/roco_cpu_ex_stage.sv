@@ -1298,6 +1298,7 @@ module roco_cpu_ex_stage (
 `endif
 `ifdef ROCO_SOC_VECTOR_MEMORY_FORMAL
   `include "soc_vector_memory_ex_checks.svh"
+  `include "soc_vector_arith_checks.svh"
 `endif
 `ifdef ROCO_M_STREAM_CHECKS
   `include "m_ex_checks.svh"

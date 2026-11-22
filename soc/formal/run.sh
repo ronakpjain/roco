@@ -536,6 +536,7 @@ formal/soc_a_ex_checks.svh
 formal/soc_a_mem_checks.svh
 formal/soc_vector_memory_checks.svh
 formal/soc_vector_memory_ex_checks.svh
+formal/soc_vector_arith_checks.svh
 formal/soc_m_checks.svh
 formal/soc_m_ex_checks.svh
 formal/soc_fetch_pc_checks.svh

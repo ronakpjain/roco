@@ -312,7 +312,7 @@ module roco_cpu_mmu #(
   assign i_hit = !i_translate || i_hot_match;
   assign i_miss = i_translate && i_req && !i_tag_hit;
   assign d_hit = !d_translate || d_cached_hit;
-  assign ic_req = i_req && i_hit;
+  assign ic_req = i_req && i_hit && !i_busy;
   assign ic_addr = i_translate ? {i_hot_ppn, i_vaddr[11:0]} : i_vaddr;
   assign i_busy = i_fault_pending || i_miss_pending || ((wstate != W_IDLE) && w_is_if) ||
                   (i_translate && i_req && !i_hot_match);

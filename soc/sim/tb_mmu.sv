@@ -177,6 +177,7 @@ module tb_mmu;
                              input logic blocked = 1'b0, input logic invalid_pte = 1'b0);
     int unsigned k;
     axi4_ar_t held_ar;
+    logic [1:0] saved_priv;
     // Drive cancellation between clock edges, including on request
     // acceptance, each PTE response and the TLB installation edge.
     @(negedge clk);
@@ -211,6 +212,16 @@ module tb_mmu;
     @(negedge clk);
     check(!i_fault && !d_fault, "cancellation edge reported a stale fault");
     if (blocked && held_ar.valid) begin
+      saved_priv = priv_fetch;
+      if (fetch && redirect) begin
+        // A trap into M-mode bypasses translation, but the discarded
+        // instruction walk still owns the fetch hold until it drains.
+        iflush = 1'b0;
+        priv_fetch = 2'b11;
+        i_req = 1'b1;
+        #1;
+        check(i_hit && i_busy && !ic_req, "bare fetch escaped a canceled walk hold");
+      end
       // A warm reset can keep flush high through the address handshake
       // and the response, unlike an instruction redirect pulse.
       repeat (3) begin
@@ -220,6 +231,11 @@ module tb_mmu;
       p_ready = 1'b1;
       repeat (4) @(negedge clk);
       check(u_mmu.wstate == u_mmu.W_IDLE, "held flush did not drain the AXI read");
+      if (fetch && redirect) begin
+        check(i_hit && !i_busy && ic_req, "bare fetch did not resume after walk drain");
+        i_req = 1'b0;
+        priv_fetch = saved_priv;
+      end
     end
     flush = 1'b0;
     iflush = 1'b0;
@@ -486,6 +502,7 @@ module tb_mmu;
       if ((state_index == 1) || (state_index == 3)) begin
         cancel_walk(1'b0, 1'b0, state_index, 1'b1);
         cancel_walk(1'b1, 1'b0, state_index, 1'b1);
+        cancel_walk(1'b1, 1'b1, state_index, 1'b1);
       end
       if ((state_index == 2) || (state_index == 4)) begin
         cancel_walk(1'b1, 1'b0, state_index, 1'b0, 1'b1);

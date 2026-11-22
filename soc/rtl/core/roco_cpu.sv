@@ -1306,10 +1306,10 @@ module roco_cpu (
   // fetch responses and page-fault reporting.
   assign mmu_sfence = mem_redirect && exmem_is_sfence;
   assign mmu_flush = mmu_sfence || satp_write;
-  // Request validity may remain high while the cache is busy. Its local
-  // acceptance gate blocks speculation; only accepted requests arm MMU
-  // response metadata and only unpaused requests may start a page walk.
-  assign imem_req = if_imem_req && mmu_i_hit;
+  // The I-cache can reject a request on its own busy cycle. Also respect
+  // the MMU's fetch hold: a discarded page walk can still be draining
+  // after the new context already has a translation (or runs bare).
+  assign imem_req = if_imem_req && mmu_i_hit && !mmu_i_busy;
   assign imem_addr = mmu_ic_addr;
   assign if_imem_rsp_valid = mmu_i_rsp_valid;
   assign if_imem_rsp_addr = mmu_i_rsp_addr;

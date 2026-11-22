@@ -87,6 +87,7 @@ jobs:
           - {job: soc-isa-memory, mode: cover, cover-fast: true, depth: 80, riscv-formal: true}
           - {job: soc-mmio, mode: cover}
           - {job: soc-gpr, mode: cover}
+          - {job: soc-trap, mode: cover}
           # Cover reachability: every witness statement must be reached, so a
           # vacuous or contradictory antecedent fails the job. The whole-SoC
           # inherited cover suites stay out: their search needs a boot image and the

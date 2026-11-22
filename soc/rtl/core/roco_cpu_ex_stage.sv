@@ -754,11 +754,13 @@ module roco_cpu_ex_stage (
   assign ex_redirect_int = ex_redirect && !ex_trap && !fence_hold && !halt && !cancel_ex;
   // Sample eligibility after older CSR writes and deferred divider writes.
   // Taking the interrupt after EX must not leave an architectural effect
-  // from before the saved EPC outstanding in the handler.
+  // from before the saved EPC outstanding in the handler. In particular,
+  // fence completion redirects fetch and must precede trap entry.
   assign irq_take = irq_req && !csr_issue && !csr_commit_q && !div_busy &&
                     !(idex_valid && idex_is_div) && !ex_redirect && !vec_arith_prepare &&
                     !(idex_valid && (idex_is_load || idex_is_store || idex_is_amo ||
-                                     idex_is_lr || idex_is_sc || is_vec_mem)) &&
+                                     idex_is_lr || idex_is_sc || is_vec_mem ||
+                                     idex_is_fence_i || idex_is_sfence)) &&
                     !fence_hold && !halt && !rst && !cancel_ex;
   assign trap_capture = (irq_take || ex_trap) && !fence_hold && !halt && !rst && !cancel_ex;
 `ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL

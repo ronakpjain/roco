@@ -410,7 +410,11 @@ module roco_cpu (
     end else translated_valid_q <= ex_lu_valid && mmu_d_hit;
   end
   assign ex_lu_hit = !lookup_translate_q || translated_valid_q;
-  assign lookup_paddr = lookup_translate_q ? translated_paddr_q : ex_lu_vaddr;
+  // Sv32 translates the page number, not the page offset. Take the
+  // offset directly from the prepared EX address in both modes.
+  assign lookup_paddr = {
+    lookup_translate_q ? translated_paddr_q[31:12] : ex_lu_vaddr[31:12], ex_lu_vaddr[11:0]
+  };
   assign dmem_lu_valid = ex_lu_valid && ex_lu_hit;
   assign dmem_lu_addr = lookup_paddr[31:2];
   assign dmem_lu_offset = lookup_paddr[1:0];

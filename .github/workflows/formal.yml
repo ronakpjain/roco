@@ -83,6 +83,7 @@ jobs:
           - {job: soc-gpr-forward, mode: prove}
           - {job: soc-m, mode: prove}
           - {job: soc-a, mode: prove}
+          - {job: soc-v, mode: prove}
           - {job: soc-trap, mode: prove}
           - {job: soc-pc, mode: prove}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422}
@@ -94,6 +95,7 @@ jobs:
           - {job: soc-gpr-forward, mode: cover}
           - {job: soc-m, mode: cover}
           - {job: soc-a, mode: cover}
+          - {job: soc-v, mode: cover}
           - {job: soc-trap, mode: cover}
           - {job: soc-pc, mode: cover}
           # Cover reachability: every witness statement must be reached, so a

@@ -550,6 +550,28 @@ witnesses LR, successful and failed SC (including a reservation-less SC that
 stays off the bus), AMO, and the illegal LR.W encoding. This is an effect
 and reservation safety proof, not a multicore ordering or liveness proof.
 
+## Whole-SoC vector memory effects (unbounded)
+
+```sh
+bash formal/run.sh soc-v prove
+bash formal/run.sh soc-v cover
+```
+
+`soc-v` checks vector unit-stride loads and stores on the production SoC at
+all three EEWs. It roots an element cursor in the prepared scalar base and
+counts translated lookups, then links each EX/MEM packet back to its held
+instruction, virtual and physical address, byte mask, element index, and
+SEW. Reservations and AMO are out of scope; the byte shadow tracks retired
+whole-register writes and accepted load beats at commit time. At LMUL=1 a
+nonzero operation with EEW different from SEW traps as illegal, while
+VL=0 retires as a no-op. Misaligned elements trap with the access address.
+The pin-level cover program witnesses the second element, the empty
+operation, the EEW/SEW group trap, a first-element load, and a
+nonzero-byte store. Store data equivalence against in-flight vector
+forwarding stays a separate obligation, as does vector arithmetic
+correctness. This is an address, lane, and retirement safety proof, not a
+data-path equivalence or liveness proof.
+
 ## Whole-SoC RV32M effects (unbounded)
 
 ```sh
@@ -582,14 +604,15 @@ RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
 ```
 
 This runs the RV32I retirement/memory, scalar register storage and operand
-forwarding, synchronous trap entry, retirement PC/IRQ, RV32A, RV32M and MMIO
-jobs, plus the bridge,
+forwarding, synchronous trap entry, retirement PC/IRQ, RV32A, vector memory,
+RV32M and MMIO jobs, plus the bridge,
 crossbar, Sv32, D-cache, AXI memory master, SDRAM memory and multiplier
 component jobs. It runs all jobs even if one fails, and returns failure if
 any obligation is unproved or any witness is unreached. `prove` checks
 unbounded safety; `cover` finds finite witnesses and is not a liveness proof.
-The suite does not cover comprehensive ISA trap classification, vector ISA
-semantics, UART wire behavior, or hardware-level timing.
+The suite does not cover comprehensive ISA trap classification, vector
+arithmetic equivalence, store-data forwarding equivalence, UART wire
+behavior, or hardware-level timing.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

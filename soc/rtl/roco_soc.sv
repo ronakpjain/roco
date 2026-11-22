@@ -246,7 +246,9 @@ module roco_soc #(
   end
   assign dmem_lu_in_sdram = (dmem_lu_addr[31:25] == 7'd8);
   assign i_unc_req = imem_req && !imem_in_sdram && !ic_cpu_busy;
-  assign dmem_ready = dmem_in_sdram ? dc_cm_ready : mmio_done;
+  // An uncached failed SC has no transaction to wait for. Cached SC
+  // still waits for its lookup to drain, without committing a write.
+  assign dmem_ready = dmem_in_sdram ? dc_cm_ready : (!(dmem_valid || dmem_amo_read) || mmio_done);
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
   // Hold the core in reset for one extra cycle after boot_done so that
@@ -849,7 +851,7 @@ module roco_soc #(
       .dc_miss(dc_miss),
       .boot_status({sdram_init_done, boot_error, boot_busy, boot_done_eff}),
       .boot_addr(boot_addr),
-      .mmio_commit(dmem_req && !dmem_in_sdram),
+      .mmio_commit(dmem_req && dmem_valid && !dmem_in_sdram),
       .boot_restart(boot_restart),
       .halted(halted),
       .exit_code(exit_code)

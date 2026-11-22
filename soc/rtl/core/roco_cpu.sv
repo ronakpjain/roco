@@ -113,7 +113,7 @@ module roco_cpu (
   output logic [2:0] dmem_lu_funct3,
   input logic dmem_ready,
   output logic dmem_req,  // Ready-qualified commit strobe.
-  output logic dmem_valid,  // In-order validity before memory readiness.
+  output logic dmem_valid,  // In-order read/write validity, excluding failed SC.
   output logic dmem_amo_read,  // Atomic read phase for uncached targets.
 `ifdef ROCO_SOC_RAM_FORMAL
   output logic f_mem_packet,

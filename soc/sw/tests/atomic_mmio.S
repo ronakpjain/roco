@@ -23,6 +23,14 @@ _start:
   lw t2, 0(s1)
   li t3, 105
   bne t2, t3, fail
+
+  # No reservation: this must not read the UART status register, whose
+  # read clears RX overflow. tb_soc checks that SC issues no APB read.
+  li s1, 0x80000004
+  sc.w t2, t1, (s1)
+  li t3, 1
+  bne t2, t3, fail
+
   li a0, 1
   sw a0, 0(x31)
 1: j 1b

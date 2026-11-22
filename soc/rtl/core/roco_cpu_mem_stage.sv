@@ -214,10 +214,10 @@ module roco_cpu_mem_stage (
   // operation holds EX (including cache lookups) until it completes, and
   // there is no posted store buffer. This uniformly enforces both acquire
   // and release ordering; aq/rl do not need additional stalls or flushes.
-  // Separate transaction validity from the ready-qualified commit strobe.
-  // Always-ready MMIO can use validity directly without routing the
-  // unrelated cache hit comparator through peripheral write enables.
-  assign dmem_valid = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare;
+  // A failed SC still completes its cache lookup, but must not start
+  // a bus transaction: an MMIO read can itself have side effects.
+  assign dmem_valid = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare &&
+                      !(exmem_is_sc && !sc_ok);
   // The atomic's old value comes from the cache lookup for a cached target.
   // Any other target must read first, so name that phase for the bus side.
   assign dmem_amo_read = !halt && !fence_req && amo_prepare;

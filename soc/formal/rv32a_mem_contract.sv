@@ -170,7 +170,8 @@ module rv32a_mem_contract (
       end
 
       assert (commit == expected_commit && req == expected_commit);
-      assert (valid == (pending && (current_op != Amo || prepared)));
+      assert (valid == (pending && (current_op != Amo || prepared) &&
+                        (current_op != Sc || sc_succeeds)));
       assert (wait_mem == (pending && !expected_commit));
       if (expected_commit) begin
         assert (addr == {29'd0, target, 2'b00});

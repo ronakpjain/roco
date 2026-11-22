@@ -328,13 +328,17 @@ module tb_soc #(
           u_soc.paddr !== {u_soc.dmem_addr[31:2], 2'b00} ||
           u_soc.pwrite !== (u_soc.dmem_we && !u_soc.dmem_amo_read))
         $fatal(1, "unexpected APB transfer");
+      if (!u_soc.pwrite && u_soc.u_cpu.exmem_is_sc) $fatal(1, "SC generated an APB read");
       if (apb_completed && apb_last_addr == u_soc.paddr && apb_last_we == u_soc.pwrite)
         $fatal(1, "duplicate APB transfer");
       apb_completed <= 1'b1;
       apb_last_addr <= u_soc.paddr;
       apb_last_we <= u_soc.pwrite;
     end else if (u_soc.dmem_req && !u_soc.dmem_in_sdram) begin
-      if (!apb_completed || !u_soc.mmio_done) $fatal(1, "MMIO committed before APB/AXI completion");
+      if (u_soc.dmem_valid) begin
+        if (!apb_completed || !u_soc.mmio_done)
+          $fatal(1, "MMIO committed before APB/AXI completion");
+      end else if (apb_completed || u_soc.mmio_done) $fatal(1, "failed SC touched the MMIO bus");
       apb_completed <= 1'b0;
     end
   end

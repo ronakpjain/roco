@@ -446,6 +446,25 @@ a GPIO buttons value of 3 returned to the CPU, an APB LED write setting 3,
 and syscon halt with a nonzero exit code. The program and short startup are
 cover-only and are not assumptions of the safety proof.
 
+## Whole-SoC scalar register storage (unbounded)
+
+```sh
+bash formal/run.sh soc-gpr prove
+bash formal/run.sh soc-gpr cover
+```
+
+The production SoC proof watches an arbitrary GPR. It derives pending scalar
+writes from normal RVFI retirement, accounts for independently timed divider
+writebacks, and compares the resulting history with the physical register file.
+The check spans halt, reset, cache and fence stalls, and vector-memory element
+commits. It also checks that synchronous exception reporting cannot coincide
+with normal retirement and that scalar and divider write ports are exclusive.
+The cover runs a short external GPIO program and witnesses a read of buttons
+with value 3 reaching `x2`. The program is not used in prove mode.
+
+This does not establish that every in-flight operand is forwarded from that
+history, or that the divider result itself matches an ISA model.
+
 ## Whole-system proof suite
 
 ```sh
@@ -453,8 +472,9 @@ RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system prove
 RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
 ```
 
-This runs the RV32I retirement/memory and MMIO jobs, plus the bridge, crossbar,
-Sv32, D-cache, AXI memory master and SDRAM memory component jobs. It runs all
+This runs the RV32I retirement/memory, scalar register storage and MMIO jobs,
+plus the bridge, crossbar, Sv32, D-cache, AXI memory master and SDRAM memory
+component jobs. It runs all
 jobs even if one fails and returns failure if any obligation is unproved or
 any requested witness is unreached. `prove` checks unbounded safety; `cover`
 finds finite witnesses and is not a liveness proof. This suite is not an

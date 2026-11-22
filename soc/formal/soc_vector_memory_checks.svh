@@ -15,6 +15,22 @@ assign f_vec_byte_delta = {1'b0, formal_vec_byte} - (5'(exmem_vec_elem) << exmem
 assign f_vec_bus_lane = dmem_addr[1:0] + f_vec_byte_delta[1:0];
 assign f_vec_lane = exmem_instr[11:7] == formal_vec_reg &&
                     f_vec_byte_delta < (5'd1 << exmem_vec_sew);
+// Store-data stability: count clean cycles with the same store packet in
+// EX/MEM. Operand and EX/MEM flops reconverge within two cycles after any
+// freeze or prepare transient, so a saturated count means the live bypass
+// mux, the operand flop, and EX/MEM all agree again.
+logic [1:0] f_s_stable;
+logic [31:0] f_s_pc, f_s_instr;
+always_ff @(posedge clk or posedge rst) begin
+  if (rst) f_s_stable <= '0;
+  else if (halt || fence_req || mem_wait) f_s_stable <= '0;
+  else if (exmem_valid && exmem_is_vstore &&
+           (f_s_stable == 0 || (exmem_pc == f_s_pc && exmem_instr == f_s_instr))) begin
+    f_s_pc <= exmem_pc;
+    f_s_instr <= exmem_instr;
+    if (f_s_stable != 2) f_s_stable <= f_s_stable + 2'd1;
+  end else f_s_stable <= '0;
+end
 
 always_ff @(posedge clk or posedge rst) begin
   if (rst) reference_vec_byte <= '0;
@@ -47,8 +63,16 @@ always_ff @(posedge clk) begin
       assert (dmem_addr == exmem_alu && dmem_we == exmem_is_vstore && dmem_be == exmem_be);
       assert (dmem_valid == !halt && dmem_req == (dmem_valid && dmem_ready));
       assert (retire == (dmem_req && exmem_vec_last));
-      // Store data equivalence against in-flight vector forwarding is a
-      // separate obligation; this job proves address, lane, and retirement.
+      // Every committed store byte must equal the live source byte once the
+      // pipeline has been stable: then operand, EX/MEM, and architectural
+      // state all agree, so this verifies the forwarding path end to end.
+      if (dmem_req && exmem_is_vstore && f_s_stable == 2 &&
+          exmem_pc == f_s_pc && exmem_instr == f_s_instr)
+        for (int lane = 0; lane < 4; lane++)
+        if (exmem_be[lane])
+          assert (dmem_wdata[8*lane+:8] ==
+                    vec_vd_data[8*(5'(exmem_vec_elem) * (5'd1 << exmem_vec_sew) +
+                                     lane - 5'(dmem_addr[1:0]))+:8]);
     end
     if (retire && (exmem_instr[6:0] == 7'h07 || exmem_instr[6:0] == 7'h27)) begin
       assert (rvfi_valid && !rvfi_trap && rvfi_rd_addr == 0);

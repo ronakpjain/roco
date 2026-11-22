@@ -116,17 +116,33 @@ _start:
   li t1, 38
   bne t0, t1, fail_2
 
-  # 10: a misaligned AMO traps with cause 6 and the right mepc
+  # 10: a misaligned AMO traps with the right cause, EPC and address.
   la t0, trap_handler
   csrw mtvec, t0
   li s0, 0
   la t2, misaligned_word
   addi t2, t2, 1
   li a0, 1
+  li t4, 6
+  la t5, mis_amo
+  mv s2, t2
 mis_amo:
   amoadd.w a1, a0, 0(t2)
   li t1, 1
   bne s0, t1, fail_10
+
+  # 11: LR.W with rs2 != x0 is illegal, and cannot write its rd.
+  li s0, 0
+  li a1, 37
+  li t4, 2
+  la t5, bad_lr
+  li s2, 0x10a4a5af
+bad_lr:
+  .word 0x10a4a5af  # lr.w a1, (s1), with reserved rs2 = a0
+  li t1, 1
+  bne s0, t1, fail_11
+  li t1, 37
+  bne a1, t1, fail_11
 
   li a0, 1
   sw a0, 0(x31)
@@ -136,17 +152,18 @@ mis_amo:
 .align 2
 trap_handler:
   csrr t0, mcause
-  li t1, 6
-  bne t0, t1, h_bad
+  bne t0, t4, h_bad
   csrr t0, mepc
-  la t1, mis_amo
-  bne t0, t1, h_bad
+  bne t0, t5, h_bad
+  csrr t1, mtval
+  bne t1, s2, h_bad
   li s0, 1
-  addi t0, t0, 4
-  csrw mepc, t0
-  mret
+  j h_return
 h_bad:
   li s0, 2
+h_return:
+  addi t5, t5, 4
+  csrw mepc, t5
   mret
 
 fail_1:
@@ -178,6 +195,9 @@ fail_9:
   j fail
 fail_10:
   li a0, 30
+  j fail
+fail_11:
+  li a0, 31
 fail:
   sw a0, 0(x31)
 1:

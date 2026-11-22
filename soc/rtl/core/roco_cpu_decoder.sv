@@ -237,8 +237,9 @@ module roco_cpu_decoder (
         end else begin
           regwrite = 1'b1;
           case (instr[31:27])
-            5'b00010: begin  // LR.W
-              is_lr = 1'b1;
+            5'b00010: begin  // LR.W reserves the rs2 field as zero
+              is_lr = instr[24:20] == 0;
+              illegal = !is_lr;
             end
             5'b00011: begin  // SC.W
               is_sc = 1'b1;

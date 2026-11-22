@@ -413,15 +413,24 @@ There is no fetched-instruction filter and no new assumption in prove mode:
 other instruction sets, privilege transitions, interrupts, translation,
 external halt and cache maintenance remain available. These checks use the
 reported operand values; relating those values to architectural register
-history, proving precise trapping and proving the sequence of retired PCs
-remain separate obligations. Instructions outside the upstream RV32I model
-are also still open.
+history and proving the sequence of retired PCs remain separate obligations.
+Instructions outside the upstream RV32I model are also still open.
+
+Trap classification matches the model in both directions for supported
+RV32I instructions: a model trap forces a DUT trap, and a non-page-fault
+DUT trap forces a model trap. VM page faults are exempt on the DUT side
+(the bare model cannot see translation), and a branch or jump at a
+misaligned fetch PC is exempt the same way. All trap-relevant ID/EX decode
+is linked to a replay decoder so induction cannot forge CSR accesses on
+plain jumps or clear illegal flags. A trap-cause output next to the IRQ
+metadata exposes the synchronous cause to the checkers.
 
 The focused fast cover job retains the three provenance witnesses and adds
 one normal-retirement witness for each of OP-IMM, OP, LUI, AUIPC, JAL, JALR,
-BRANCH, LOAD and STORE. Its external memory chooses one concrete instruction
+BRANCH, LOAD and STORE, plus a trap witness that fetches the reset zero
+word. Its external memory chooses one concrete instruction
 from each family at the reset word, or zero for the illegal-instruction
-witness, with other halfwords zero. All twelve witnesses must be reached.
+witness, with other halfwords zero. All thirteen witnesses must be reached.
 This cover program restriction is absent from the production safety proof.
 
 ## Whole-SoC MMIO safety (unbounded)
@@ -567,10 +576,13 @@ nonzero operation with EEW different from SEW traps as illegal, while
 VL=0 retires as a no-op. Misaligned elements trap with the access address.
 The pin-level cover program witnesses the second element, the empty
 operation, the EEW/SEW group trap, a first-element load, and a
-nonzero-byte store. Store data equivalence against in-flight vector
-forwarding stays a separate obligation, as does vector arithmetic
-correctness. This is an address, lane, and retirement safety proof, not a
-data-path equivalence or liveness proof.
+nonzero-byte store. Committed store bytes must equal the live source bytes
+once the packet has been stable, which verifies the forwarding path end to
+end; induction phantoms that never retire are skipped by construction.
+Whole-register arithmetic results are recomposed from an independent lane
+model and reduction reference driven by the same captured operands, so the
+pipeline must transport operands correctly and route the result. This is a
+safety proof, not a liveness proof.
 
 ## Whole-SoC RV32M effects (unbounded)
 
@@ -610,9 +622,9 @@ crossbar, Sv32, D-cache, AXI memory master, SDRAM memory and multiplier
 component jobs. It runs all jobs even if one fails, and returns failure if
 any obligation is unproved or any witness is unreached. `prove` checks
 unbounded safety; `cover` finds finite witnesses and is not a liveness proof.
-The suite does not cover comprehensive ISA trap classification, vector
-arithmetic equivalence, store-data forwarding equivalence, UART wire
-behavior, or hardware-level timing.
+The suite does not cover page-fault classification (the bare ISA model has
+no translation), multicore ordering, UART wire behavior, or hardware-level
+timing.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

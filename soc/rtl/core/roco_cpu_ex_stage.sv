@@ -1218,6 +1218,11 @@ module roco_cpu_ex_stage (
 `ifdef ROCO_RVFI
   roco_rvfi_meta_t rvfi_ex;
   logic [31:0] rvfi_held_rs1, rvfi_held_rs2;
+  logic rvfi_operands_held;
+  // After preparation, these instructions use registered operands or
+  // an address derived from them. The original MEM producer can be gone.
+  assign rvfi_operands_held = (scalar_is_mem && scalar_mem_ready) ||
+                              (is_vec_mem && vmem_active) || (vec_arith_work && vec_operand_ready);
 
   always_comb begin
     rvfi_ex.instr = idex_ifault ? 32'd0 : idex_instr;
@@ -1229,17 +1234,15 @@ module roco_cpu_ex_stage (
     rvfi_ex.vaddr = mem_access_addr;
     rvfi_ex.rs1 = rvfi_idex_rs1;
     rvfi_ex.rs2 = rvfi_idex_rs2;
-    rvfi_ex.rs1_data = rvfi_idex_rs1 == 0 ? 32'd0 :
-                       (scalar_is_mem && scalar_mem_ready) ? rvfi_held_rs1 : rs1_fwd;
-    rvfi_ex.rs2_data = rvfi_idex_rs2 == 0 ? 32'd0 :
-                       (scalar_is_mem && scalar_mem_ready) ? rvfi_held_rs2 : rs2_fwd;
+    rvfi_ex.rs1_data = rvfi_idex_rs1 == 0 ? 32'd0 : rvfi_operands_held ? rvfi_held_rs1 : rs1_fwd;
+    rvfi_ex.rs2_data = rvfi_idex_rs2 == 0 ? 32'd0 : rvfi_operands_held ? rvfi_held_rs2 : rs2_fwd;
     rvfi_ex.mode = csr_priv;
   end
 
   always_ff @(posedge clk) begin
     if (!halt && !fence_hold) begin
       rvfi_exmem <= rvfi_ex;
-      if (scalar_is_mem && !scalar_mem_ready) begin
+      if (idex_valid && !rvfi_operands_held) begin
         rvfi_held_rs1 <= rs1_fwd;
         rvfi_held_rs2 <= rs2_fwd;
       end
@@ -1269,10 +1272,9 @@ module roco_cpu_ex_stage (
 `endif
 
 `ifdef ROCO_RVFI_FORWARD_CHECKS
-  // Observation points for the whole-core operand invariants: the operands
-  // a scalar memory instruction saved when its lookup began, plus the
-  // phase flag that selects them over the live forwarding muxes.
-  assign rvfi_fwd_mem_ready = scalar_is_mem && scalar_mem_ready;
+  // Observation points for the whole-core operand invariants: the saved
+  // operands and the phase flag that selects them over the live bypass.
+  assign rvfi_fwd_mem_ready = rvfi_operands_held;
   assign rvfi_fwd_cancel = cancel_ex;
 `ifdef ROCO_RVFI_INSN_CHECKS
   assign rvfi_fwd_trap_pending = trap_pending;

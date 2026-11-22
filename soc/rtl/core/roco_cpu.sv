@@ -596,6 +596,9 @@ module roco_cpu (
 `elsif ROCO_SOC_ISA_MEMORY_FORMAL
       .rvfi_idex_rs1(rvfi_idex_rs1),
       .rvfi_idex_rs2(rvfi_idex_rs2),
+`elsif ROCO_SOC_GPR_FORWARD_FORMAL
+      .rvfi_idex_rs1(rvfi_idex_rs1),
+      .rvfi_idex_rs2(rvfi_idex_rs2),
 `endif
 `ifdef ROCO_RVFI_GPR_STATE
       .rvfi_gpr_watch_addr(rvfi_gpr_watch_addr),
@@ -847,6 +850,7 @@ module roco_cpu (
 `endif
 
 `ifdef ROCO_RVFI_FORWARD_CHECKS
+`ifndef ROCO_SOC_GPR_FORWARD_FORMAL
   // Inductive operand invariants for one watched architectural register.
   // All are asserted, never assumed, so the reachability engine proves them
   // together with the retirement property they support. fwd_hist0 is the
@@ -985,6 +989,7 @@ module roco_cpu (
       cover (rvfi_sync_exception && rvfi_exception.rs1 == rvfi_gpr_watch_addr);
     end
   end
+`endif
 `endif
 
 `ifdef ROCO_RVFI_INSN_CHECKS
@@ -1320,6 +1325,9 @@ module roco_cpu (
 `endif
 `ifdef ROCO_SOC_GPR_FORMAL
   `include "soc_gpr_checks.svh"
+`endif
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+  `include "soc_gpr_forward_checks.svh"
 `endif
 `ifdef ROCO_SOC_TRAP_FORMAL
   `include "soc_trap_checks.svh"

@@ -398,4 +398,16 @@ module roco_cpu_if_stage (
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
   `include "soc_fetch_queue_checks.svh"
 `endif
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+  always_ff @(posedge clk)
+    if (!rst)
+      assert (q_count <= 3'(DEPTH) && q_tail == q_head + q_count[1:0]);
+  for (genvar slot = 0; slot < DEPTH; slot++) begin : g_fault_word
+    logic [1:0] distance;
+    assign distance = 2'(slot) - q_head;
+    always_ff @(posedge clk)
+      if (!rst && 3'(distance) < q_count && q_fault[slot])
+        assert (q_instr[slot] == 32'h0000_0013);
+  end
+`endif
 endmodule

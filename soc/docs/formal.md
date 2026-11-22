@@ -462,8 +462,27 @@ with normal retirement and that scalar and divider write ports are exclusive.
 The cover runs a short external GPIO program and witnesses a read of buttons
 with value 3 reaching `x2`. The program is not used in prove mode.
 
-This does not establish that every in-flight operand is forwarded from that
-history, or that the divider result itself matches an ISA model.
+The storage job alone does not establish operand forwarding or divider arithmetic.
+
+## Whole-SoC scalar operand forwarding (unbounded)
+
+```sh
+bash formal/run.sh soc-gpr-forward prove
+bash formal/run.sh soc-gpr-forward cover
+```
+
+This extends `soc-gpr` on the production SoC. For an arbitrary GPR, ID/EX
+must use either the latest retired value (including a pending WB slot and
+completed divider writes) or the matching older EX/MEM producer's result.
+Prepared scalar memory, vector arithmetic and vector memory operands retain
+that value after the producer drains. The assertions follow the operands
+through EX/MEM and the normal and synchronous-trap RVFI reports, including
+reads of `x0`. A pending divider cannot be bypassed by a dependent read or
+write or a second divide. This does not check non-RV32I arithmetic or the
+complete ISA source-register decode of every extension.
+
+The pin-level covers witness live MEM bypass, a held store operand, a saved
+vector scalar operand and a vector load element with its original base.
 
 ## Whole-SoC synchronous trap entry and retirement order (unbounded)
 

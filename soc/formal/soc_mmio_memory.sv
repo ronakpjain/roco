@@ -4,16 +4,18 @@
 module soc_mmio_memory #(
     parameter int SdramPowerup = 520_000 / 5000,
     parameter bit MmioOnly = 1'b0,
-    parameter bit TrapProgram = 1'b0
+    parameter bit TrapProgram = 1'b0,
+    parameter bit ForwardProgram = 1'b0
 ) (
   input logic clk
 );
   localparam int Deadline = 420;
   localparam logic [8:0] DataColumn = 9'd64;  // byte offset 128 in SDRAM
-  localparam logic [3:0] ProgramLength = MmioOnly ? 4'd5 : 4'd10;
+  localparam logic [3:0] ProgramLength = MmioOnly ? (ForwardProgram ? 4'd6 : 4'd5) : 4'd10;
 
   (* anyconst *) logic [1:0] buttons;
   (* anyconst *) logic [1:0] cover_trap_kind;
+  (* anyconst *) logic cover_vector_mem;
   (* anyconst *) logic [31:0] initial_word;
   logic rst;
   logic [8:0] cycle;
@@ -83,6 +85,24 @@ module soc_mmio_memory #(
             default: program_word = 32'h00208067;  // jalr x0, 2(x1), target 2
           endcase
         end
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (ForwardProgram && cover_vector_mem) begin
+      case (index)
+        8'd0: program_word = 32'h200001b7;  // lui x3, 0x20000
+        8'd1: program_word = 32'hcd017057;  // vsetivli x0, 2, e32, m1, ta, ma
+        8'd2: program_word = 32'h01018193;  // addi x3, x3, 16
+        8'd3: program_word = 32'h0201e087;  // vle32.v v1, (x3) (LEDs and buttons)
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (ForwardProgram) begin
+      case (index)
+        8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
+        8'd1: program_word = 32'h0140a103;  // lw x2, 20(x1)
+        8'd2: program_word = 32'h0020a823;  // sw x2, 16(x1)
+        8'd3: program_word = 32'hcd017057;  // vsetivli x0, 2, e32, m1, ta, ma
+        8'd4: program_word = 32'h00700193;  // addi x3, x0, 7
+        8'd5: program_word = 32'h4201e0d7;  // vmv.s.x v1, x3
         default: program_word = 32'h00000013;
       endcase
     end else if (MmioOnly) begin

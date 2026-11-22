@@ -17,6 +17,9 @@
 `ifdef ROCO_SOC_ISA_MEMORY_FORMAL
 `define ROCO_ID_OPERAND_CHECKS
 `endif
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+`define ROCO_ID_OPERAND_CHECKS
+`endif
 module roco_cpu_id_stage (
 `ifdef ROCO_ID_OPERAND_CHECKS
   input logic [4:0] rvfi_idex_rs1,
@@ -394,6 +397,10 @@ module roco_cpu_id_stage (
   `define ROCO_ID_REPLAY_CHECKS
   `define ROCO_ID_REPLAY_ATOMICS
 `endif
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+  `define ROCO_ID_REPLAY_CHECKS
+  `define ROCO_ID_REPLAY_ATOMICS
+`endif
 `ifdef ROCO_ID_REPLAY_CHECKS
   // An arbitrarily long MEM stall can hold EX past the induction window.
   // Relate the registered control bits to their instruction throughout it.
@@ -408,6 +415,12 @@ module roco_cpu_id_stage (
   logic replay_branch, replay_jal, replay_jalr, replay_ecall, replay_ebreak;
   logic replay_use_rs1, replay_use_rs2, replay_a_pc, replay_b_imm;
   logic replay_jump;
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+  logic replay_muldiv, replay_vec, replay_vset, replay_vload, replay_vstore;
+  logic replay_sret, replay_sfence, replay_fence_i;
+  logic [2:0] replay_md_op;
+  logic [5:0] replay_vec_funct6;
+`endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   logic replay_mret, replay_csr;
 `endif
@@ -424,8 +437,13 @@ module roco_cpu_id_stage (
       .alu_b_imm(replay_b_imm),
       .alu_a_pc(replay_a_pc),
       .alu_op(replay_alu_op),
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+      .is_muldiv(replay_muldiv),
+      .md_op(replay_md_op),
+`else
       .is_muldiv(),
       .md_op(),
+`endif
       .regwrite(replay_regwrite),
       .is_load(replay_load),
       .is_store(replay_store),
@@ -440,11 +458,19 @@ module roco_cpu_id_stage (
       .is_sc(),
       .amo_op(),
 `endif
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+      .is_vec(replay_vec),
+      .is_vset(replay_vset),
+      .is_vload(replay_vload),
+      .is_vstore(replay_vstore),
+      .vec_funct6(replay_vec_funct6),
+`else
       .is_vec(),
       .is_vset(),
       .is_vload(),
       .is_vstore(),
       .vec_funct6(),
+`endif
       .is_branch(replay_branch),
       .is_jal(replay_jal),
       .is_jalr(replay_jalr),
@@ -464,9 +490,15 @@ module roco_cpu_id_stage (
 `else
       .mret(),
 `endif
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+      .sret(replay_sret),
+      .is_sfence(replay_sfence),
+      .is_fence_i(replay_fence_i)
+`else
       .sret(),
       .is_sfence(),
       .is_fence_i()
+`endif
   );
   always @(posedge clk) begin
     if (!rst && idex_valid) begin
@@ -480,6 +512,15 @@ module roco_cpu_id_stage (
       assert (idex_ecall == replay_ecall && idex_ebreak == replay_ebreak && idex_illegal == replay_illegal);
       assert (idex_alu_op == replay_alu_op && idex_regwrite == replay_regwrite);
       assert (idex_rd == idex_instr[11:7]);
+`ifdef ROCO_SOC_GPR_FORWARD_FORMAL
+      assert (idex_is_muldiv == replay_muldiv && idex_md_op == replay_md_op);
+      assert (idex_is_vec == replay_vec && idex_is_vset == replay_vset);
+      assert (idex_is_vload == replay_vload && idex_is_vstore == replay_vstore);
+      assert (idex_vec_funct6 == replay_vec_funct6);
+      assert (idex_sret == replay_sret);
+      assert (idex_is_sfence == replay_sfence && idex_is_fence_i == replay_fence_i);
+      if (idex_ifault) assert (idex_instr == 32'h0000_0013);
+`endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
       assert (idex_mret == replay_mret && idex_is_csr == replay_csr);
 `endif

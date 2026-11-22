@@ -33,11 +33,23 @@ always_ff @(posedge clk) begin
     // Check the response on the CPU side of the crossbar too, not just
     // the peripheral decoder's PRDATA before it crosses the bridge.
     assert (!(mmio_read_done && mmio_write_done));
+    if (mmio_rready) assert (!dmem_in_sdram && (dmem_amo_read || (dmem_valid && !dmem_we)));
+    if (mmio_w.valid || mmio_bready) assert (!dmem_in_sdram && dmem_valid && dmem_we);
+    if (psel) assert (pwrite ? mmio_bready : mmio_rready);
     if (mmio_read_done && mmio_r.resp == `AXI4_RESP_OKAY) begin
       assert (periph_r.valid && periph_r.resp == `AXI4_RESP_OKAY);
       assert (mmio_rsp_data == periph_r.data);
     end
-    if (dmem_req && !dmem_in_sdram) assert (mmio_done);
+    if (dmem_req && !dmem_in_sdram) begin
+      if (dmem_valid)
+        assert (dmem_we ? mmio_write_done : mmio_read_done);
+        else begin
+          // A failed SC retires locally. It neither issues an AXI request
+          // nor inherits a pending APB transfer from an earlier packet.
+          assert (!dmem_we && !dmem_amo_read && !mmio_done);
+          assert (!(mmio_ar.valid || mmio_aw.valid || mmio_w.valid || psel));
+        end
+    end
   end
 
   if (f_mmio_sampled && !rst && !$past(rst)) begin

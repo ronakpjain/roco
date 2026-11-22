@@ -68,6 +68,18 @@ module axi4_apb_bridge (
   assign b_payload.id = id_q;
   assign b_payload.resp = error_q ? `AXI4_RESP_SLVERR : `AXI4_RESP_OKAY;
 
+`ifdef ROCO_SOC_MMIO_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      if (ar.valid) assert (ar.len == 0);
+      if (aw.valid) assert (aw.len == 0);
+      if (state != Idle && state != AcceptRead && state != AcceptWrite) assert (remaining == 0);
+      if (state == WriteData || state == WriteReply) assert (pwrite);
+      if (state == ReadReply) assert (!pwrite);
+    end
+  end
+`endif
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       state <= Idle;

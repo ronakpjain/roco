@@ -7,20 +7,21 @@ module soc_mmio_memory #(
     parameter bit TrapProgram = 1'b0,
     parameter bit ForwardProgram = 1'b0,
     parameter bit MProgram = 1'b0,
-    parameter bit PcProgram = 1'b0
+    parameter bit PcProgram = 1'b0,
+    parameter bit AProgram = 1'b0
 ) (
   input logic clk
 );
   localparam int Deadline = 420;
   localparam logic [8:0] DataColumn = 9'd64;  // byte offset 128 in SDRAM
   localparam logic [3:0] ProgramLength = MmioOnly ?
-      (PcProgram ? 4'd8 : ForwardProgram ? 4'd6 : 4'd5) : 4'd10;
+      (PcProgram ? 4'd8 : ForwardProgram ? 4'd6 : AProgram ? 4'd4 : 4'd5) : 4'd10;
 
   (* anyconst *) logic [1:0] buttons;
   (* anyconst *) logic [1:0] cover_trap_kind;
   (* anyconst *) logic cover_vector_mem;
   (* anyconst *) logic [2:0] cover_m_variant;
-  (* anyconst *) logic [1:0] cover_irq_case;
+  (* anyconst *) logic [1:0] cover_irq_case, cover_atomic_case;
   (* anyconst *) logic [31:0] initial_word;
   logic rst;
   logic [8:0] cycle;
@@ -116,6 +117,21 @@ module soc_mmio_memory #(
         8'd1: program_word = 32'h00300113;  // addi x2, x0, 3
         8'd2: program_word = 32'h022081b3 | {17'd0, cover_m_variant, 12'd0};
         8'd3: program_word = 32'h00118213;  // addi x4, x3, 1
+        default: program_word = 32'h00000013;
+      endcase
+    end else if (AProgram) begin
+      case (index)
+        8'd0: program_word = 32'h200000b7;  // lui x1, 0x20000
+        8'd1: program_word = 32'h01008093;  // addi x1, x1, 16 (LEDs)
+        8'd2: begin
+          case (cover_atomic_case)
+            2'd1: program_word = 32'h0010a1af;  // amoadd.w x3, x1, (x1)
+            2'd2: program_word = 32'h1020a1af;  // illegal LR.W (rs2 != 0)
+            2'd3: program_word = 32'h1810a22f;  // sc.w x4, x1, (x1), no reservation
+            default: program_word = 32'h1000a1af;  // lr.w x3, (x1)
+          endcase
+        end
+        8'd3: program_word = 32'h1810a22f;  // sc.w x4, x1, (x1)
         default: program_word = 32'h00000013;
       endcase
     end else if (PcProgram) begin

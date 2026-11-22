@@ -309,6 +309,9 @@ module roco_cpu_mem_stage (
     end
   end
 `endif
+`ifdef ROCO_SOC_A_FORMAL
+  `include "soc_a_mem_checks.svh"
+`endif
 `ifdef ROCO_RVFI_RV32A_CHECKS
   // Discharge the SC lookup precondition used by the standalone MEM proof
   // when this stage is driven by the real pipeline.

@@ -419,6 +419,15 @@ module roco_cpu (
   assign dmem_lu_addr = lookup_paddr[31:2];
   assign dmem_lu_offset = lookup_paddr[1:0];
   assign dmem_lu_funct3 = idex_funct3;
+`ifdef ROCO_SOC_MMIO_FORMAL
+  // A held SC cannot turn into a different kind of memory transaction.
+  always_ff @(posedge clk) begin
+    if (!rst && idex_valid && idex_is_sc)
+      assert (!(idex_is_store || idex_is_amo || idex_is_vstore));
+    if (!rst && exmem_valid && exmem_is_sc)
+      assert (!(exmem_is_store || exmem_is_amo || exmem_is_vstore));
+  end
+`endif
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
   // Decode classes must remain exclusive even when ID/EX is held for an
   // arbitrarily long translation or memory wait. Assert these facts rather
@@ -1336,6 +1345,9 @@ module roco_cpu (
 `endif
 `ifdef ROCO_SOC_M_FORMAL
   `include "soc_m_checks.svh"
+`endif
+`ifdef ROCO_SOC_A_FORMAL
+  `include "soc_a_checks.svh"
 `endif
 `ifdef ROCO_SOC_TRAP_FORMAL
   `include "soc_trap_checks.svh"

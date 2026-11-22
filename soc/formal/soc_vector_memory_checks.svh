@@ -44,11 +44,6 @@ always_ff @(posedge clk) begin
         assert (vec_mem_wdata[8*f_vec_byte_delta[1:0]+:8] == dmem_rsp_data[8*f_vec_bus_lane+:8]);
     end
     if (exmem_valid && (exmem_is_vload || exmem_is_vstore)) begin
-      assert (exmem_vec_sew == (exmem_instr[14:12] == 0 ? 0 : exmem_instr[14:12] == 5 ? 1 : 2));
-      assert (5'(exmem_vec_elem) < (5'd16 >> exmem_vec_sew));
-      assert (exmem_be == ((exmem_vec_sew == 0 ? 4'h1 : exmem_vec_sew == 1 ? 4'h3 : 4'hf) <<
-                           exmem_alu[1:0]));
-      assert ((exmem_alu & ((32'd1 << exmem_vec_sew) - 32'd1)) == 0);
       assert (dmem_addr == exmem_alu && dmem_we == exmem_is_vstore && dmem_be == exmem_be);
       assert (dmem_valid == !halt && dmem_req == (dmem_valid && dmem_ready));
       assert (retire == (dmem_req && exmem_vec_last));

@@ -12,6 +12,15 @@ always_ff @(posedge clk) begin
       assert (idex_valid && is_vec_mem);
       if (vmem_done) assert (exmem_valid && exmem_vec_last && (exmem_is_vload || exmem_is_vstore));
     end
+    // A held vector packet pins ID/EX, so no younger vset or CSR write can
+    // change vtype or vl beneath it. The EEW still matches, and the element
+    // index is still below vl, unless the op is empty.
+    assert (vec_vtype_sew <= 2);
+    assert (vec_vl <= (5'd16 >> vec_vtype_sew));
+    if (exmem_valid && (exmem_is_vload || exmem_is_vstore) && vec_vl != 0) begin
+      assert (exmem_vec_sew == vec_vtype_sew);
+      assert (5'(exmem_vec_elem) < vec_vl);
+    end
     if (irq_take) begin
       assert (!ex_trap && !csr_issue && !csr_commit_q);
       assert (!div_busy && !div_start && !div_wb_en);

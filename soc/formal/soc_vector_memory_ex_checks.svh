@@ -66,6 +66,10 @@ always_ff @(posedge clk) begin
   if (!rst) begin
     assert (vec_vtype_sew <= 2);
     assert (vec_vl <= (5'd16 >> vec_vtype_sew));
+    // A held vector packet pins ID/EX, so no younger vset or CSR write can
+    // change vtype beneath it. The EEW still matches unless the op is empty.
+    if (exmem_valid && (exmem_is_vload || exmem_is_vstore) && vec_vl != 0)
+      assert (exmem_vec_sew == vec_vtype_sew);
     if (!cancel_ex && !halt) begin
       assert (vmem_active == f_v_active);
       if (f_v_active) begin

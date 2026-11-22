@@ -154,6 +154,15 @@ always_ff @(posedge clk) begin
     // Return flags select a CSR target ahead of ordinary next-PC controls.
     assert (idex_mret == isa_idex_mret && idex_sret == isa_idex_sret);
     assert (idex_is_sfence == isa_idex_sfence);
+    // These instruction families select the ALU or link value, never
+    // the CSR or vector writeback data, even when held in ID/EX.
+    case (idex_instr[6:0])
+      7'h6f: assert (idex_wb_select == 4'b1000);
+      7'h67: assert (idex_wb_select == (idex_instr[14:12] == 0 ? 4'b1000 : 4'b0001));
+      7'h03, 7'h13, 7'h17, 7'h23, 7'h33, 7'h37, 7'h63: assert (idex_wb_select == 4'b0001);
+      default: begin
+      end
+    endcase
     assert (idex_is_vload == isa_idex_vload);
     assert (idex_is_vstore == isa_idex_vstore);
   end

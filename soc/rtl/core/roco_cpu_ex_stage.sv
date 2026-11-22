@@ -292,7 +292,7 @@ module roco_cpu_ex_stage (
   logic [31:0] vec_vstart;
   logic vec_vstart_we;
   logic [4:0] vec_vstart_data;
-  logic vec_start_illegal;
+  logic vec_start_illegal, vec_mem_sew_illegal;
   logic vec_vset_en;
   logic [4:0] vec_vset_vl;
   logic [31:0] vec_vset_vtype;
@@ -702,7 +702,8 @@ module roco_cpu_ex_stage (
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_INSTR_PAGE_FAULT;
         ex_trap_tval = idex_pc;
-      end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal) begin
+      end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal ||
+                   vec_mem_sew_illegal) begin
         ex_trap = 1'b1;
         ex_trap_cause = `RV32_CAUSE_ILLEGAL;
         ex_trap_tval = idex_instr;
@@ -786,7 +787,8 @@ module roco_cpu_ex_stage (
     end else if (idex_ifault) begin
       sync_cause_candidate = `RV32_CAUSE_INSTR_PAGE_FAULT;
       sync_tval_candidate = idex_pc;
-    end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal) begin
+    end else if (idex_illegal || ex_csr_illegal || ex_priv_illegal || vec_start_illegal ||
+                 vec_mem_sew_illegal) begin
       sync_cause_candidate = `RV32_CAUSE_ILLEGAL;
       sync_tval_candidate = idex_instr;
     end else if (idex_ebreak || idex_ecall) begin
@@ -846,8 +848,8 @@ module roco_cpu_ex_stage (
                                   !(idex_is_jal || idex_is_jalr || (idex_is_branch && ex_branch_taken));
   assign ex_redirect_mask_lsb = !trap_pending && idex_is_jalr;
   assign ex_trap_taken = trap_commit;
-  assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || dmem_lu_fault ||
-                     (is_vec_mem && ex_mem_misaligned);
+  assign vec_fault = idex_ifault || idex_illegal || vec_start_illegal || vec_mem_sew_illegal ||
+                     dmem_lu_fault || (is_vec_mem && ex_mem_misaligned);
   assign vec_arith_work = idex_is_vec && !idex_is_vset && !is_vec_mem;
   assign vec_arith_prepare = idex_valid && vec_arith_work && !vec_operand_ready;
   assign vec_mem_hold = (vmem_hold || scalar_mem_prepare || vec_arith_prepare) &&
@@ -859,7 +861,7 @@ module roco_cpu_ex_stage (
                        ((scalar_is_mem && scalar_mem_ready) ||
                         (is_vec_mem && vmem_active && !vmem_done)) &&
                        !idex_illegal && !idex_ifault && !ex_mem_misaligned &&
-                       !halt && !cancel_ex;
+                       !vec_mem_sew_illegal && !halt && !cancel_ex;
   assign ex_lu_valid = ex_lu_present && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
   assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !cancel_ex &&
@@ -1014,6 +1016,10 @@ module roco_cpu_ex_stage (
   assign vmem_store_data = vec_store_elem << {vmem_addr[1:0], 3'b000};
   assign vec_elem_sew = (idex_instr[14:12] == 3'b000) ? 3'd0 :
                         (idex_instr[14:12] == 3'b101) ? 3'd1 : 3'd2;
+  // Only LMUL=1 is implemented, so a nonzero vector memory operation must
+  // use the configured SEW. Mismatched EEW would need a multi-register
+  // group; empty operations retire as no-ops without checking the width.
+  assign vec_mem_sew_illegal = is_vec_mem && vec_vl != 0 && vec_elem_sew != vec_vtype_sew;
 
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin

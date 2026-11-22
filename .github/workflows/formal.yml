@@ -81,6 +81,7 @@ jobs:
           - {job: soc-mmio, mode: prove}
           - {job: soc-gpr, mode: prove}
           - {job: soc-gpr-forward, mode: prove}
+          - {job: soc-m, mode: prove}
           - {job: soc-trap, mode: prove}
           - {job: soc-mmio-memory, mode: bmc-fast, depth: 422}
           # Focused retirement witnesses use the fast SoC cover configuration.
@@ -89,6 +90,7 @@ jobs:
           - {job: soc-mmio, mode: cover}
           - {job: soc-gpr, mode: cover}
           - {job: soc-gpr-forward, mode: cover}
+          - {job: soc-m, mode: cover}
           - {job: soc-trap, mode: cover}
           # Cover reachability: every witness statement must be reached, so a
           # vacuous or contradictory antecedent fails the job. The whole-SoC

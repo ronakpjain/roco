@@ -1052,7 +1052,7 @@ module roco_cpu (
 
 `ifdef ROCO_RVFI_IRQ_METADATA
   logic formal_irq_pending, formal_trap_pending;
-  logic [31:0] formal_irq_epc;
+  logic [31:0] formal_irq_epc, formal_trap_cause;
 `endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_pipeline_checks.svh"
@@ -1083,6 +1083,7 @@ module roco_cpu (
       .formal_irq_pending(formal_irq_pending),
       .formal_trap_pending(formal_trap_pending),
       .formal_irq_epc(formal_irq_epc),
+      .formal_trap_cause(formal_trap_cause),
 `endif
 `ifdef ROCO_RVFI
       .rvfi_idex_rs1(rvfi_idex_rs1),

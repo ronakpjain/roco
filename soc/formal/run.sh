@@ -295,6 +295,7 @@ case "$job" in
       sources+=("$ref/isa_rv32i.v")
       while read -r insn; do sources+=("$ref/insn_$insn.v"); done < "$ref/isa_rv32i.txt"
       defines+=' -DROCO_SOC_ISA_MEMORY_FORMAL -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -DRISCV_FORMAL_ALIGNED_MEM'
+      defines+=' -DROCO_RVFI_IRQ_METADATA'
     fi
     proof_lowering='opt_clean'
     if [[ "$job" == soc-isa-memory && "$mode" == prove ]]; then

@@ -35,6 +35,7 @@ module roco_cpu_ex_stage (
   output logic formal_irq_pending,
   formal_trap_pending,
   output logic [31:0] formal_irq_epc,
+  formal_trap_cause,
 `endif
   output logic rvfi_trap_entry,
   output logic rvfi_sync_exception,
@@ -1310,6 +1311,7 @@ module roco_cpu_ex_stage (
   assign formal_trap_pending = trap_pending;
   assign formal_irq_pending = trap_pending && trap_is_irq_q;
   assign formal_irq_epc = csr_irq_pc_q;
+  assign formal_trap_cause = csr_trap_cause;
 `endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_ex_checks.svh"

@@ -57,7 +57,11 @@ rvfi_isa_rv32i packet_model (
 // converse need not hold for vector flags: a VL-zero no-op retires a valid
 // vector packet with its flags clear.
 logic isa_idex_muldiv, isa_idex_vec, isa_idex_vload, isa_idex_vstore;
-logic isa_idex_mret, isa_idex_sret, isa_idex_sfence;
+logic isa_idex_mret, isa_idex_sret, isa_idex_sfence, isa_idex_fence_i;
+logic isa_idex_branch, isa_idex_jal, isa_idex_jalr, isa_idex_csr;
+logic isa_idex_illegal, isa_idex_ecall, isa_idex_ebreak;
+logic [1:0] isa_idex_csr_op;
+logic [11:0] isa_idex_csr_addr;
 logic [2:0] isa_idex_md_op;
 roco_cpu_decoder isa_idex_decode (
     .instr(idex_instr),
@@ -85,20 +89,20 @@ roco_cpu_decoder isa_idex_decode (
     .is_vload(isa_idex_vload),
     .is_vstore(isa_idex_vstore),
     .vec_funct6(),
-    .is_branch(),
-    .is_jal(),
-    .is_jalr(),
-    .is_csr(),
+    .is_branch(isa_idex_branch),
+    .is_jal(isa_idex_jal),
+    .is_jalr(isa_idex_jalr),
+    .is_csr(isa_idex_csr),
     .csr_uimm(),
-    .csr_op(),
-    .csr_addr(),
-    .illegal(),
-    .ecall(),
-    .ebreak(),
+    .csr_op(isa_idex_csr_op),
+    .csr_addr(isa_idex_csr_addr),
+    .illegal(isa_idex_illegal),
+    .ecall(isa_idex_ecall),
+    .ebreak(isa_idex_ebreak),
     .mret(isa_idex_mret),
     .sret(isa_idex_sret),
     .is_sfence(isa_idex_sfence),
-    .is_fence_i()
+    .is_fence_i(isa_idex_fence_i)
 );
 logic isa_exmem_muldiv, isa_exmem_vload, isa_exmem_vstore;
 logic [2:0] isa_exmem_md_op;
@@ -154,6 +158,16 @@ always_ff @(posedge clk) begin
     // Return flags select a CSR target ahead of ordinary next-PC controls.
     assert (idex_mret == isa_idex_mret && idex_sret == isa_idex_sret);
     assert (idex_is_sfence == isa_idex_sfence);
+    // Every trap-relevant decode bit must match: induction otherwise
+    // invents CSR accesses on plain jumps or illegal flags on valid
+    // instructions, forging trap disagreements with the ISA model.
+    assert (idex_is_branch == isa_idex_branch);
+    assert (idex_is_jal == isa_idex_jal && idex_is_jalr == isa_idex_jalr);
+    assert (idex_is_csr == isa_idex_csr);
+    assert (idex_csr_op == isa_idex_csr_op && idex_csr_addr == isa_idex_csr_addr);
+    assert (idex_illegal == isa_idex_illegal);
+    assert (idex_ecall == isa_idex_ecall && idex_ebreak == isa_idex_ebreak);
+    assert (idex_is_fence_i == isa_idex_fence_i);
     // These instruction families select the ALU or link value, never
     // the CSR or vector writeback data, even when held in ID/EX.
     case (idex_instr[6:0])
@@ -210,6 +224,22 @@ always_ff @(posedge clk) begin
   end
 end
 always_ff @(posedge clk) begin
+  // Trap classification must match the ISA model for supported RV32I
+  // instructions. VM page faults are invisible to the bare model, so a DUT
+  // page-fault trap is exempt from model agreement -- but the model never
+  // predicts page faults, so a model trap always requires a DUT trap.
+  if (!rst && rvfi_valid && isa_valid) begin
+    if (isa_trap) assert (rvfi_trap);
+    // A branch/jump at a misaligned PC traps even though the bare model
+    // trusts the fetch address; only an aligned PC falls through to model
+    // agreement here (misaligned targets are still the model's call).
+    if (rvfi_trap && formal_trap_cause != `RV32_CAUSE_INSTR_PAGE_FAULT &&
+        formal_trap_cause != `RV32_CAUSE_LOAD_PAGE_FAULT &&
+        formal_trap_cause != `RV32_CAUSE_STORE_PAGE_FAULT &&
+        (formal_trap_cause != `RV32_CAUSE_INSTR_MISALIGNED ||
+         rvfi_pc_rdata[1:0] == 0))
+      assert (isa_trap);
+  end
   if (!rst && rvfi_valid && !rvfi_trap && isa_valid) begin
     assert (!isa_trap);
     assert (rvfi_rs1_addr == isa_rs1 && rvfi_rs2_addr == isa_rs2);
@@ -223,6 +253,10 @@ always_ff @(posedge clk) begin
 end
 
 // Cover each RV32I effect family with concrete external reset-word programs.
+// The bare model marks illegal encodings not-valid instead of trapping, so
+// witness the DUT side directly: fetching the reset zero word traps.
+// Trap/model agreement itself is an induction obligation, not a witness.
+always_ff @(posedge clk) if (!rst) cover (rvfi_valid && rvfi_trap && rvfi_insn == 32'd0);
 for (genvar family = 0; family < 9; family++) begin : g_isa_cover
   localparam logic [6:0] OPCODE = family == 0 ? 7'h13 : family == 1 ? 7'h33 :
       family == 2 ? 7'h37 : family == 3 ? 7'h17 : family == 4 ? 7'h6f :

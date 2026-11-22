@@ -120,6 +120,7 @@ module roco_cpu_vec (
     if (!rst) begin
       assert (full_we_q == (!$past(rst) && $past(ex_we)));
       assert (elem_we_q == (!$past(rst) && $past(!ex_we && mem_we)));
+      if (full_we_q) assert ({full_wd_q, full_data_q} == $past({ex_wd, ex_wdata}));
       if (elem_we_q)
         assert ({elem_wd_q, elem_index_q, elem_sew_q, elem_data_q} == $past(
             {mem_wd, mem_elem, mem_sew, mem_wdata}

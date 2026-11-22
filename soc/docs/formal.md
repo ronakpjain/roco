@@ -529,6 +529,27 @@ without a concurrent retirement, the first handler event, and deferral
 when FENCE.I is in EX. This is a sequencing proof, not a comprehensive ISA
 exception classifier or a proof that an IRQ is eventually taken.
 
+## Whole-SoC RV32A effects (unbounded)
+
+```sh
+bash formal/run.sh soc-a prove
+bash formal/run.sh soc-a cover
+```
+
+`soc-a` checks every normally retired atomic on the production SoC: LR/SC
+and all nine AMO operations. It connects decoded operands and virtual
+addresses to the real MEM packet, then independently computes the physical
+reservation and AMO result from the accepted transaction and its read data.
+Reservations are physical, so aliases in different virtual pages reserve the
+same word, and any committed store (including a vector element) can
+invalidate them. A failed SC retires locally without starting a bus
+transaction, so an uncached SC cannot side-effect a peripheral. Misaligned
+atomics trap with the access address, and LR.W with a nonzero reserved `rs2`
+field is illegal and raises no lookup. The short pin-level cover program
+witnesses LR, successful and failed SC (including a reservation-less SC that
+stays off the bus), AMO, and the illegal LR.W encoding. This is an effect
+and reservation safety proof, not a multicore ordering or liveness proof.
+
 ## Whole-SoC RV32M effects (unbounded)
 
 ```sh
@@ -561,14 +582,14 @@ RISCV_FORMAL_DIR=/path/to/riscv-formal bash formal/run.sh soc-system cover
 ```
 
 This runs the RV32I retirement/memory, scalar register storage and operand
-forwarding, synchronous trap entry, retirement PC/IRQ, RV32M and MMIO jobs,
-plus the bridge,
+forwarding, synchronous trap entry, retirement PC/IRQ, RV32A, RV32M and MMIO
+jobs, plus the bridge,
 crossbar, Sv32, D-cache, AXI memory master, SDRAM memory and multiplier
 component jobs. It runs all jobs even if one fails, and returns failure if
 any obligation is unproved or any witness is unreached. `prove` checks
 unbounded safety; `cover` finds finite witnesses and is not a liveness proof.
-The suite does not cover comprehensive ISA trap classification, atomic or
-vector ISA semantics, UART wire behavior, or hardware-level timing.
+The suite does not cover comprehensive ISA trap classification, vector ISA
+semantics, UART wire behavior, or hardware-level timing.
 
 ## Whole-SoC memory and MMIO integration (bounded)
 

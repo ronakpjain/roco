@@ -398,6 +398,9 @@ module roco_cpu_if_stage (
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
   `include "soc_fetch_queue_checks.svh"
 `endif
+`ifdef ROCO_SOC_PC_FORMAL
+  `include "soc_fetch_pc_checks.svh"
+`endif
 `ifdef ROCO_SOC_GPR_FORWARD_FORMAL
   always_ff @(posedge clk)
     if (!rst)

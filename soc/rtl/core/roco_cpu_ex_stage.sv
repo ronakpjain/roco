@@ -29,7 +29,7 @@ module roco_cpu_ex_stage (
   input logic [4:0] rvfi_idex_rs2,
   output roco_rvfi_meta_t rvfi_exmem,
   output roco_rvfi_meta_t rvfi_exception,
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
+`ifdef ROCO_RVFI_IRQ_METADATA
   output logic formal_irq_pending,
   formal_trap_pending,
   output logic [31:0] formal_irq_epc,
@@ -1294,8 +1294,16 @@ module roco_cpu_ex_stage (
 `ifdef ROCO_SOC_M_FORMAL
   `include "soc_m_ex_checks.svh"
 `endif
+`ifdef ROCO_RVFI_IRQ_METADATA
+  assign formal_trap_pending = trap_pending;
+  assign formal_irq_pending = trap_pending && trap_is_irq_q;
+  assign formal_irq_epc = csr_irq_pc_q;
+`endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_ex_checks.svh"
+`endif
+`ifdef ROCO_SOC_PC_FORMAL
+  `include "soc_pc_ex_checks.svh"
 `endif
   assign rvfi_trap_entry = trap_commit && !halt;
   assign rvfi_sync_exception = rvfi_trap_entry && !trap_is_irq_q;

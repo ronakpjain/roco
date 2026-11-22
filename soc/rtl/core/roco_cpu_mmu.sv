@@ -664,4 +664,16 @@ module roco_cpu_mmu #(
 `ifdef ROCO_SV32_FORMAL
   `include "sv32_checks.svh"
 `endif
+`ifdef ROCO_SOC_PC_FORMAL
+  logic [TLB_W-1:0] f_hot_entry;
+  assign f_hot_entry = itlb[i_hot_vpn[IDX_BITS-1:0]];
+  always_ff @(posedge clk) begin
+    if (!rst && i_hot_valid) begin
+      assert (i_valid[i_hot_vpn[IDX_BITS-1:0]]);
+      assert (f_hot_entry[TAG_BITS-1:0] == i_hot_vpn[19:IDX_BITS]);
+      assert (f_hot_entry[P_A] && f_hot_entry[P_X]);
+      assert (f_hot_entry[P_U] == (i_hot_priv == PRIV_U));
+    end
+  end
+`endif
 endmodule

@@ -311,4 +311,14 @@ module uart_boot (
     end
   end
 
+`ifdef ROCO_SOC_PC_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      assert (boot_addr[1:0] == 0);
+      if (state == S_DATA || state == S_WR_REQ || state == S_WR_BEAT ||
+          state == S_END || state == S_FINISH)
+        assert (base_q[1:0] == 0);
+    end
+  end
+`endif
 endmodule

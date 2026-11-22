@@ -1,6 +1,3 @@
-assign formal_trap_pending = trap_pending;
-assign formal_irq_pending = trap_pending && trap_is_irq_q;
-assign formal_irq_epc = csr_irq_pc_q;
 always @(posedge clk) begin
   if (!rst) begin
     assert (!csr_commit_q || (csr_commit_addr_q != 12'h180 && csr_commit_addr_q != 12'h302 &&

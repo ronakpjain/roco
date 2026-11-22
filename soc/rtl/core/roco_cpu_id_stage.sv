@@ -422,6 +422,10 @@ module roco_cpu_id_stage (
   logic [2:0] replay_md_op;
   logic [5:0] replay_vec_funct6;
 `endif
+`ifdef ROCO_SOC_PC_FORMAL
+  logic [1:0] replay_csr_op;
+  logic [11:0] replay_csr_addr;
+`endif
   assign replay_jump = replay_jal || replay_jalr;
   roco_cpu_decoder replay_decode (
       .instr(idex_instr),
@@ -474,8 +478,13 @@ module roco_cpu_id_stage (
       .is_jalr(replay_jalr),
       .is_csr(replay_csr),
       .csr_uimm(),
+`ifdef ROCO_SOC_PC_FORMAL
+      .csr_op(replay_csr_op),
+      .csr_addr(replay_csr_addr),
+`else
       .csr_op(),
       .csr_addr(),
+`endif
       .illegal(replay_illegal),
       .ecall(replay_ecall),
       .ebreak(replay_ebreak),
@@ -511,6 +520,10 @@ module roco_cpu_id_stage (
       assert (idex_is_csr == replay_csr);
       assert (idex_is_sfence == replay_sfence && idex_is_fence_i == replay_fence_i);
       if (idex_ifault) assert (idex_instr == 32'h0000_0013);
+`endif
+`ifdef ROCO_SOC_PC_FORMAL
+      assert (idex_csr_op == replay_csr_op && idex_csr_addr == replay_csr_addr);
+      assert (idex_rs1 == idex_instr[19:15]);
 `endif
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
       assert (idex_mret == replay_mret && idex_is_csr == replay_csr);

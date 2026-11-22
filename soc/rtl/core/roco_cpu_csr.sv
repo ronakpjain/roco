@@ -585,4 +585,28 @@ module roco_cpu_csr (
     end
   end
 `endif
+`ifdef ROCO_SOC_PC_FORMAL
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      assert (priv_q != 2'b10 && mstatus_mpp_q != 2'b10);
+      assert (mepc_q[1:0] == 0 && sepc_q[1:0] == 0 && !mtvec_q[1] && !stvec_q[1]);
+      if (trap_en && trap_cause[31]) begin
+        assert (trap_pc[1:0] == 0);
+        assert (trap_vector == ((trap_to_s ? stvec_q : mtvec_q) & 32'hffff_fffc) +
+                ((trap_to_s ? stvec_q[0] : mtvec_q[0]) ? 32'(trap_cause[4:0]) * 4 : 32'd0));
+      end
+      if ($past(!rst && trap_en && trap_cause[31])) begin
+        if ($past(trap_to_s)) begin
+          assert (priv_q == PRIV_S && sepc_q == $past(trap_pc));
+          assert (scause_q == $past(trap_cause) && stval_q == 0 && !mstatus_sie);
+          assert (mstatus_spie == $past(mstatus_sie) && mstatus_spp == $past(priv_q == PRIV_S));
+        end else begin
+          assert (priv_q == PRIV_M && mepc_q == $past(trap_pc));
+          assert (mcause_q == $past(trap_cause) && mtval_q == 0 && !mstatus_mie);
+          assert (mstatus_mpie == $past(mstatus_mie) && mstatus_mpp_q == $past(priv_q));
+        end
+      end
+    end
+  end
+`endif
 endmodule

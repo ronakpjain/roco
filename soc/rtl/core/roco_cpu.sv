@@ -1041,10 +1041,15 @@ module roco_cpu (
   end
 `endif
 
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
+`ifdef ROCO_RVFI_IRQ_METADATA
   logic formal_irq_pending, formal_trap_pending;
   logic [31:0] formal_irq_epc;
+`endif
+`ifdef ROCO_IRQ_PIPELINE_CHECKS
   `include "irq_pipeline_checks.svh"
+`endif
+`ifdef ROCO_SOC_PC_FORMAL
+  `include "soc_pc_checks.svh"
 `endif
 `ifdef ROCO_VECTOR_MEM_STREAM
   `include "vector_mem_commit_checks.svh"
@@ -1060,7 +1065,7 @@ module roco_cpu (
       .formal_vec_byte(formal_vec_byte),
       .reference_vec_byte(reference_vec_byte),
 `endif
-`ifdef ROCO_IRQ_PIPELINE_CHECKS
+`ifdef ROCO_RVFI_IRQ_METADATA
       .formal_irq_pending(formal_irq_pending),
       .formal_trap_pending(formal_trap_pending),
       .formal_irq_epc(formal_irq_epc),
@@ -1344,6 +1349,9 @@ module roco_cpu (
   assign if_imem_busy = mmu_i_busy || imem_busy;
   assign if_imem_fault = mmu_i_fault;
   assign if_imem_fault_addr = mmu_i_fault_addr;
+`ifdef ROCO_SOC_PC_FORMAL
+  always_ff @(posedge clk) if (!rst && satp_write) assert (ex_redirect_en);
+`endif
 
   // Train the predictor one cycle after resolution. Capture payload
   // unconditionally so only one validity flop sees late branch control.

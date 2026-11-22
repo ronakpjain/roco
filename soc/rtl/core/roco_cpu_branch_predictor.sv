@@ -130,6 +130,9 @@ module roco_cpu_branch_predictor #(
 `ifdef ROCO_IRQ_PIPELINE_CHECKS
   `define ROCO_BTB_FORMAL
 `endif
+`ifdef ROCO_SOC_PC_FORMAL
+  `define ROCO_BTB_FORMAL
+`endif
 `ifdef ROCO_BTB_FORMAL
   // A matching tag and immediate stand in for a wide direct-target compare
   // in ID/EX. Prove that the BTB maintains the relation this relies on.

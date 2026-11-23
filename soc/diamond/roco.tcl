@@ -34,10 +34,24 @@ prj_src add soc/constraints/roco.lpf
 catch { prj_src enable soc/constraints/roco.lpf } enable_msg
 puts "lpf enable: $enable_msg"
 
-prj_run Synthesis -impl $impl
-prj_run Map -impl $impl
-prj_run PAR -impl $impl
-prj_run Export -impl $impl
+proc run_step {label args} {
+    puts "=== $label: $args ==="
+    if {[catch {eval $args} msg]} {
+        puts "$label FAILED: $msg"
+        foreach pat {impl1/*.srr impl1/*.srf impl1/*.log *.srr *.log} {
+            foreach f [glob -nocomplain $pat] {
+                catch {file copy -force $f out/}
+                puts "saved $f -> out/"
+            }
+        }
+        error "$label failed: $msg"
+    }
+}
+
+run_step Synthesis prj_run Synthesis -impl $impl
+run_step Map prj_run Map -impl $impl
+run_step PAR prj_run PAR -impl $impl
+run_step Export prj_run Export -impl $impl
 
 # Exported names are <proj>_<impl>.<ext>; normalize for the Makefile.
 foreach {src dst} {

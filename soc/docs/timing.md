@@ -54,36 +54,34 @@ sliced fabric, and `sim/tb_soc.sv` tolerates the extra retire bubbles.
 
 ## Status and next steps
 
-Best routed `clk_core` so far is 37.71 MHz (seed 96, sliced fabric +
-overlap fence + pipelined commit/BTB below; SDRAM passes at ~115 MHz).
-Unconstrained seeds span 36-39 MHz, so neither fencing nor seeds close
-the remaining gap to 48 MHz: every critical path is a ~37 segment,
-~82% routing broadcast through the D$/I$ tag compares, snoop/store-compare,
-branch predictor, PTW and regfile of both harts. The AXI fabric itself is
-off the critical path after slicing.
+nextpnr closes neither with seeds nor fences: every critical path is a
+long, routing-dominated broadcast through the D$/I$ tag compares,
+snoop/store-compare, branch predictor, PTW and regfile of both harts.
+The AXI fabric itself is off the critical path after slicing.
 
-Hub pipelining round 1 is done and measured: the dcache commit hit no
-longer re-reads the tag RAM (`rtl/mem/dcache.sv` snapshots the committing
-op's own lookup hit plus full address at first presentation, shadowed by a
-sticky per-index snoop-kill cleared on fill), and the BTB update dropped
-its trap/fence/halt/cancel gating (`rtl/core/roco_cpu_ex_stage.sv`; the
+Hub pipelining round 1 is done: the dcache commit hit no longer re-reads
+the tag RAM (`rtl/mem/dcache.sv` snapshots the committing op's own lookup
+hit plus full address at first presentation, shadowed by a sticky
+per-index snoop-kill cleared on fill), and the BTB update dropped its
+trap/fence/halt/cancel gating (`rtl/core/roco_cpu_ex_stage.sv`; the
 predictor is advisory-only, so this only pollutes table entries). Both
 are fully re-verified (`test_dcache`, `test_soc`, `test_smp`, `test_vm`,
-`test_boot`, full 118-test `test_isa_soc`, `make lint`, re-synth; the
+`test_boot`, full `test_isa_soc`, `make lint`, re-synth; the
 `dcache-memory` BMC failure at `dcache_memory_checks.svh:211` reproduces
 identically on the unmodified cache and is a pre-existing model gap,
-not a regression). nextpnr moved 37.66 -> 37.71 MHz: the commit arc is
-gone, but the chain re-formed through the lookup and snoop-hit arcs, which
-still combinationally read the tag arrays.
+not a regression). The commit arc is gone, but the chain re-formed through
+the lookup and snoop-hit arcs, which still combinationally read the tag
+arrays — further rounds would need those arcs registered too, at a cache
+latency cost.
 
-The practical 48 MHz vehicle is Lattice Diamond, not further nextpnr
-tuning: the first Diamond P&R of this SoC (Synplify + Map + PAR, all
-clean) reports ~60 MHz core post-route against the same RTL that nextpnr
-routes at ~37.7 — a synthesis+mapping+placement gap, not a design error.
-Remaining Diamond work is flow, not RTL: real 48/96 MHz FREQUENCY
-constraints in the LPF, `Export -task Bitgen` wiring plus artifact-path
-fixes in `diamond/roco.tcl`, and the `run.sh` chown wart. The pipelining
-above still helps Diamond (same cones, more margin) and stays regardless.
+The 48 MHz vehicle is Lattice Diamond, not further nextpnr tuning: the
+first Diamond P&R of this SoC (Synplify + Map + PAR, all clean) times
+the same RTL substantially faster than nextpnr — a synthesis+mapping+
+placement gap, not a design error. Remaining Diamond work is flow, not
+RTL: real FREQUENCY constraints for both clocks in the LPF, Export task
+wiring plus artifact-path fixes in `diamond/roco.tcl`, and the `run.sh`
+ownership wart. The pipelining above still helps Diamond (same cones,
+more margin) and stays regardless.
 
 ## CI
 

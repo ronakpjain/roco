@@ -18,6 +18,39 @@ Defaults are seed 96 and `--placer-heap-timingweight 30`.
 To reproduce explicitly, use
 `make bitstream PNR_SEED=96 PNR_FLAGS="--placer-heap-timingweight 30"`.
 
+## Floorplan
+
+`constraints/floorplan.py` runs as a nextpnr `--pre-place` hook (see
+`PNR_FLOORPLAN` in the Makefile, shared by `make timing` and
+`make bitstream`). It creates two rectangular regions on the 85F grid
+(X 0..126, Y 0..95) and constrains packed macros by hierarchical prefix:
+
+- `hart0` (X 0..66, Y 12..93): the `DP16KD`/`MULT18X18D`/`TRELLIS_RAMW`
+  cells of `u_soc.u_cpu0` + `u_icache0` + `u_dcache0` and their private AXI
+  masters.
+- `hart1` (X 60..126, Y 12..93): the same macro types for the hart1
+  counterparts. The 7-column overlap gives shared headroom without letting
+  the macros intermix.
+
+Only macros are constrained; all LUT/FF logic stays free and the
+timing-driven placer pulls each hart's logic toward its own
+caches/DSPs/registers instead of intermixing the harts. The crossbar, CDC
+bridge, SDRAM adapter/controller, bootloader, UART, APB peripherals, and
+Yosys-merged TOP glue (`user_led_*`, `sdram_*`, ...) stay unconstrained, as
+do LPF-fixed cells (`TRELLIS_IO`, PLL, globals, `*$tr_io`). Each hart
+region spans Y 12..93 so it keeps all four block-RAM rows
+(Y 22/46/70/82) and the 34/58 DSP rows.
+
+Fencing all LUT/FF logic (v1 with an extra bottom `mem` strip, v2 with two
+full hart fences) was tried first and reverted: the heap placer could not
+find a legal placement (`ERROR: Unable to find legal placement ...
+TRELLIS_COMB`) despite generous capacity, so v3 anchors only the ~1k macro
+cells instead of ~52k logic cells.
+
+To try a different floorplan without losing the shared routing flags,
+override the file rather than the flags, e.g.
+`make timing PNR_FLOORPLAN="--pre-place constraints/my_floorplan.py"`.
+
 ## CI
 
 The `FPGA timing` GitHub Actions workflow runs this diagnostic route for

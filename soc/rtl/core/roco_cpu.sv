@@ -140,7 +140,12 @@ module roco_cpu #(
   output logic [4:0] trace_rd,
   output logic [31:0] trace_wdata,
   output logic fence_req,
-  input logic fence_done
+  input logic fence_done,
+  /* SMP reservation snooping: publish committed stores, accept remote clear. */
+  output logic res_store_valid,
+  output logic [29:0] res_store_addr,
+  input logic res_remote_valid,
+  input logic [29:0] res_remote_addr
 );
 
   logic if_valid;
@@ -1466,6 +1471,10 @@ module roco_cpu #(
       .formal_amo_ready(formal_amo_ready),
 `endif
       .trap_taken(ex_trap_taken || satp_write),
+      .res_remote_valid(res_remote_valid),
+      .res_remote_addr(res_remote_addr),
+      .res_store_valid(res_store_valid),
+      .res_store_addr(res_store_addr),
       .vec_mem_we(vec_mem_we),
       .vec_mem_wd(vec_mem_wd),
       .vec_mem_elem(vec_mem_elem),

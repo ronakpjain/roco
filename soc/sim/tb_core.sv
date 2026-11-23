@@ -133,7 +133,11 @@ module tb_core;
       .trace_rd(trace_rd),
       .trace_wdata(trace_wdata),
       .fence_req(),
-      .fence_done(1'b1)
+      .fence_done(1'b1),
+      .res_store_valid(),
+      .res_store_addr(),
+      .res_remote_valid(1'b0),
+      .res_remote_addr(30'd0)
   );
 
   // ------------------------------------------------------------ Clock/reset

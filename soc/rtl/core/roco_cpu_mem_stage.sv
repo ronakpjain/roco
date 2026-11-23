@@ -54,6 +54,11 @@ module roco_cpu_mem_stage (
 `endif
   /* Any trap this cycle cancels a reservation. */
   input logic trap_taken,
+  /* SMP coherence: remote hart's committed store/AMO/SC clears this hart. */
+  input logic res_remote_valid,
+  input logic [29:0] res_remote_addr,
+  output logic res_store_valid,
+  output logic [29:0] res_store_addr,
   input logic exmem_is_sfence,
   input logic exmem_is_fence_i,
   /* Multiply carry-save terms registered at EX/MEM. */
@@ -261,13 +266,20 @@ module roco_cpu_mem_stage (
   // alignment and forwarding routing off the next address calculation.
   assign forward_data = exmem_wbval;
 
+  // Publish committed stores (incl. AMO/successful SC/vector) so the SoC
+  // can clear the other hart's reservation on the same word address.
+  assign res_store_valid = store_now;
+  assign res_store_addr = dmem_addr[31:2];
   // Load-reserved / store-conditional reservation. The set is one word
   // wide: any store to it, any store-conditional and any trap clears it.
+  // A remote hart's store to the reserved word clears it too (SMP).
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       res_valid <= 1'b0;
       res_addr <= '0;
     end else if (trap_taken) begin
+      res_valid <= 1'b0;
+    end else if (res_remote_valid && (res_remote_addr == res_addr) && res_valid) begin
       res_valid <= 1'b0;
     end else if (commit_now) begin
       if (exmem_is_lr) begin

@@ -20,7 +20,7 @@ if [ ! -f "$WORK/license/license.dat" ]; then
 fi
 
 mkdir -p "$CTX/installer" "$WORK/out"
-cp "$SRC/Dockerfile" "$CTX/Dockerfile"
+cp "$SRC/Dockerfile" "$SRC/install.qs" "$CTX/"
 mkdir -p "$CTX/installer"
 cp "${installer[0]}" "$CTX/installer/"
 base="$(basename "${installer[0]}")"

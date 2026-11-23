@@ -325,11 +325,14 @@ module dcache #(
   // Recovery serves a completed fill while pending; it may only serve
   // while the recovered line is still alive. The kill shadow revokes it
   // when a snoop lands after the fill -- or the commit would retire into
-  // a dead line (silently losing a vetoed store). The core then holds cm
-  // and the race logic refetches. Gated on the miss line rather than the
-  // commit address, since recovery asserts before the commit arrives.
+  // a dead line (silently losing a vetoed store). Gated on the miss line
+  // rather than the commit, since recovery asserts before the commit
+  // arrives; once a commit is present it must be for the recovered line
+  // (anything else takes the normal hit/miss path instead).
   logic recovery_ok;
-  assign recovery_ok = recovery_ready && !killed_q[miss_idx];
+  assign recovery_ok = recovery_ready && !killed_q[miss_idx] &&
+                       (!cm_valid || ((cm_addr[24:IDX_HI+1] == miss_tag) &&
+                                      (cm_addr[IDX_HI:IDX_LO] == miss_idx)));
   assign cm_ready = (pending_miss ? (recovery_ok && !snoop_kill_pending) : hit_eff) &&
       (!upgrade_needed || upgrade_ack) && !flush_active;
 `ifdef ROCO_SOC_FENCE_FORMAL

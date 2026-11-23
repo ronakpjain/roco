@@ -15,7 +15,7 @@ set proj roco_soc
 file delete -force $proj
 file mkdir out
 
-prj_project new -name $proj -impl $impl -dev LFE5U-85F-6BG381C -synthesis synplify
+prj_project new -name $proj -impl $impl -dev LFE5U-85F-6BG381C -synthesis synplify -lpf soc/constraints/roco.lpf
 prj_impl option top "roco_top"
 
 # Same RTL as the Yosys flow. Synplify OEM reads SystemVerilog-2012;
@@ -28,26 +28,7 @@ foreach f [glob soc/rtl/common/*.svh soc/rtl/common/*.sv] {
     catch {prj_src add $f -exclude} m
     if {[string match "*invalid*" $m]} { puts "svh add note: $m" }
 }
-foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add $f }
-# Verilog `include "axi4_defs.svh" (bare name, header lives in
-# soc/rtl/common) needs an include search path. Option name varies by
-# Diamond version; try the known spellings, keep whichever sticks.
-foreach opt {{include path} {verilog include path} {hdr path} include} {
-    catch {prj_impl option $opt {"soc/rtl/common"}} msg
-    puts "include opt '$opt': $msg"
-}
-
-# Diamond-native LPF: LOCATE/IOBUF/FREQUENCY plus the Lattice BLOCK
-# RESETPATHS/ASYNCPATHS directives. If PAR rejects anything, fork
-# constraints/roco_diamond.lpf and point the line below at it.
-prj_src add soc/constraints/roco.lpf
-# A fresh project already carries an empty "Logic Preference", so a second
-# one arrives disabled; enable ours explicitly (wrapped in catch: if this
-# Diamond's dictionary lacks prj_src enable, Map will tell us instead).
-catch { prj_src enable soc/constraints/roco.lpf } enable_msg
-puts "lpf enable: $enable_msg"
-catch { puts "src list: [prj_src list]" } list_msg
-puts "src list result: $list_msg"
+foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add -format VERILOG -include soc/rtl/common $f }
 
 proc run_step {label args} {
     puts "=== $label: $args ==="

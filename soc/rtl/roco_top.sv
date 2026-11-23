@@ -55,7 +55,7 @@ module roco_top (
       .CLKOS_ENABLE("ENABLED"),
       .CLKOS_CPHASE(0),
       .CLKOS_FPHASE(0),
-      .FEEDBK_PATH("CLKOP"),
+      .FEEDBK_PATH("INT_OP"),
       .OUTDIVIDER_MUXA("DIVA"),
       .OUTDIVIDER_MUXB("DIVB"),
       .OUTDIVIDER_MUXC("DIVC"),

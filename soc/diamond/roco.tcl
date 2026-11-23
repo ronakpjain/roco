@@ -46,6 +46,8 @@ prj_src add soc/constraints/roco.lpf
 # Diamond's dictionary lacks prj_src enable, Map will tell us instead).
 catch { prj_src enable soc/constraints/roco.lpf } enable_msg
 puts "lpf enable: $enable_msg"
+catch { puts "src list: [prj_src list]" } list_msg
+puts "src list result: $list_msg"
 
 proc run_step {label args} {
     puts "=== $label: $args ==="

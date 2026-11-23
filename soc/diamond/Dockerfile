@@ -16,7 +16,9 @@ ARG INSTALLER_RUN
 # Diamond batch needs basic X client libs even headless, plus tar/perl for
 # the installer itself. Keep the list small; add motif/Xvfb only if a
 # future Diamond version's installer demands a display (see README).
-RUN yum install -y \
+# CentOS 7 went EOL in 2024 and its mirrorlist is dead; use the vault.
+RUN sed -i 's|^mirrorlist=|#mirrorlist=|; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|' /etc/yum.repos.d/CentOS-*.repo \
+ && yum install -y \
       libX11 libXext libXft libSM libICE libXtst \
       tar gzip perl which \
  && yum clean all \

@@ -24,11 +24,12 @@ prj_impl option top "roco_top"
 # Headers (.svh) are added excluded-from-build so Synplify sees them for
 # `include resolution but doesn't compile them as design units (compiling
 # a header as Verilog is CS219). The .sv files are real design sources.
-foreach f [glob soc/rtl/common/*.svh soc/rtl/common/*.sv] {
-    catch {prj_src add $f -exclude} m
-    if {[string match "*invalid*" $m]} { puts "svh add note: $m" }
-}
-foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add -format VERILOG -include soc/rtl/common $f }
+# Headers (.svh) are added excluded-from-build: Diamond/Synplify then
+# resolves bare `include "axi4_defs.svh" without compiling a header as a
+# design unit (compiling one is CS219). Belt and suspenders: the .sv adds
+# below also carry an absolute -include path.
+foreach f [glob soc/rtl/common/*.svh] { prj_src add -exclude $f }
+foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add -format VERILOG -include /work/soc/rtl/common $f }
 
 proc run_step {label args} {
     puts "=== $label: $args ==="

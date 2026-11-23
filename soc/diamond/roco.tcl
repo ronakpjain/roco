@@ -24,20 +24,17 @@ prj_impl option top "roco_top"
 # Headers (.svh) are added excluded-from-build so Synplify sees them for
 # `include resolution but doesn't compile them as design units (compiling
 # a header as Verilog is CS219). The .sv files are real design sources.
-# Headers (.svh) are added excluded-from-build: Diamond/Synplify then
-# resolves bare `include "axi4_defs.svh" without compiling a header as a
-# design unit (compiling one is CS219). Belt and suspenders: the .sv adds
-# below also carry an absolute -include path.
-foreach f [glob soc/rtl/common/*.svh] { prj_src add -exclude $f }
-foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] {
-    prj_src add $f
-    prj_src option -src $f {include path} {/work/soc/rtl/common}
+foreach f [glob soc/rtl/common/*.svh soc/rtl/common/*.sv] {
+    catch {prj_src add $f -exclude} m
+    if {[string match "*invalid*" $m]} { puts "svh add note: $m" }
 }
-# Implementation-level include search path for bare `include "*.svh" 
-# (this is what made the working run resolve headers; per-source sets
-# above are belt and suspenders).
+foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add $f }
+# Verilog `include "axi4_defs.svh" (bare name, header lives in
+# soc/rtl/common) needs an include search path. This exact block (values
+# with inner quotes) is the verbatim config from the run that compiled
+# clean in 22s -- do not "clean it up" without a passing run first.
 foreach opt {{include path} {verilog include path} {hdr path} include} {
-    catch {prj_impl option $opt {soc/rtl/common}} msg
+    catch {prj_impl option $opt {"soc/rtl/common"}} msg
     puts "include opt '$opt': $msg"
 }
 
@@ -45,7 +42,7 @@ proc run_step {label args} {
     puts "=== $label: $args ==="
     if {[catch {eval $args} msg]} {
         puts "$label FAILED: $msg"
-        foreach pat {impl1/*.srr impl1/*.srf impl1/*.log impl1/*.tcl impl1/synlog/* *.srr *.log} {
+        foreach pat {impl1/*.srr impl1/*.srf impl1/*.log impl1/*.tcl impl1/synlog/* *.srr *.log *.ldf} {
             foreach f [glob -nocomplain $pat] {
                 catch {file copy -force $f out/}
                 puts "saved $f -> out/"

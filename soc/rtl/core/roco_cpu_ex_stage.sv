@@ -873,8 +873,13 @@ module roco_cpu_ex_stage #(
                        !vec_mem_sew_illegal && !halt && !cancel_ex;
   assign ex_lu_valid = ex_lu_present && !fence_hold;
   assign ex_lu_vaddr = mem_access_addr;
-  assign btb_update = idex_valid && !ex_trap && !fence_hold && !halt && !cancel_ex &&
-                      (idex_is_branch || idex_is_jal || idex_is_jalr);
+  // The predictor is advisory: learning a trapped, canceled, fenced or
+  // held branch only pollutes a table entry, so the update needs no trap,
+  // fence, halt or cancel gating. This keeps those wide control cones off
+  // the update flops (and the BTB write decode behind them). Target
+  // consistency (PC+imm) is unaffected, which is all formal checks on the
+  // update path require.
+  assign btb_update = idex_valid && (idex_is_branch || idex_is_jal || idex_is_jalr);
   assign btb_is_branch = idex_is_branch;
   assign btb_is_jal = idex_is_jal;
   assign btb_is_jalr = idex_is_jalr;

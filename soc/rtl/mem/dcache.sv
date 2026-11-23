@@ -220,8 +220,39 @@ module dcache #(
   // race); committing to it would dirty an invalid entry or read stale
   // data. Recheck and force a write-allocate miss instead.
   logic cm_hit_now;
-  assign cm_hit_now = valid_ram[cm_addr[IDX_HI:IDX_LO]] &&
-                      (tag_ram[cm_addr[IDX_HI:IDX_LO]] == cm_addr[24:IDX_HI+1]);
+  // Commit-time hit without the tag RAM re-read. tag_ram changes only
+  // on our own fills (which imply a lookup miss) and valid_ram clears only
+  // on a peer snoop invalidate of a clean line, so a held lookup hit stays
+  // a hit unless a snoop invalidated our committing line after we looked it
+  // up. mem_hit_q/mem_idx_q capture the committing op at MEM entry (before
+  // younger lookups overwrite the EX-side registers); line_lost_q records a
+  // racing invalidate of that line. A false negative only costs a refill;
+  // the index match keeps a skewed commit from aliasing a hit.
+  logic mem_hit_q;
+  logic [IDX_BITS-1:0] mem_idx_q;
+  logic line_lost_q, cm_valid_q;
+  logic snoop_kill_new, snoop_kill_hold;
+  assign snoop_kill_new = snoop_valid && snoop_invalidate &&
+                          (snoop_idx == lu_addr_q[IDX_HI:IDX_LO]);
+  assign snoop_kill_hold = snoop_valid && snoop_invalidate && (snoop_idx == mem_idx_q);
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      mem_hit_q <= 1'b0;
+      mem_idx_q <= '0;
+      line_lost_q <= 1'b0;
+      cm_valid_q <= 1'b0;
+    end else begin
+      cm_valid_q <= cm_valid;
+      if (cm_valid && !cm_valid_q) begin
+        mem_hit_q <= lookup_hit_q;
+        mem_idx_q <= lu_addr_q[IDX_HI:IDX_LO];
+        line_lost_q <= snoop_kill_new;
+      end else if (snoop_kill_hold) begin
+        line_lost_q <= 1'b1;
+      end
+    end
+  end
+  assign cm_hit_now = mem_hit_q && !line_lost_q && (cm_addr[IDX_HI:IDX_LO] == mem_idx_q);
   logic hit_eff;
   assign hit_eff = lookup_hit_q && (!cm_valid || cm_hit_now);
   // S->M upgrade: a store hit on a clean line is Shared and must

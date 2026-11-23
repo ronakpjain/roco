@@ -28,6 +28,11 @@ foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add $f }
 # RESETPATHS/ASYNCPATHS directives. If PAR rejects anything, fork
 # constraints/roco_diamond.lpf and point the line below at it.
 prj_src add soc/constraints/roco.lpf
+# A fresh project already carries an empty "Logic Preference", so a second
+# one arrives disabled; enable ours explicitly (wrapped in catch: if this
+# Diamond's dictionary lacks prj_src enable, Map will tell us instead).
+catch { prj_src enable soc/constraints/roco.lpf } enable_msg
+puts "lpf enable: $enable_msg"
 
 prj_run Synthesis -impl $impl
 prj_run Map -impl $impl

@@ -19,7 +19,7 @@ ARG INSTALLER_RUN
 # CentOS 7 went EOL in 2024 and its mirrorlist is dead; use the vault.
 RUN sed -i 's|^mirrorlist=|#mirrorlist=|; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|' /etc/yum.repos.d/CentOS-*.repo \
  && yum install -y \
-      libX11 libXext libXft libSM libICE libXtst \
+      libX11 libXext libXft libSM libICE libXtst mesa-libGL mesa-libGLU \
       tar gzip perl which \
  && yum clean all \
  && rm -rf /var/cache/yum

@@ -444,7 +444,7 @@ case "$job" in
   xbar)
     top=axi_xbar_contract
     depth=9
-    sources=(rtl/bus/axi4_xbar.sv formal/axi_xbar_contract.sv)
+    sources=(rtl/bus/axi4_xbar.sv rtl/bus/axi4_register_slice.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
   *) echo 'Usage: bash formal/run.sh {soc-system|soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio|soc-gpr|soc-gpr-forward|soc-a|soc-v|soc-m|soc-pc|soc-trap|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;

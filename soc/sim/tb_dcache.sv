@@ -21,6 +21,14 @@ module tb_dcache;
   logic mem_rvalid = 1'b0, mem_rlast = 1'b0;
   logic [31:0] mem_rdata = '0;
   logic hit_pulse, miss_pulse;
+  logic snoop_valid = 1'b0;
+  logic [22:0] snoop_addr = '0;
+  logic snoop_exclusive = 1'b0;
+  logic snoop_hit, snoop_dirty;
+  logic snoop_invalidate = 1'b0;
+  logic upgrade_req;
+  logic [22:0] upgrade_addr;
+  logic upgrade_ack = 1'b1;
 
   dcache #(
       .NUM_LINES(256),

@@ -79,7 +79,18 @@ module dcache #(
   input logic mem_rlast,
   /* Performance counters. */
   output logic hit_pulse,
-  output logic miss_pulse
+  output logic miss_pulse,
+  /* MSI snoop (bus-side coherence). Single-core ties valid/ack low/high. */
+  input logic snoop_valid,
+  input logic [22:0] snoop_addr,
+  input logic snoop_exclusive,
+  output logic snoop_hit,
+  output logic snoop_dirty,
+  input logic snoop_invalidate,
+  /* S->M upgrade: store to a clean (Shared) line must invalidate peers. */
+  output logic upgrade_req,
+  output logic [22:0] upgrade_addr,
+  input logic upgrade_ack
 );
 
   localparam int OFF_BITS = $clog2(LINE_WORDS);
@@ -185,7 +196,24 @@ module dcache #(
   assign hit_pulse = lookup_valid_q && (state == S_IDLE) && lookup_hit_q;
   assign miss_pulse = lookup_valid_q && (state == S_IDLE) && !lookup_hit_q;
 
-  assign cm_ready = pending_miss ? recovery_ready : lookup_hit_q;
+  // MSI snoop: probe the authoritative tag/valid/dirty RAMs. A dirty hit
+  // must be written back by the coherence hub before invalidation, so a
+  // snoop invalidate only drops clean lines here; dirty lines stay valid
+  // and report snoop_dirty until the hub drains them.
+  logic [IDX_BITS-1:0] snoop_idx;
+  logic [MEM_TAG_BITS-1:0] snoop_tag;
+  assign snoop_idx = snoop_addr[OFF_BITS+IDX_BITS-1:OFF_BITS];
+  assign snoop_tag = snoop_addr[22:OFF_BITS+IDX_BITS];
+  assign snoop_hit = snoop_valid && valid_ram[snoop_idx] && (tag_ram[snoop_idx] == snoop_tag);
+  assign snoop_dirty = snoop_hit && dirty_ram[snoop_idx];
+  // S->M upgrade: a store hit on a clean line is Shared and must
+  // invalidate the peer before going Modified. Gate commit on hub ack.
+  logic upgrade_needed;
+  assign upgrade_needed = (state == S_IDLE) && cm_valid && cm_we && lookup_hit_q &&
+                          !dirty_ram[cm_addr[IDX_HI:IDX_LO]];
+  assign upgrade_req = upgrade_needed;
+  assign upgrade_addr = cm_addr;
+  assign cm_ready = (pending_miss ? recovery_ready : lookup_hit_q) && (!upgrade_needed || upgrade_ack);
 `ifdef ROCO_SOC_FENCE_FORMAL
   assign f_idle = state == S_IDLE;
   assign f_lookup_pending = lookup_valid_q;
@@ -395,9 +423,18 @@ module dcache #(
         lu_addr_q <= lu_addr;
       end
 
+      // MSI snoop invalidate: drop clean lines immediately. Dirty hits
+      // are retained so the hub can write them back first (see snoop_dirty).
+      // Lookup-tag mirror follows so later lookups miss the evicted line.
+      if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
+          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
+        valid_ram[snoop_idx] <= 1'b0;
+        lookup_tag_ram[snoop_idx] <= '0;
+      end
+
       // Save the store payload alongside the address comparison.
       prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid) ? cm_be : 4'b0000;
-      if ((state == S_IDLE) && cm_valid && cm_we) begin
+      if ((state == S_IDLE) && cm_valid && cm_we && (!upgrade_needed || upgrade_ack)) begin
         prev_store_data <= cm_wdata;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;
       end

@@ -419,7 +419,16 @@ module roco_soc #(
       .mem_rdata(dc_mem_rdata),
       .mem_rlast(dc_mem_rlast),
       .hit_pulse(dc_hit),
-      .miss_pulse(dc_miss)
+      .miss_pulse(dc_miss),
+      .snoop_valid(1'b0),
+      .snoop_addr(23'd0),
+      .snoop_exclusive(1'b0),
+      .snoop_hit(),
+      .snoop_dirty(),
+      .snoop_invalidate(1'b0),
+      .upgrade_req(),
+      .upgrade_addr(),
+      .upgrade_ack(1'b1)
   );
 
   // ------------------------------------------------------------- AXI4 fabric

@@ -188,6 +188,11 @@ module axi4_xbar (
   // of each channel vector (axi4_defs.svh field order).
   logic [1:0] ar_sr, aw_sr, w_sr;
   logic [8:0] mr_sr, mb_sr;
+  // AW slice occupancy per slave (slice output VALID): a new AW is only
+  // accepted into an empty slice, so at most one address is ever outstanding
+  // ahead of the drain-side FSM advance. AR needs no gate (push-side advance
+  // leaves Address immediately); W/R/B stream through their FIFOs in order.
+  logic [1:0] aw_out_v;
 
   assign {mar[8], mar[7], mar[6], mar[5], mar[4], mar[3], mar[2], mar[1], mar[0]} = {
     m8_ar, m7_ar, m6_ar, m5_ar, m4_ar, m3_ar, m2_ar, m1_ar, m0_ar
@@ -299,8 +304,11 @@ module axi4_xbar (
     // READY is low. The originating master holds the address payload.
     axi4_ar_t ar;
     assign ar = rd[s] == Address ? mar[ro[s]] : '0;
+    // Gate the AW mux on slice-empty, exactly like maw_ready: otherwise a
+    // master holding VALID would push ghost beats into a non-empty slice
+    // that the arbiter never granted.
     axi4_aw_t aw;
-    assign aw = wr[s] == Address ? maw[wo[s]] : '0;
+    assign aw = (wr[s] == Address && aw_sr[s] && !aw_out_v[s]) ? maw[wo[s]] : '0;
     axi4_w_t w;
     assign w = wr[s] == Data ? mw[wo[s]] : '0;
     axi4_r_t r;
@@ -332,8 +340,8 @@ module axi4_xbar (
     // Slave-side handshake uses the slice DRAIN (not push) for AW/W so the
     // slave always observes AW before W. AR stays push-side: R has no such
     // ordering constraint and the earlier advance shortens miss latency.
-    logic aw_out_v, w_out_v, w_out_last;
-    assign aw_out_v = saw[s][$bits(m0_aw)-1];
+    logic w_out_v, w_out_last;
+    assign aw_out_v[s] = saw[s][$bits(m0_aw)-1];
     assign w_out_v = sw[s][$bits(m0_w)-1];
     assign w_out_last = sw[s][0];
     axi4_register_slice #(
@@ -403,8 +411,8 @@ module axi4_xbar (
     assign w1 = wo[1] == Master;
     assign mar_ready[m] = (r0 && rd[0] == Address && ar_sr[0]) ||
                           (r1 && rd[1] == Address && ar_sr[1]);
-    assign maw_ready[m] = (w0 && wr[0] == Address && aw_sr[0]) ||
-                          (w1 && wr[1] == Address && aw_sr[1]);
+    assign maw_ready[m] = (w0 && wr[0] == Address && aw_sr[0] && !aw_out_v[0]) ||
+                          (w1 && wr[1] == Address && aw_sr[1] && !aw_out_v[1]);
     assign mw_ready[m] = (w0 && wr[0] == Data && w_sr[0]) || (w1 && wr[1] == Data && w_sr[1]);
     // Per-master return slices: the 2:1 slave mux stays combinational
     // (small) and the slice registers both the beat and the READY return,

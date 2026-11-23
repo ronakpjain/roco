@@ -33,6 +33,13 @@ foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] {
     prj_src add $f
     prj_src option -src $f {include path} {/work/soc/rtl/common}
 }
+# Implementation-level include search path for bare `include "*.svh" 
+# (this is what made the working run resolve headers; per-source sets
+# above are belt and suspenders).
+foreach opt {{include path} {verilog include path} {hdr path} include} {
+    catch {prj_impl option $opt {soc/rtl/common}} msg
+    puts "include opt '$opt': $msg"
+}
 
 proc run_step {label args} {
     puts "=== $label: $args ==="

@@ -107,7 +107,11 @@ always_ff @(posedge clk) begin
       f_pending <= 1'b1;
       {f_cpu_addr, f_cpu_offset, f_cpu_funct3} <= {lu_addr, lu_offset, lu_funct3};
     end else if (cm_valid) f_pending <= 1'b0;
-    if (cm_valid && cm_we && cm_addr == f_watch_addr) begin
+    // The architectural copy advances exactly when the DUT retires the
+    // store: ready alone is not enough, since a same-cycle snoop kill
+    // vetoes the write and forces a re-miss instead.
+    if (cm_valid && cm_we && cm_addr == f_watch_addr && cm_ready && !snoop_kill_cm &&
+        (!upgrade_needed || upgrade_ack)) begin
       f_arch_word <= f_merge(f_arch_word, cm_wdata, cm_be);
     end
 

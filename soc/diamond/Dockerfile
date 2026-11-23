@@ -18,7 +18,7 @@ ARG INSTALLER_RUN
 # future Diamond version's installer demands a display (see README).
 # CentOS 7 went EOL in 2024 and its mirrorlist is dead; use the vault.
 RUN sed -i 's|^mirrorlist=|#mirrorlist=|; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|' /etc/yum.repos.d/CentOS-*.repo \
- && yum install -y \
+ && yum install -y xorg-x11-server-Xvfb \
       libX11 libXext libXft libSM libICE libXtst \
       tar gzip perl which \
  && yum clean all \
@@ -30,7 +30,7 @@ COPY installer/${INSTALLER_RUN} /tmp/diamond-installer.run
 # for a newer Diamond release, the first build log will say so — adjust
 # and note the working combination in soc/diamond/README.md.
 RUN chmod +x /tmp/diamond-installer.run \
- && /tmp/diamond-installer.run --mode unattended --prefix /usr/local/diamond \
+ && xvfb-run -a /tmp/diamond-installer.run --mode unattended --prefix /usr/local/diamond \
  && rm -f /tmp/diamond-installer.run
 
 ENV DIAMOND_VERSION=${DIAMOND_VERSION}

@@ -308,6 +308,22 @@ module dcache #(
   // stalled core re-issues the lookup after the flush drains.
   logic flush_entry;
   assign flush_entry = (state == S_IDLE) && flush && !flush_active;
+  // A peer snoop that drops a line must also drop the microarchitectural
+  // state shadowing it: a registered hit for a dead line, or a pending
+  // miss about to serve one, would otherwise commit stale data. The guard
+  // mirrors the valid_ram clear exactly, so the clears fire precisely when
+  // the line dies. Safe direction only: a coincidental same-cycle lookup
+  // loses its result and refetches.
+  logic snoop_kill_lu, snoop_kill_pending, snoop_kill_cm;
+  assign snoop_kill_lu = snoop_valid && snoop_invalidate &&
+                          (snoop_idx == lu_addr_q[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
+                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
+  assign snoop_kill_pending = snoop_valid && snoop_invalidate && pending_miss &&
+                              (snoop_idx == miss_idx) && valid_ram[snoop_idx] &&
+                              (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
+  assign snoop_kill_cm = snoop_valid && snoop_invalidate && cm_valid &&
+                          (snoop_idx == cm_addr[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
+                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;
@@ -320,7 +336,11 @@ module dcache #(
       // level-held through stalls, so only clear on the retire cycle
       // (cm_ready) exactly as the old single-cycle pulse did; clearing on
       // a still-waiting commit would drop the hit before it is consumed.
-      if (lu_valid) begin
+      // A snoop kill of the looked-up line voids the held hit first: the
+      // line is dead, so the next commit must re-miss, never consume it.
+      if (snoop_kill_lu) begin
+        lookup_hit_q <= 1'b0;
+      end else if (lu_valid) begin
         lookup_hit_q <= lu_hit_live;
       end else if (cm_valid && cm_ready) begin
         lookup_hit_q <= 1'b0;
@@ -334,11 +354,17 @@ module dcache #(
         recovery_ready <= 1'b0;
       end
       // A following miss may start on the preceding request's commit edge.
+      // A snoop kill of the pending line discards the recovery with it:
+      // the invalidation raced the fill, so the commit must re-miss and
+      // refetch rather than consume possibly-stale data.
       if (flush_entry) begin
         pending_miss <= 1'b0;
         recovery_ready <= 1'b0;
       end else if (miss_pulse || race_miss) begin
         pending_miss <= 1'b1;
+        recovery_ready <= 1'b0;
+      end else if (snoop_kill_pending) begin
+        pending_miss <= 1'b0;
         recovery_ready <= 1'b0;
       end
     end
@@ -535,9 +561,14 @@ module dcache #(
       // retire-cycle (ready) commit may set dirty state. Otherwise a store
       // that is still waiting for its fill would dirty an invalid line and
       // the eviction would write back unfilled (zero) data over SDRAM.
-      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_ready && cm_we && lu_valid) ? cm_be :
+      // A snoop kill of the committing line vetoes the retire: the line
+      // is dead, so the hub believes it is gone -- dirtying it would leave
+      // a dirty-invalid entry whose later writeback would clobber the
+      // peer's data. The commit re-misses instead.
+      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_ready && cm_we && lu_valid &&
+                        !snoop_kill_cm) ? cm_be :
           4'b0000;
-      if ((state == S_IDLE) && cm_valid && cm_ready && cm_we &&
+      if ((state == S_IDLE) && cm_valid && cm_ready && cm_we && !snoop_kill_cm &&
           (!upgrade_needed || upgrade_ack)) begin
         prev_store_data <= cm_wdata;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;

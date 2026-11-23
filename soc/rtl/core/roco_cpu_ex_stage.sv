@@ -140,6 +140,7 @@ module roco_cpu_ex_stage #(
   input logic [31:0] irq_next_pc,
   input logic irq_timer,
   input logic irq_external,
+  input logic irq_software,
   input logic redirect_from_mem,
   /* Trap entry this cycle, used to drop a reservation. */
   output logic ex_trap_taken,
@@ -521,6 +522,7 @@ module roco_cpu_ex_stage #(
       .trap_tval(csr_entry_tval),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
+      .irq_software(irq_software),
       .irq_req(irq_req),
       .irq_code(irq_code),
       .mret_en(csr_mret_en),

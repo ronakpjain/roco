@@ -295,6 +295,7 @@ module roco_soc #(
       .halt(halted),
       .irq_timer(irq_timer),
       .irq_external(1'b0),
+      .irq_software(1'b0),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
       .imem_rsp_valid(imem_rsp_valid),

@@ -97,9 +97,10 @@ module roco_cpu #(
   input logic rst,
   input logic [31:0] boot_addr,
   input logic halt,
-  /* Platform interrupt lines: machine timer and machine external. */
+  /* Platform interrupt lines: machine timer, external and software (IPI). */
   input logic irq_timer,
   input logic irq_external,
+  input logic irq_software,
   /* Physical instruction memory port: hold req/addr until rsp_valid. */
   output logic imem_req,
   output logic [31:0] imem_addr,
@@ -1191,6 +1192,7 @@ module roco_cpu #(
       .irq_next_pc(fetch_oldest_pc),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
+      .irq_software(irq_software),
       .redirect_from_mem(mem_redirect || ex_redirect_en),
       .mem_data(mem_forward_data),
       .wb_data(wb_data),

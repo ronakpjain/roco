@@ -31,6 +31,7 @@ module roco_cpu_csr #(
   /* Platform interrupt inputs. */
   input logic irq_timer,
   input logic irq_external,
+  input logic irq_software,
   /* Highest-priority enabled interrupt, offered to EX. */
   output logic irq_req,
   output logic [4:0] irq_code,
@@ -191,7 +192,8 @@ module roco_cpu_csr #(
                      (priv_q != PRIV_M) && medeleg_q[trap_cause[4:0]];
 
   assign mip_value = mip_q | (irq_timer ? 32'h0000_0080 : 32'd0) |
-                     (irq_external ? 32'h0000_0800 : 32'd0);
+                     (irq_external ? 32'h0000_0800 : 32'd0) |
+                     (irq_software ? 32'h0000_0008 : 32'd0);
   assign irq_cand = mip_value & mie_q & MIE_MASK;
   // Machine interrupts need mstatus.MIE unless a less privileged mode is
   // running; supervisor interrupts additionally need the privilege mode

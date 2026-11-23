@@ -36,7 +36,7 @@ RUN chmod +x /tmp/diamond-installer.run \
  && rm -f /tmp/diamond-installer.run /tmp/install.qs
 
 ENV DIAMOND_VERSION=${DIAMOND_VERSION}
-ENV PATH=/usr/local/diamond/${DIAMOND_VERSION}/bin/lin64:$PATH
+ENV PATH=/usr/local/diamond/bin/lin64:$PATH
 # FlexLM: node-locked license bind-mounted read-only at /lic (see run.sh).
 ENV LM_LICENSE_FILE=/lic/license.dat
 # Diamond writes dotfiles; keep them off the bind mounts.

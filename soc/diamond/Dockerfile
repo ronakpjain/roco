@@ -14,7 +14,7 @@ ARG DIAMOND_VERSION
 ARG INSTALLER_RUN
 
 # No X server needed: this is a Qt Installer Framework bundle, which runs
-# headless with the offscreen platform plus an auto-click script
+# headless with the minimal platform plus an auto-click script
 # (see install.qs). X client libs stay for the Diamond tools themselves.
 # CentOS 7 went EOL in 2024 and its mirrorlist is dead; use the vault.
 RUN sed -i 's|^mirrorlist=|#mirrorlist=|; s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|' /etc/yum.repos.d/CentOS-*.repo \
@@ -32,7 +32,7 @@ COPY install.qs /tmp/install.qs
 # will say so — adjust install.qs and note the working combination in
 # soc/diamond/README.md.
 RUN chmod +x /tmp/diamond-installer.run \
- && QT_QPA_PLATFORM=offscreen /tmp/diamond-installer.run --script /tmp/install.qs --prefix /usr/local/diamond \
+ && QT_QPA_PLATFORM=minimal /tmp/diamond-installer.run --script /tmp/install.qs --prefix /usr/local/diamond \
  && rm -f /tmp/diamond-installer.run /tmp/install.qs
 
 ENV DIAMOND_VERSION=${DIAMOND_VERSION}

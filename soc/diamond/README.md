@@ -94,7 +94,7 @@ complains about any directive we will fork a `constraints/roco_diamond.lpf`.
   dictionary but have not been executed yet — the first real run will
   confirm them against `diamondc` output, and this file will be updated.
 - The `.run` is a Qt Installer Framework bundle (not InstallBuilder):
-  headless install goes through `QT_QPA_PLATFORM=offscreen` + the
+  headless install goes through `QT_QPA_PLATFORM=minimal` + the
   auto-click script `soc/diamond/install.qs`. If pages/flags differ for
   a newer Diamond release, adjust `install.qs`/Dockerfile from the first
   build log. If the unattended installer flags differ for your Diamond version,

@@ -452,9 +452,15 @@ module dcache #(
         valid_ram[snoop_idx] <= 1'b0;
       end
 
-      // Save the store payload alongside the address comparison.
-      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_we && lu_valid) ? cm_be : 4'b0000;
-      if ((state == S_IDLE) && cm_valid && cm_we && (!upgrade_needed || upgrade_ack)) begin
+      // Save the store payload alongside the address comparison. The commit
+      // strobe is level-held through stalls, so qualify with cm_ready: only a
+      // retire-cycle (ready) commit may set dirty state. Otherwise a store
+      // that is still waiting for its fill would dirty an invalid line and
+      // the eviction would write back unfilled (zero) data over SDRAM.
+      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_ready && cm_we && lu_valid) ? cm_be :
+          4'b0000;
+      if ((state == S_IDLE) && cm_valid && cm_ready && cm_we &&
+          (!upgrade_needed || upgrade_ack)) begin
         prev_store_data <= cm_wdata;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;
       end

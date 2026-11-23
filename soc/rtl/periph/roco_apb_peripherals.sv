@@ -24,11 +24,11 @@ module roco_apb_peripherals (
   output logic [7:0] uart_tx_byte,
   input logic [1:0] buttons,
   output logic [3:0] leds,
-  output logic irq_timer,
+  output logic irq_timer0,
   // Hart1 timer + software (IPI) interrupts. mtime is shared; each hart
   // has its own compare. mmio_commit1 lets hart1 retire halt/restart too.
   output logic irq_timer1,
-  output logic irq_software,
+  output logic irq_software0,
   output logic irq_software1,
   input logic mmio_commit1,
   input logic ic_hit,
@@ -112,9 +112,9 @@ module roco_apb_peripherals (
   // GPIO and timer. Hart0 keeps the legacy 0x20/0x24/0x28 aliases; hart1
   // uses 0x60/0x64/0x2c. 0x50/0x54 are hart0/hart1 software (IPI) bits.
   assign gpio_data = paddr == 16'h0010 ? {28'd0, leds} : {30'd0, buttons};
-  assign irq_timer = mtime >= mtimecmp;
+  assign irq_timer0 = mtime >= mtimecmp;
   assign irq_timer1 = mtime >= mtimecmp1;
-  assign irq_software = swip0;
+  assign irq_software0 = swip0;
   assign irq_software1 = swip1;
   always_comb begin
     case (paddr)
@@ -122,13 +122,13 @@ module roco_apb_peripherals (
       16'h001c: timer_data = mtime[63:32];
       16'h0020: timer_data = mtimecmp[31:0];
       16'h0024: timer_data = mtimecmp[63:32];
-      16'h0028: timer_data = {31'd0, irq_timer};
+      16'h0028: timer_data = {31'd0, irq_timer0};
       16'h002c: timer_data = {31'd0, irq_timer1};
       16'h0050: timer_data = {31'd0, swip0};
       16'h0054: timer_data = {31'd0, swip1};
       16'h0060: timer_data = mtimecmp1[31:0];
       16'h0064: timer_data = mtimecmp1[63:32];
-      default: timer_data = {31'd0, irq_timer};
+      default: timer_data = {31'd0, irq_timer0};
     endcase
   end
   always_ff @(posedge clk or posedge rst) begin

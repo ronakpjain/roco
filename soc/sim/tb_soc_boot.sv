@@ -68,9 +68,9 @@ module tb_soc_boot #(
   initial trace_on = $test$plusargs("trace");
 
   always @(posedge clk) begin
-    if (trace_on && u_soc.trace_valid) begin
-      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace_pc, u_soc.trace_instr,
-               u_soc.trace_rd, u_soc.trace_wdata);
+    if (trace_on && u_soc.trace0_valid) begin
+      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace0_pc, u_soc.trace0_instr,
+               u_soc.trace0_rd, u_soc.trace0_wdata);
     end
   end
 
@@ -80,9 +80,9 @@ module tb_soc_boot #(
     dbg_cycles <= dbg_cycles + 1;
     if (trace_on && (dbg_cycles % 2000 == 0)) begin
       $display("  dbg rst=%b boot=%b rel=%b pc=%08x ireq=%b icst=%0d rd=%0d wr=%0d cst=%0d",
-               u_soc.core_rst, u_soc.boot_done, u_soc.boot_release, u_soc.u_cpu.u_if.pc_if,
-               u_soc.u_cpu.imem_req, u_soc.u_icache.state, u_soc.u_xbar.rd[0], u_soc.u_xbar.wr[0],
-               u_soc.u_sdram.state);
+               u_soc.core0_rst, u_soc.boot_done, u_soc.boot_release, u_soc.u_cpu0.u_if.pc_if,
+               u_soc.u_cpu0.imem_req, u_soc.u_icache0.state, u_soc.u_xbar.rd[0],
+               u_soc.u_xbar.wr[0], u_soc.u_sdram.state);
     end
   end
 
@@ -222,11 +222,11 @@ module tb_soc_boot #(
     $display("tb_soc_boot: bootloader accepted image at %0t", $time);
     if (reload_file != "") begin
       guard = 0;
-      while ((restarts == 0 || !u_soc.core_rst) && guard < 100000) begin
+      while ((restarts == 0 || !u_soc.core0_rst) && guard < 100000) begin
         @(posedge clk);
         guard++;
       end
-      if (restarts != 1 || !u_soc.core_rst) $fatal(1, "first image did not restart boot");
+      if (restarts != 1 || !u_soc.core0_rst) $fatal(1, "first image did not restart boot");
       load_packet(reload_file);
       for (i = 0; i < packet_len; i++) send_byte(packet[i]);
       guard = 0;

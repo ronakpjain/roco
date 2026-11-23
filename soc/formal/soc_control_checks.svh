@@ -23,19 +23,19 @@ always_ff @(posedge clk) begin
       assert (f_soc_apb_access && !pwrite && paddr[15:0] == 0 && uart_rx_valid);
     end
     if (boot_restart) begin
-      assert (dmem_req && !dmem_in_sdram && mmio_done);
+      assert (dmem0_req && !dmem0_in_sdram && mmio0_done);
       assert (pwrite && paddr[15:0] == 16'h0108 && |pstrb);
     end
-    if (halted || core_rst) assert (!trace_valid);
+    if (halted || core0_rst) assert (!trace0_valid);
     cover (f_soc_apb_access);
     cover (uart_tx_valid && !boot_tx_valid);
     cover (f_soc_exit_write);
     cover (halted);
-    cover (core_rst && !boot_cache_maintenance);
-    cover (!core_rst);
+    cover (core0_rst && !boot_cache_maintenance);
+    cover (!core0_rst);
   end
   if (f_soc_past_valid && !rst && !$past(rst)) begin
-    assert (core_rst == (boot_cache_maintenance || !$past(boot_done_eff)));
+    assert (core0_rst == (boot_cache_maintenance || !$past(boot_done_eff)));
     if ($past(psel && (!penable || !pready))) begin
       assert (psel && penable);
       assert ($stable({paddr, pwrite, pwdata, pstrb}));
@@ -49,7 +49,7 @@ always_ff @(posedge clk) begin
                               ($past(pwdata) & $past(f_soc_strobe_mask))));
       end else assert ($stable(exit_code));
       if (halted && !$past(halted)) begin
-        assert ($past(dmem_req && !dmem_in_sdram && mmio_done));
+        assert ($past(dmem0_req && !dmem0_in_sdram && mmio0_done));
         assert ($past(pwrite && paddr[15:0] == 16'h1000 && |pstrb));
       end
       if ($past(halted)) assert (halted);

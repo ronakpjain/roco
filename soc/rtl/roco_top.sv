@@ -111,6 +111,11 @@ module roco_top (
   logic [31:0] unused_trace_instr;
   logic [4:0] unused_trace_rd;
   logic [31:0] unused_trace_wdata;
+  logic unused_trace1_valid;
+  logic [31:0] unused_trace1_pc;
+  logic [31:0] unused_trace1_instr;
+  logic [4:0] unused_trace1_rd;
+  logic [31:0] unused_trace1_wdata;
   logic [15:0] sdram_dq_out;
   logic sdram_dq_oe;
   logic [15:0] sdram_dq_in;
@@ -142,11 +147,16 @@ module roco_top (
       .sdram_dq_in(sdram_dq_in),
       .halted(soc_halted),
       .exit_code({unused_exit_code, soc_exit_code}),
-      .trace_valid(unused_trace_valid),
-      .trace_pc(unused_trace_pc),
-      .trace_instr(unused_trace_instr),
-      .trace_rd(unused_trace_rd),
-      .trace_wdata(unused_trace_wdata)
+      .trace0_valid(unused_trace_valid),
+      .trace0_pc(unused_trace_pc),
+      .trace0_instr(unused_trace_instr),
+      .trace0_rd(unused_trace_rd),
+      .trace0_wdata(unused_trace_wdata),
+      .trace1_valid(unused_trace1_valid),
+      .trace1_pc(unused_trace1_pc),
+      .trace1_instr(unused_trace1_instr),
+      .trace1_rd(unused_trace1_rd),
+      .trace1_wdata(unused_trace1_wdata)
   );
 
   assign sdram_dq = sdram_dq_oe ? sdram_dq_out : 16'hzzzz;

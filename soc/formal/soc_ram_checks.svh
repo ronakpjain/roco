@@ -22,8 +22,8 @@ endfunction
 
 always_ff @(posedge clk) begin
   f_ram_past <= 1'b1;
-  f_instruction_addr <= imem_addr;
-  f_instruction_sdram <= imem_in_sdram;
+  f_instruction_addr <= imem0_addr;
+  f_instruction_sdram <= imem0_in_sdram;
   if (rst) begin
     {f_ram_write_left, f_ram_write_is_boot, f_last_lookup_word} <= '0;
   end else begin
@@ -32,59 +32,61 @@ always_ff @(posedge clk) begin
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
     // The backing read agent is the real AXI master, crossbar, adapter
     // and SDRAM controller. Count native handshakes independently.
-    assert ((f_dc_read_left != 0) == d_rready);
-    assert (d_rready == f_ram_read_d);
+    assert ((f_dc_read_left != 0) == d0_rready);
+    assert (d0_rready == f_ram_read_d);
     if (f_ram_read_d) assert (f_dc_read_left == f_adapter_read_left);
-    assert ((f_ic_read_left != 0) == i_rready);
-    assert (i_rready == f_ram_read_i);
+    assert ((f_ic_read_left != 0) == i0_rready);
+    assert (i0_rready == f_ram_read_i);
     if (f_ram_read_i) assert (f_ic_read_left == f_adapter_read_left);
-    if (ic_mem_req && ic_mem_ready) begin
-      assert (f_ic_read_left == 0 && ic_mem_len == 3);
-      f_ic_read_left <= 3'(ic_mem_len) + 3'd1;
+    if (ic0_mem_req && ic0_mem_ready) begin
+      assert (f_ic_read_left == 0 && ic0_mem_len == 3);
+      f_ic_read_left <= 3'(ic0_mem_len) + 3'd1;
     end
-    if (ic_mem_rvalid) begin
-      assert (f_ic_read_left != 0 && ic_mem_rlast == (f_ic_read_left == 1));
+    if (ic0_mem_rvalid) begin
+      assert (f_ic_read_left != 0 && ic0_mem_rlast == (f_ic_read_left == 1));
       f_ic_read_left <= f_ic_read_left - 3'd1;
     end
-    if (dc_mem_req && dc_mem_ready && !dc_mem_we) begin
-      assert (f_dc_read_left == 0 && dc_mem_len == 7);
-      f_dc_read_left <= 5'(dc_mem_len) + 5'd1;
+    if (dc0_mem_req && dc0_mem_ready && !dc0_mem_we) begin
+      assert (f_dc_read_left == 0 && dc0_mem_len == 7);
+      f_dc_read_left <= 5'(dc0_mem_len) + 5'd1;
     end
-    if (dc_mem_rvalid) begin
-      assert (f_dc_read_left != 0 && dc_mem_rlast == (f_dc_read_left == 1));
+    if (dc0_mem_rvalid) begin
+      assert (f_dc_read_left != 0 && dc0_mem_rlast == (f_dc_read_left == 1));
       f_dc_read_left <= f_dc_read_left - 5'd1;
     end
-    if (dc_mem_req) assert (dc_mem_len == 7 && dc_mem_word_addr[2:0] == 0);
+    if (dc0_mem_req) assert (dc0_mem_len == 7 && dc0_mem_word_addr[2:0] == 0);
     if (f_ram_past && !$past(rst)) begin
-      assert (imem_rsp_valid == (f_instruction_sdram ? ic_cpu_rsp : i_unc_rsp));
-      if (imem_rsp_valid) begin
-        assert (imem_rsp_addr == f_instruction_addr);
-        assert (imem_rsp_data == (f_instruction_sdram ? ic_cpu_rsp_data : 32'd0));
+      assert (imem0_rsp_valid == (f_instruction_sdram ? ic0_cpu_rsp : i0_unc_rsp));
+      if (imem0_rsp_valid) begin
+        assert (imem0_rsp_addr == f_instruction_addr);
+        assert (imem0_rsp_data == (f_instruction_sdram ? ic0_cpu_rsp_data : 32'd0));
       end
-      if ($past(dc_mem_req && !dc_mem_ready))
-        assert ($stable({dc_mem_req, dc_mem_we, dc_mem_word_addr, dc_mem_len}));
-      if ($past(dc_mem_wvalid && !dc_mem_wready))
-        assert ($stable({dc_mem_wvalid, dc_mem_wdata, dc_mem_wbe}));
+      if ($past(dc0_mem_req && !dc0_mem_ready))
+        assert ($stable({dc0_mem_req, dc0_mem_we, dc0_mem_word_addr, dc0_mem_len}));
+      if ($past(dc0_mem_wvalid && !dc0_mem_wready))
+        assert ($stable({dc0_mem_wvalid, dc0_mem_wdata, dc0_mem_wbe}));
     end
-    if (!core_rst) begin
-      assert (f_dc_pending == (f_mem_packet && dmem_in_sdram));
+    if (!core0_rst) begin
+      assert (f_dc_pending == (f_mem_packet && dmem0_in_sdram));
       if (f_dc_pending) assert (f_dc_word == f_last_lookup_word[24:2]);
-      if (dmem_req && dmem_in_sdram) begin
-        assert (f_dc_pending && dc_cm_ready && dmem_addr[24:2] == f_dc_word);
+      // dmem0_req is level-held through stalls; only the retire cycle
+      // (cm_ready) may observe a ready cache commit.
+      if (dmem0_req && dmem0_in_sdram && dc0_cm_ready) begin
+        assert (f_dc_pending && dmem0_addr[24:2] == f_dc_word);
       end
-      if (dmem_lu_valid && dmem_lu_in_sdram) begin
-        assert (!f_dc_pending || (dmem_req && dmem_in_sdram));
+      if (dmem0_lu_valid && dmem0_lu_in_sdram) begin
+        assert (!f_dc_pending || (dmem0_req && dmem0_in_sdram));
         f_dc_pending <= 1'b1;
-        f_dc_word <= dmem_lu_addr[24:2];
-      end else if (dmem_req && dmem_in_sdram) f_dc_pending <= 1'b0;
+        f_dc_word <= dmem0_lu_addr[24:2];
+      end else if (dmem0_req && dmem0_in_sdram && dc0_cm_ready) f_dc_pending <= 1'b0;
     end
 `endif
-    if (dmem_lu_valid) f_last_lookup_word <= dmem_lu_addr;
+    if (dmem0_lu_valid) f_last_lookup_word <= dmem0_lu_addr;
     // Count the real downstream AW/W handshakes. Link the observed
     // burst to the selected master, even across indefinitely long stalls.
     if (ram_aw.valid && ram_awready) begin
       assert (f_ram_write_left == 0);
-      assert ((boot_aw.valid && boot_awready) != (d_aw.valid && d_awready));
+      assert ((boot_aw.valid && boot_awready) != (d0_aw.valid && d0_awready));
       f_ram_write_left <= 5'(ram_aw.len) + 5'd1;
       f_ram_write_is_boot <= boot_aw.valid && boot_awready;
     end
@@ -97,7 +99,7 @@ always_ff @(posedge clk) begin
     assert (f_d_write_left == (f_ram_write_is_boot ? 5'd0 : f_ram_write_left));
     assert (f_boot_write_left == (f_ram_write_is_boot ? f_ram_write_left : 5'd0));
     if (boot_restart && !BOOT_OVERRIDE) begin
-      assert (!core_rst);
+      assert (!core0_rst);
       assert (!boot_mem_req && !boot_mem_wvalid);
     end
     if (f_ram_past && !$past(rst)) begin
@@ -107,16 +109,16 @@ always_ff @(posedge clk) begin
       if ($past(ram_w.valid && !ram_wready)) assert ($stable(ram_w));
     end
     if (f_mem_packet) begin
-      assert (dmem_addr[31:2] == f_last_lookup_word);
-      assert (dmem_in_sdram == (dmem_addr[31:25] == 7'd8));
-      if (dmem_lu_valid) assert (dmem_req);
+      assert (dmem0_addr[31:2] == f_last_lookup_word);
+      assert (dmem0_in_sdram == (dmem0_addr[31:25] == 7'd8));
+      if (dmem0_lu_valid) assert (dmem0_req);
     end
-    if (dmem_valid || dmem_req) assert (f_mem_packet);
-    cover (imem_req);
-    cover (ic_mem_req);
-    cover (dc_mem_req);
-    cover (dmem_req);
-    cover (dmem_req && dmem_we);
+    if (dmem0_valid || dmem0_req) assert (f_mem_packet);
+    cover (imem0_req);
+    cover (ic0_mem_req);
+    cover (dc0_mem_req);
+    cover (dmem0_req);
+    cover (dmem0_req && dmem0_we);
     cover (ram_ar.valid);
     cover (ram_aw.valid);
     cover (ram_w.valid);
@@ -128,7 +130,7 @@ always_ff @(posedge clk) begin
   // CPU reset cancels its packet, but does not reset the cache. This
   // monitor proves ownership within a CPU epoch only; cache cancellation
   // across UART boot restart remains a separate composition obligation.
-  if (core_rst) {f_dc_pending, f_dc_word} <= '0;
+  if (core0_rst) {f_dc_pending, f_dc_word} <= '0;
   if (rst) f_dc_read_left <= '0;
   if (rst) f_ic_read_left <= '0;
 `endif

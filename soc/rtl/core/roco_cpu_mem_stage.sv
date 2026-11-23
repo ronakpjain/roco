@@ -226,7 +226,12 @@ module roco_cpu_mem_stage (
   // The atomic's old value comes from the cache lookup for a cached target.
   // Any other target must read first, so name that phase for the bus side.
   assign dmem_amo_read = !halt && !fence_req && amo_prepare;
-  assign dmem_req = commit_valid && is_memory_op;
+  // Hold the request through readiness stalls (like imem_req holding to
+  // rsp_valid) so the cache hub sees a stable commit strobe. Only the
+  // atomic operand-read phase stays invisible until the old value lands.
+  // dmem_valid still pulses exactly-once per commit; MMIO exactly-once and
+  // the failed-SC no-transaction rules are unchanged.
+  assign dmem_req = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare;
   assign mem_wait = !halt && exmem_valid && is_memory_op && (!dmem_ready || amo_prepare);
   assign commit_valid = !halt && exmem_valid && !fence_req && !mem_wait;
   assign commit_now = commit_valid;

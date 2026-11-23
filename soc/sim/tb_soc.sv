@@ -49,11 +49,12 @@ module tb_soc #(
   // Check the instruction encoding and public memory interfaces, including
   // real SDRAM backpressure rather than only warmed hit behavior.
   always @(posedge clk) begin
-    if (!rst && check_atomic_order && u_soc.u_cpu.exmem_valid &&
-        (u_soc.u_cpu.exmem_instr[6:0] == 7'b0101111) && !u_soc.dmem_ready) begin
+    if (!rst && check_atomic_order && u_soc.u_cpu0.exmem_valid &&
+        (u_soc.u_cpu0.exmem_instr[6:0] == 7'b0101111) && !u_soc.dmem0_ready) begin
       atomic_wait_cycles <= atomic_wait_cycles + 1;
-      if (u_soc.dmem_lu_valid || u_soc.dmem_req)
-        $fatal(1, "memory access escaped a pending atomic");
+      // A newer lookup starting while the atomic is stalled is the escape;
+      // dmem0_req is level-held (like imem_req), so req alone is the atomic.
+      if (u_soc.dmem0_lu_valid) $fatal(1, "memory access escaped a pending atomic");
     end
   end
 
@@ -80,25 +81,25 @@ module tb_soc #(
       .clk(clk),
       .rst(rst),
       .halt(halted),
-      .retire_valid(u_soc.trace_valid && !u_soc.u_cpu.vec_element_commit),
-      .retire_pc(u_soc.trace_pc)
+      .retire_valid(u_soc.trace0_valid && !u_soc.u_cpu0.vec_element_commit),
+      .retire_pc(u_soc.trace0_pc)
   );
 
   initial trace_on = $test$plusargs("trace");
 
   always @(posedge clk) begin
-    if (trace_on && u_soc.trace_valid) begin
-      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace_pc, u_soc.trace_instr,
-               u_soc.trace_rd, u_soc.trace_wdata);
+    if (trace_on && u_soc.trace0_valid) begin
+      $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace0_pc, u_soc.trace0_instr,
+               u_soc.trace0_rd, u_soc.trace0_wdata);
     end
-    if (trace_on && u_soc.u_cpu.u_ex.idex_valid && (u_soc.u_cpu.u_ex.idex_pc == 32'h10000148) &&
+    if (trace_on && u_soc.u_cpu0.u_ex.idex_valid && (u_soc.u_cpu0.u_ex.idex_pc == 32'h10000148) &&
         (dbg_cnt2 < 4)) begin
       dbg_cnt2 <= dbg_cnt2 + 1;
       $display("  st ex rs1=%0d rs1v=%h fwd=%h wb=%h wbv=%b wbrd=%0d exm=%b exmrd=%0d exmw=%h",
-               u_soc.u_cpu.u_ex.idex_rs1, u_soc.u_cpu.u_ex.idex_rs1_val, u_soc.u_cpu.u_ex.rs1_fwd,
-               u_soc.u_cpu.wb_data, u_soc.u_cpu.wb_we, u_soc.u_cpu.wb_rd,
-               u_soc.u_cpu.u_ex.exmem_valid, u_soc.u_cpu.u_ex.exmem_rd,
-               u_soc.u_cpu.u_ex.exmem_wbval);
+               u_soc.u_cpu0.u_ex.idex_rs1, u_soc.u_cpu0.u_ex.idex_rs1_val,
+               u_soc.u_cpu0.u_ex.rs1_fwd, u_soc.u_cpu0.wb_data, u_soc.u_cpu0.wb_we,
+               u_soc.u_cpu0.wb_rd, u_soc.u_cpu0.u_ex.exmem_valid, u_soc.u_cpu0.u_ex.exmem_rd,
+               u_soc.u_cpu0.u_ex.exmem_wbval);
     end
     if (trace_on && !u_soc.sdram_cs_n && u_soc.sdram_ras_n && !u_soc.sdram_cas_n && !u_soc.sdram_we_n) begin
       $display("  sdwr a=%h ba=%0d dq=%h", u_soc.sdram_a[8:0], u_soc.sdram_ba, u_soc.sdram_dq_out);
@@ -106,36 +107,37 @@ module tb_soc #(
     if (trace_on && !u_soc.sdram_cs_n && !u_soc.sdram_ras_n && u_soc.sdram_cas_n && u_soc.sdram_we_n) begin
       $display("  sdact a=%h ba=%0d cmd=%h", u_soc.sdram_a, u_soc.sdram_ba, u_soc.u_sdram.cmd_addr);
     end
-    if (trace_on && u_soc.dmem_req && u_soc.dmem_we && (u_soc.dmem_addr[15:0] == 16'h0244)) begin
-      $display("  store244 state=%0d dirty36=%b cmwe=%b", u_soc.u_dcache.state,
-               u_soc.u_dcache.dirty_ram[36], u_soc.dmem_we);
+    if (trace_on && u_soc.dmem0_req && u_soc.dmem0_we && (u_soc.dmem0_addr[15:0] == 16'h0244)) begin
+      $display("  store244 state=%0d dirty36=%b cmwe=%b", u_soc.u_dcache0.state,
+               u_soc.u_dcache0.dirty_ram[36], u_soc.dmem0_we);
     end
-    if (trace_on && (u_soc.u_dcache.state == 8) && u_soc.u_dcache.mem_ready) begin
-      $display("  flushreq idx=%0d word=%h tag=%h valid=%b dirty=%b", u_soc.u_dcache.flush_idx,
-               u_soc.u_dcache.mem_word_addr, u_soc.u_dcache.tag_ram[u_soc.u_dcache.flush_idx],
-               u_soc.u_dcache.valid_ram[u_soc.u_dcache.flush_idx],
-               u_soc.u_dcache.dirty_ram[u_soc.u_dcache.flush_idx]);
+    if (trace_on && (u_soc.u_dcache0.state == 8) && u_soc.u_dcache0.mem_ready) begin
+      $display("  flushreq idx=%0d word=%h tag=%h valid=%b dirty=%b", u_soc.u_dcache0.flush_idx,
+               u_soc.u_dcache0.mem_word_addr, u_soc.u_dcache0.tag_ram[u_soc.u_dcache0.flush_idx],
+               u_soc.u_dcache0.valid_ram[u_soc.u_dcache0.flush_idx],
+               u_soc.u_dcache0.dirty_ram[u_soc.u_dcache0.flush_idx]);
     end
-    if (trace_on && (u_soc.u_dcache.state == 10) && u_soc.u_dcache.mem_wready) begin
-      $display("  flushwr idx=%0d beat=%0d data=%h", u_soc.u_dcache.flush_idx, u_soc.u_dcache.beat,
-               u_soc.u_dcache.mem_wdata);
+    if (trace_on && (u_soc.u_dcache0.state == 10) && u_soc.u_dcache0.mem_wready) begin
+      $display("  flushwr idx=%0d beat=%0d data=%h", u_soc.u_dcache0.flush_idx,
+               u_soc.u_dcache0.beat, u_soc.u_dcache0.mem_wdata);
     end
-    if (trace_on && u_soc.dmem_req && (u_soc.dmem_addr[31:4] == 28'h1000034)) begin
+    if (trace_on && u_soc.dmem0_req && (u_soc.dmem0_addr[31:4] == 28'h1000034)) begin
       $display("  dc cm we=%b addr=%h wd=%h be=%b rdata=%h luq=%h pd=%h pb=%b st=%0d",
-               u_soc.dmem_we, u_soc.dmem_addr, u_soc.dmem_wdata, u_soc.dmem_be,
-               u_soc.dmem_rsp_data, u_soc.u_dcache.lu_addr_q, u_soc.u_dcache.prev_store_data,
-               u_soc.u_dcache.prev_store_be, u_soc.u_dcache.state);
+               u_soc.dmem0_we, u_soc.dmem0_addr, u_soc.dmem0_wdata, u_soc.dmem0_be,
+               u_soc.dmem0_rsp_data, u_soc.u_dcache0.lu_addr_q, u_soc.u_dcache0.prev_store_data,
+               u_soc.u_dcache0.prev_store_be, u_soc.u_dcache0.state);
     end
-    if (trace_on && u_soc.core_fence_req) begin
-      $display("  fence req, state=%0d dcache_done=%b", u_soc.fence_state, u_soc.dcache_flush_done);
+    if (trace_on && u_soc.core0_fence_req) begin
+      $display("  fence req, state=%0d dcache_done=%b", u_soc.fence_state,
+               u_soc.dcache_flush_done0);
     end
     if (trace_on && (cycles % 100 == 0)) begin
       $display(
           "  dbg cyc=%0d pc=%08x icst=%0d dcst=%0d rd=%0d wr=%0d wown=%0d cst=%0d dre=%b dwe=%b dwv=%b dwr=%b",
-          cycles, u_soc.u_cpu.u_if.pc_if, u_soc.u_icache.state, u_soc.u_dcache.state,
+          cycles, u_soc.u_cpu0.u_if.pc_if, u_soc.u_icache0.state, u_soc.u_dcache0.state,
           u_soc.u_xbar.rd[0], u_soc.u_xbar.wr[0], u_soc.u_xbar.wo[0], u_soc.u_sdram.state,
-          u_soc.u_dcache.mem_req, u_soc.u_dcache.mem_we, u_soc.u_dcache.mem_wvalid,
-          u_soc.u_dcache.mem_wready);
+          u_soc.u_dcache0.mem_req, u_soc.u_dcache0.mem_we, u_soc.u_dcache0.mem_wvalid,
+          u_soc.u_dcache0.mem_wready);
     end
   end
 
@@ -279,7 +281,7 @@ module tb_soc #(
   always @(posedge clk) begin
     if (!rst && !halted) begin
       cycles <= cycles + 1;
-      if (u_soc.trace_valid && first_retire_cycle < 0) first_retire_cycle <= cycles;
+      if (u_soc.trace0_valid && first_retire_cycle < 0) first_retire_cycle <= cycles;
       if (cycles > max_cycles) begin
         $fatal(1, "tb_soc: TIMEOUT after %0d cycles", max_cycles);
       end
@@ -302,10 +304,10 @@ module tb_soc #(
         expected_ic_hits <= '0;
         expected_ic_misses <= '0;
         counter_clear_count <= counter_clear_count + 1;
-        if (u_soc.ic_hit || u_soc.ic_miss) counter_collision_count <= counter_collision_count + 1;
+        if (u_soc.ic0_hit || u_soc.ic0_miss) counter_collision_count <= counter_collision_count + 1;
       end
-      if (u_soc.ic_hit) expected_ic_hits <= expected_ic_hits + 1;
-      if (u_soc.ic_miss) expected_ic_misses <= expected_ic_misses + 1;
+      if (u_soc.ic0_hit) expected_ic_hits <= expected_ic_hits + 1;
+      if (u_soc.ic0_miss) expected_ic_misses <= expected_ic_misses + 1;
     end
   end
   always @(negedge clk) begin
@@ -315,7 +317,7 @@ module tb_soc #(
   end
 
   always @(negedge clk) begin
-    if (!rst && u_soc.dmem_valid && (u_soc.dmem_in_sdram !== (u_soc.dmem_addr[31:25] == 7'd8)))
+    if (!rst && u_soc.dmem0_valid && (u_soc.dmem0_in_sdram !== (u_soc.dmem0_addr[31:25] == 7'd8)))
       $fatal(1, "staged memory target differs from active MEM address");
   end
 
@@ -326,21 +328,24 @@ module tb_soc #(
     else if (u_soc.psel && u_soc.penable && u_soc.pready) begin
       // An uncached atomic reads its old value in the prepare phase, so that
       // phase is the one MMIO transfer window outside commit validity.
-      if (!(u_soc.dmem_valid || u_soc.dmem_amo_read) || u_soc.dmem_in_sdram ||
-          u_soc.paddr !== {u_soc.dmem_addr[31:2], 2'b00} ||
-          u_soc.pwrite !== (u_soc.dmem_we && !u_soc.dmem_amo_read))
+      if (!(u_soc.dmem0_valid || u_soc.dmem0_amo_read) || u_soc.dmem0_in_sdram ||
+          u_soc.paddr !== {u_soc.dmem0_addr[31:2], 2'b00} ||
+          u_soc.pwrite !== (u_soc.dmem0_we && !u_soc.dmem0_amo_read))
         $fatal(1, "unexpected APB transfer");
-      if (!u_soc.pwrite && u_soc.u_cpu.exmem_is_sc) $fatal(1, "SC generated an APB read");
+      if (!u_soc.pwrite && u_soc.u_cpu0.exmem_is_sc) $fatal(1, "SC generated an APB read");
       if (apb_completed && apb_last_addr == u_soc.paddr && apb_last_we == u_soc.pwrite)
         $fatal(1, "duplicate APB transfer");
       apb_completed <= 1'b1;
       apb_last_addr <= u_soc.paddr;
       apb_last_we <= u_soc.pwrite;
-    end else if (u_soc.dmem_req && !u_soc.dmem_in_sdram) begin
-      if (u_soc.dmem_valid) begin
-        if (!apb_completed || !u_soc.mmio_done)
-          $fatal(1, "MMIO committed before APB/AXI completion");
-      end else if (apb_completed || u_soc.mmio_done) $fatal(1, "failed SC touched the MMIO bus");
+    end else if (u_soc.dmem0_req && !u_soc.dmem0_in_sdram && u_soc.dmem0_valid &&
+               u_soc.mmio0_done) begin
+      // Retire cycle of an MMIO op (dmem0_req is level-held through stalls).
+      if (!apb_completed) $fatal(1, "MMIO committed before APB/AXI completion");
+      apb_completed <= 1'b0;
+    end else if (u_soc.dmem0_req && !u_soc.dmem0_in_sdram && !u_soc.dmem0_valid) begin
+      if (apb_completed || u_soc.mmio0_done) $fatal(1, "failed SC touched the MMIO bus");
+    end else begin
       apb_completed <= 1'b0;
     end
   end

@@ -33,6 +33,15 @@ module soc_mmio_memory #(
   logic trace_valid;
   logic [31:0] trace_pc, trace_instr, trace_wdata;
   logic [4:0] trace_rd;
+  // Hart0 trace is trace0_*; alias locally so the checks below are unchanged.
+  assign trace_valid = trace0_valid;
+  assign trace_pc = trace0_pc;
+  assign trace_instr = trace0_instr;
+  assign trace_rd = trace0_rd;
+  assign trace_wdata = trace0_wdata;
+  logic trace0_valid;
+  logic [31:0] trace0_pc, trace0_instr, trace0_wdata;
+  logic [4:0] trace0_rd;
   logic cs_n, ras_n, cas_n, we_n, dq_oe;
   logic [12:0] address;
   logic [1:0] bank, dqm;
@@ -67,11 +76,11 @@ module soc_mmio_memory #(
       .sdram_dq_in(dq_in),
       .halted(halted),
       .exit_code(exit_code),
-      .trace_valid(trace_valid),
-      .trace_pc(trace_pc),
-      .trace_instr(trace_instr),
-      .trace_rd(trace_rd),
-      .trace_wdata(trace_wdata)
+      .trace0_valid(trace0_valid),
+      .trace0_pc(trace0_pc),
+      .trace0_instr(trace0_instr),
+      .trace0_rd(trace0_rd),
+      .trace0_wdata(trace0_wdata)
   );
 
   function automatic logic [31:0] program_word(input logic [7:0] index);

@@ -32,23 +32,23 @@ always_ff @(posedge clk) begin
 
     // Check the response on the CPU side of the crossbar too, not just
     // the peripheral decoder's PRDATA before it crosses the bridge.
-    assert (!(mmio_read_done && mmio_write_done));
-    if (mmio_rready) assert (!dmem_in_sdram && (dmem_amo_read || (dmem_valid && !dmem_we)));
-    if (mmio_w.valid || mmio_bready) assert (!dmem_in_sdram && dmem_valid && dmem_we);
-    if (psel) assert (pwrite ? mmio_bready : mmio_rready);
-    if (mmio_read_done && mmio_r.resp == `AXI4_RESP_OKAY) begin
+    assert (!(mmio0_read_done && mmio0_write_done));
+    if (mmio0_rready) assert (!dmem0_in_sdram && (dmem0_amo_read || (dmem0_valid && !dmem0_we)));
+    if (mmio0_w.valid || mmio0_bready) assert (!dmem0_in_sdram && dmem0_valid && dmem0_we);
+    if (psel) assert (pwrite ? mmio0_bready : mmio0_rready);
+    if (mmio0_read_done && mmio0_r.resp == `AXI4_RESP_OKAY) begin
       assert (periph_r.valid && periph_r.resp == `AXI4_RESP_OKAY);
-      assert (mmio_rsp_data == periph_r.data);
+      assert (mmio0_rsp_data == periph_r.data);
     end
-    if (dmem_req && !dmem_in_sdram) begin
-      if (dmem_valid)
-        assert (dmem_we ? mmio_write_done : mmio_read_done);
-        else begin
-          // A failed SC retires locally. It neither issues an AXI request
-          // nor inherits a pending APB transfer from an earlier packet.
-          assert (!dmem_we && !dmem_amo_read && !mmio_done);
-          assert (!(mmio_ar.valid || mmio_aw.valid || mmio_w.valid || psel));
-        end
+    // dmem0_req is level-held through stalls; the transfer must be done
+    // by the retire cycle (mmio0_done), not while the request is pending.
+    if (dmem0_req && !dmem0_in_sdram && dmem0_valid && mmio0_done)
+      assert (dmem0_we ? mmio0_write_done : mmio0_read_done);
+    if (dmem0_req && !dmem0_in_sdram && !dmem0_valid) begin
+      // A failed SC retires locally. It neither issues an AXI request
+      // nor inherits a pending APB transfer from an earlier packet.
+      assert (!dmem0_we && !dmem0_amo_read && !mmio0_done);
+      assert (!(mmio0_ar.valid || mmio0_aw.valid || mmio0_w.valid || psel));
     end
   end
 
@@ -72,7 +72,7 @@ always_ff @(posedge clk) begin
         else if (!$past(periph_bready)) assert ($stable(periph_b));
     end
 
-    cover (mmio_read_done && mmio_rsp_data == 32'd3 && $past(
+    cover (mmio0_read_done && mmio0_rsp_data == 32'd3 && $past(
         f_mmio_read && paddr[15:0] == 16'h0014 && buttons == 2'd3
     ));
     cover ($past(f_mmio_led_write) && leds == 4'd3);

@@ -65,11 +65,17 @@ module roco_soc #(
   output logic halted,
   output logic [31:0] exit_code,
   /* Retire trace: simulation and debug only, not pinned out on the board. */
-  output logic trace_valid,
-  output logic [31:0] trace_pc,
-  output logic [31:0] trace_instr,
-  output logic [4:0] trace_rd,
-  output logic [31:0] trace_wdata
+  output logic trace0_valid,
+  output logic [31:0] trace0_pc,
+  output logic [31:0] trace0_instr,
+  output logic [4:0] trace0_rd,
+  output logic [31:0] trace0_wdata,
+  /* Hart1 retire trace (same). */
+  output logic trace1_valid,
+  output logic [31:0] trace1_pc,
+  output logic [31:0] trace1_instr,
+  output logic [4:0] trace1_rd,
+  output logic [31:0] trace1_wdata
 );
 `ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL
   `include "axi_sdram_state.svh"
@@ -81,39 +87,95 @@ module roco_soc #(
 `endif
 
   // ------------------------------------------------------------- Core buses
-  logic imem_req;
-  logic [31:0] imem_addr;
-  logic imem_rsp_valid;
-  logic [31:0] imem_rsp_addr;
-  logic [31:0] imem_rsp_data;
-  logic dmem_lu_valid;
-  logic [31:2] dmem_lu_addr;
-  logic [1:0] dmem_lu_offset;
-  logic [2:0] dmem_lu_funct3;
-  logic dmem_ready;
-  logic dmem_req;
-  logic dmem_valid;
-  logic dmem_amo_read;
+  logic imem0_req;
+  logic [31:0] imem0_addr;
+  logic imem0_rsp_valid;
+  logic [31:0] imem0_rsp_addr;
+  logic [31:0] imem0_rsp_data;
+  logic dmem0_lu_valid;
+  logic [31:2] dmem0_lu_addr;
+  logic [1:0] dmem0_lu_offset;
+  logic [2:0] dmem0_lu_funct3;
+  logic dmem0_ready;
+  logic dmem0_req;
+  logic dmem0_valid;
+  logic dmem0_amo_read;
 `ifdef ROCO_SOC_RAM_FORMAL
   logic f_mem_packet;
 `endif
-  logic dmem_we;
-  logic [31:0] dmem_addr;
-  logic [31:0] dmem_wdata;
-  logic [3:0] dmem_be;
-  logic [31:0] dmem_rsp_data;
-  logic [31:0] dmem_forward_data;
-  logic [31:0] dc_forward_data;
-  axi4_ar_t ptw_ar;
-  axi4_r_t ptw_r;
-  logic ptw_r_ready;
-  logic ptw_ready;
-  logic mmio_done;
-  logic [31:0] mmio_rsp_data;
-  logic core_fence_req;
-  logic fence_done;
+  logic dmem0_we;
+  logic [31:0] dmem0_addr;
+  logic [31:0] dmem0_wdata;
+  logic [3:0] dmem0_be;
+  logic [31:0] dmem0_rsp_data;
+  logic [31:0] dmem0_forward_data;
+  logic [31:0] dc0_forward_data;
+  axi4_ar_t ptw0_ar;
+  axi4_r_t ptw0_r;
+  logic ptw0_r_ready;
+  logic ptw0_ready;
+  logic mmio0_done;
+  logic [31:0] mmio0_rsp_data;
+  // ------------------------------------------------------- Hart1 core buses
+  logic imem1_req;
+  logic [31:0] imem1_addr;
+  logic imem1_rsp_valid;
+  logic [31:0] imem1_rsp_addr;
+  logic [31:0] imem1_rsp_data;
+  logic dmem1_lu_valid;
+  logic [31:2] dmem1_lu_addr;
+  logic [1:0] dmem1_lu_offset;
+  logic [2:0] dmem1_lu_funct3;
+  logic dmem1_ready;
+  logic dmem1_req;
+  logic dmem1_valid;
+  logic dmem1_amo_read;
+  logic dmem1_we;
+  logic [31:0] dmem1_addr;
+  logic [31:0] dmem1_wdata;
+  logic [3:0] dmem1_be;
+  logic [31:0] dmem1_rsp_data;
+  logic [31:0] dmem1_forward_data;
+  logic [31:0] dc1_forward_data;
+  axi4_ar_t ptw1_ar;
+  axi4_r_t ptw1_r;
+  logic ptw1_r_ready;
+  logic ptw1_ready;
+  logic mmio1_done;
+  logic [31:0] mmio1_rsp_data;
+  logic imem1_in_sdram;
+  logic dmem1_in_sdram;
+  logic dmem1_lu_in_sdram;
+  logic i1_unc_req;
+  logic i1_unc_rsp;
+  logic imem1_rsp_in_sdram;
+  logic [31:0] i1_unc_rsp_addr;
+  logic [31:0] i1_unc_rsp_data;
+  logic dc1_cm_ready;
+  logic [31:0] dc1_cm_rdata;
+  // Hart1 is instantiated in the SMP commit; park its trace until then.
+  assign trace1_valid = 1'b0;
+  assign trace1_pc = 32'd0;
+  assign trace1_instr = 32'd0;
+  assign trace1_rd = 5'd0;
+  assign trace1_wdata = 32'd0;
+  logic res0_store_valid, res1_store_valid;
+  logic [29:0] res0_store_addr, res1_store_addr;
+  logic irq_timer1, irq_software0, irq_software1;
+  logic core_rst1;
+  // MSI hub: probe/flush/grant state shared by both D-caches.
+  logic hub_snoop0_valid, hub_snoop1_valid;
+  logic [22:0] hub_snoop0_addr, hub_snoop1_addr;
+  logic hub_inv0, hub_inv1;
+  logic hub_flush0, hub_flush1;
+  logic hub_stall0, hub_stall1;
+  logic dc0_mem_ready_gated, dc1_mem_ready_gated;
+  logic hub_ack0, hub_ack1;
+  logic core0_fence_req, core1_fence_req;
+  logic fence_done0, fence_done1;
+  logic fence_owner;
   logic dcache_flush;
-  logic dcache_flush_done;
+  logic dcache_flush_done0, dcache_flush_done1;
   logic icache_flush;
   logic [1:0] fence_state;
   logic boot_cache_maintenance, cache_rst;
@@ -130,13 +192,13 @@ module roco_soc #(
   logic f_instruction_coherent;
   always_ff @(posedge clk) begin
     if (rst) f_instruction_coherent <= 1'b1;
-    else if (dmem_req && dmem_in_sdram && dmem_we && dmem_addr[24:2] == cell_addr)
+    else if (dmem0_req && dmem0_in_sdram && dmem0_we && dmem0_addr[24:2] == cell_addr)
       f_instruction_coherent <= 1'b0;
     else if (icache_flush) f_instruction_coherent <= 1'b1;
     if (!rst && f_instruction_coherent) assert (f_dc_arch_data == native_cell);
-    if (!rst && core_rst && !boot_cache_maintenance) assert (f_instruction_coherent);
+    if (!rst && core0_rst && !boot_cache_maintenance) assert (f_instruction_coherent);
     if (!rst && icache_flush) begin
-      assert (!dmem_req);
+      assert (!dmem0_req);
       assert (f_dc_arch_data == native_cell);
     end
   end
@@ -145,49 +207,49 @@ module roco_soc #(
   logic f_dc_idle, f_dc_lookup_pending;
 `endif
 
-  logic imem_in_sdram;
-  logic dmem_in_sdram;
-  logic dmem_lu_in_sdram;
-  logic i_unc_req;
-  logic i_unc_rsp;
-  logic imem_rsp_in_sdram;
-  logic [31:0] i_unc_rsp_addr;
-  logic [31:0] i_unc_rsp_data;
-  logic dc_cm_ready;
-  logic [31:0] dc_cm_rdata;
+  logic imem0_in_sdram;
+  logic dmem0_in_sdram;
+  logic dmem0_lu_in_sdram;
+  logic i0_unc_req;
+  logic i0_unc_rsp;
+  logic imem0_rsp_in_sdram;
+  logic [31:0] i0_unc_rsp_addr;
+  logic [31:0] i0_unc_rsp_data;
+  logic dc0_cm_ready;
+  logic [31:0] dc0_cm_rdata;
 
   // ----------------------------------------------------------- Cache ports
-  logic ic_cpu_rsp;
-  logic [31:0] ic_cpu_rsp_addr;
-  logic [31:0] ic_cpu_rsp_data;
-  logic ic_mem_req;
-  logic [22:0] ic_mem_word_addr;
-  logic [3:0] ic_mem_len;
-  logic ic_mem_ready;
-  logic ic_mem_rvalid;
-  logic [31:0] ic_mem_rdata;
-  logic ic_mem_rlast;
-  logic ic_hit;
-  logic ic_miss;
-  logic ic_cpu_miss;
-  logic ic_cpu_busy;
-  logic imem_miss;
-  logic imem_busy;
+  logic ic0_cpu_rsp;
+  logic [31:0] ic0_cpu_rsp_addr;
+  logic [31:0] ic0_cpu_rsp_data;
+  logic ic0_mem_req;
+  logic [22:0] ic0_mem_word_addr;
+  logic [3:0] ic0_mem_len;
+  logic ic0_mem_ready;
+  logic ic0_mem_rvalid;
+  logic [31:0] ic0_mem_rdata;
+  logic ic0_mem_rlast;
+  logic ic0_hit;
+  logic ic0_miss;
+  logic ic0_cpu_miss;
+  logic ic0_cpu_busy;
+  logic imem0_miss;
+  logic imem0_busy;
 
-  logic dc_mem_req;
-  logic dc_mem_we;
-  logic [22:0] dc_mem_word_addr;
-  logic [3:0] dc_mem_len;
-  logic dc_mem_ready;
-  logic dc_mem_wvalid;
-  logic dc_mem_wready;
-  logic [31:0] dc_mem_wdata;
-  logic [3:0] dc_mem_wbe;
-  logic dc_mem_rvalid;
-  logic [31:0] dc_mem_rdata;
-  logic dc_mem_rlast;
-  logic dc_hit;
-  logic dc_miss;
+  logic dc0_mem_req;
+  logic dc0_mem_we;
+  logic [22:0] dc0_mem_word_addr;
+  logic [3:0] dc0_mem_len;
+  logic dc0_mem_ready;
+  logic dc0_mem_wvalid;
+  logic dc0_mem_wready;
+  logic [31:0] dc0_mem_wdata;
+  logic [3:0] dc0_mem_wbe;
+  logic dc0_mem_rvalid;
+  logic [31:0] dc0_mem_rdata;
+  logic dc0_mem_rlast;
+  logic dc0_hit;
+  logic dc0_miss;
 
   // ------------------------------------------------------------- Bootloader
   logic boot_rx_ready;
@@ -208,7 +270,7 @@ module roco_soc #(
   logic boot_restart;
   logic boot_done_eff;
   logic boot_release;
-  logic core_rst;
+  logic core0_rst;
 
   // ---------------------------------------------------------------- UART
   logic [7:0] uart_tx_data;
@@ -224,7 +286,7 @@ module roco_soc #(
   logic mmio_rx_pop;
 
   // ---------------------------------------------------------------- MMIO
-  logic irq_timer;
+  logic irq_timer0;
   logic [31:0] mmio_rdata;
   // SMP boot mailbox (hart1 entry + release); hart1 datapath lands later.
   logic [31:0] hart1_boot_addr;
@@ -245,21 +307,21 @@ module roco_soc #(
   logic c_rlast;
   logic sdram_init_done;
 
-  assign imem_in_sdram = (imem_addr[31:25] == 7'd8);
-  assign imem_miss = ic_cpu_miss;
-  assign imem_busy = ic_cpu_busy;
+  assign imem0_in_sdram = (imem0_addr[31:25] == 7'd8);
+  assign imem0_miss = ic0_cpu_miss;
+  assign imem0_busy = ic0_cpu_busy;
   // Target classification belongs to the same EX lookup as the cache
   // response. Preserve it while MEM waits; an unrelated ALU payload must
   // not route its address bits through memory readiness and frontend hold.
   always_ff @(posedge clk or posedge rst) begin
-    if (rst) dmem_in_sdram <= 1'b0;
-    else if (dmem_lu_valid) dmem_in_sdram <= dmem_lu_in_sdram;
+    if (rst) dmem0_in_sdram <= 1'b0;
+    else if (dmem0_lu_valid) dmem0_in_sdram <= dmem0_lu_in_sdram;
   end
-  assign dmem_lu_in_sdram = (dmem_lu_addr[31:25] == 7'd8);
-  assign i_unc_req = imem_req && !imem_in_sdram && !ic_cpu_busy;
+  assign dmem0_lu_in_sdram = (dmem0_lu_addr[31:25] == 7'd8);
+  assign i0_unc_req = imem0_req && !imem0_in_sdram && !ic0_cpu_busy;
   // An uncached failed SC has no transaction to wait for. Cached SC
   // still waits for its lookup to drain, without committing a write.
-  assign dmem_ready = dmem_in_sdram ? dc_cm_ready : (!(dmem_valid || dmem_amo_read) || mmio_done);
+  assign dmem0_ready = dmem0_in_sdram ? dc0_cm_ready : (!(dmem0_valid || dmem0_amo_read) || mmio0_done);
 
   assign boot_done_eff = BOOT_OVERRIDE ? 1'b1 : boot_done;
   // Hold the core in reset for one extra cycle after boot_done so that
@@ -271,7 +333,7 @@ module roco_soc #(
       boot_release <= boot_done_eff;
     end
   end
-  assign core_rst = rst || !boot_release || boot_cache_maintenance;
+  assign core0_rst = rst || !boot_release || boot_cache_maintenance;
   // A replacement image may overwrite cached instructions and data. Drain
   // committed dirty stores first, then cancel old lookup/refill metadata.
   // The AXI masters keep running so accepted transactions always drain.
@@ -282,7 +344,7 @@ module roco_soc #(
 `ifdef ROCO_SOC_GPR_FORMAL
   (* anyconst *) logic [4:0] f_gpr_watch_addr;
 `endif
-  roco_cpu u_cpu (
+  roco_cpu u_cpu0 (
 `ifdef ROCO_SOC_GPR_FORMAL
       .rvfi_gpr_watch_addr(f_gpr_watch_addr),
       .rvfi_gpr_watch_value(),
@@ -293,101 +355,101 @@ module roco_soc #(
       .formal_instruction_coherent(f_instruction_coherent),
 `endif
       .clk(clk),
-      .rst(core_rst),
+      .rst(core0_rst),
       .boot_addr(BOOT_OVERRIDE ? 32'h1000_0000 : boot_addr),
       .halt(halted),
-      .irq_timer(irq_timer),
+      .irq_timer(irq_timer0),
       .irq_external(1'b0),
       .irq_software(1'b0),
-      .imem_req(imem_req),
-      .imem_addr(imem_addr),
-      .imem_rsp_valid(imem_rsp_valid),
-      .imem_rsp_addr(imem_rsp_addr),
-      .imem_rsp_data(imem_rsp_data),
-      .imem_miss(imem_miss),
-      .imem_busy(imem_busy),
-      .dmem_lu_valid(dmem_lu_valid),
-      .dmem_lu_addr(dmem_lu_addr),
-      .dmem_lu_offset(dmem_lu_offset),
-      .dmem_lu_funct3(dmem_lu_funct3),
-      .dmem_ready(dmem_ready),
-      .dmem_req(dmem_req),
-      .dmem_valid(dmem_valid),
-      .dmem_amo_read(dmem_amo_read),
+      .imem_req(imem0_req),
+      .imem_addr(imem0_addr),
+      .imem_rsp_valid(imem0_rsp_valid),
+      .imem_rsp_addr(imem0_rsp_addr),
+      .imem_rsp_data(imem0_rsp_data),
+      .imem_miss(imem0_miss),
+      .imem_busy(imem0_busy),
+      .dmem_lu_valid(dmem0_lu_valid),
+      .dmem_lu_addr(dmem0_lu_addr),
+      .dmem_lu_offset(dmem0_lu_offset),
+      .dmem_lu_funct3(dmem0_lu_funct3),
+      .dmem_ready(dmem0_ready),
+      .dmem_req(dmem0_req),
+      .dmem_valid(dmem0_valid),
+      .dmem_amo_read(dmem0_amo_read),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_mem_packet(f_mem_packet),
 `endif
-      .dmem_we(dmem_we),
-      .dmem_addr(dmem_addr),
-      .dmem_wdata(dmem_wdata),
-      .dmem_be(dmem_be),
-      .dmem_rsp_data(dmem_rsp_data),
-      .dmem_forward_data(dmem_forward_data),
+      .dmem_we(dmem0_we),
+      .dmem_addr(dmem0_addr),
+      .dmem_wdata(dmem0_wdata),
+      .dmem_be(dmem0_be),
+      .dmem_rsp_data(dmem0_rsp_data),
+      .dmem_forward_data(dmem0_forward_data),
       .ptw_bus_rst(rst),
-      .ptw_ar(ptw_ar),
-      .ptw_ready(ptw_ready),
-      .ptw_r(ptw_r),
-      .ptw_r_ready(ptw_r_ready),
-      .fence_req(core_fence_req),
-      .fence_done(fence_done),
+      .ptw_ar(ptw0_ar),
+      .ptw_ready(ptw0_ready),
+      .ptw_r(ptw0_r),
+      .ptw_r_ready(ptw0_r_ready),
+      .fence_req(core0_fence_req),
+      .fence_done(fence_done0),
       .res_store_valid(),
       .res_store_addr(),
       .res_remote_valid(1'b0),
       .res_remote_addr(30'd0),
       .remote_tlb_flush(1'b0),
-      .trace_valid(trace_valid),
-      .trace_pc(trace_pc),
-      .trace_instr(trace_instr),
-      .trace_rd(trace_rd),
-      .trace_wdata(trace_wdata)
+      .trace_valid(trace0_valid),
+      .trace_pc(trace0_pc),
+      .trace_instr(trace0_instr),
+      .trace_rd(trace0_rd),
+      .trace_wdata(trace0_wdata)
   );
 
   // -------------------------------------------------------------- I-cache
   icache #(
       .LINE_WORDS(4),
       .NUM_LINES(ICACHE_LINES)
-  ) u_icache (
+  ) u_icache0 (
 `ifdef ROCO_SOC_ICACHE_MEMORY_FORMAL
       .formal_watch_word(cell_addr),
       .formal_watch_data(f_dc_arch_data),
       .formal_backing_data(native_cell),
       .formal_coherent(f_instruction_coherent),
-      .formal_boot_loading(core_rst && !boot_cache_maintenance),
+      .formal_boot_loading(core0_rst && !boot_cache_maintenance),
       .formal_ram_word(ic_read_word),
       .formal_read_left(f_ic_read_left),
 `endif
       .clk(clk),
       .rst(rst),
       .flush(icache_flush),
-      .cpu_req(imem_req && imem_in_sdram),
-      .cpu_addr(imem_addr),
-      .cpu_rsp_valid(ic_cpu_rsp),
-      .cpu_rsp_addr(ic_cpu_rsp_addr),
-      .cpu_rsp_data(ic_cpu_rsp_data),
-      .cpu_miss(ic_cpu_miss),
-      .cpu_busy(ic_cpu_busy),
-      .mem_req(ic_mem_req),
-      .mem_word_addr(ic_mem_word_addr),
-      .mem_len(ic_mem_len),
-      .mem_ready(ic_mem_ready),
-      .mem_rvalid(ic_mem_rvalid),
-      .mem_rdata(ic_mem_rdata),
-      .mem_rlast(ic_mem_rlast),
-      .hit_pulse(ic_hit),
-      .miss_pulse(ic_miss)
+      .cpu_req(imem0_req && imem0_in_sdram),
+      .cpu_addr(imem0_addr),
+      .cpu_rsp_valid(ic0_cpu_rsp),
+      .cpu_rsp_addr(ic0_cpu_rsp_addr),
+      .cpu_rsp_data(ic0_cpu_rsp_data),
+      .cpu_miss(ic0_cpu_miss),
+      .cpu_busy(ic0_cpu_busy),
+      .mem_req(ic0_mem_req),
+      .mem_word_addr(ic0_mem_word_addr),
+      .mem_len(ic0_mem_len),
+      .mem_ready(ic0_mem_ready),
+      .mem_rvalid(ic0_mem_rvalid),
+      .mem_rdata(ic0_mem_rdata),
+      .mem_rlast(ic0_mem_rlast),
+      .hit_pulse(ic0_hit),
+      .miss_pulse(ic0_miss)
   );
 
   // -------------------------------------------------------------- D-cache
   dcache #(
       .LINE_WORDS(8),
       .NUM_LINES(DCACHE_LINES)
-  ) u_dcache (
+  ) u_dcache0 (
 `ifdef ROCO_SOC_DCACHE_MEMORY_FORMAL
       .formal_memory_addr(cell_addr),
       .formal_initial_word(rst ? initial_cell : native_cell),
       .formal_backing_word(native_cell),
-      .formal_cancel(core_rst),
-      .formal_boot_loading(core_rst && !boot_cache_maintenance),
+      .formal_cancel(core0_rst),
+      .formal_boot_loading(core0_rst && !boot_cache_maintenance),
       .formal_global_reset(rst),
       .formal_flush_clean(fence_state == F_DRAIN || fence_state == F_ICACHE),
       .formal_external_write(boot_write_fire && boot_write_word == cell_addr),
@@ -410,33 +472,33 @@ module roco_soc #(
       .clk(clk),
       .rst(cache_rst),
       .flush(dcache_flush),
-      .flush_done(dcache_flush_done),
-      .lu_valid(dmem_lu_valid && dmem_lu_in_sdram),
-      .lu_addr(dmem_lu_addr[24:2]),
-      .lu_offset(dmem_lu_offset),
-      .lu_funct3(dmem_lu_funct3),
-      .cm_valid(dmem_req && dmem_in_sdram),
-      .cm_we(dmem_we),
-      .cm_addr(dmem_addr[24:2]),
-      .cm_wdata(dmem_wdata),
-      .cm_be(dmem_be),
-      .cm_rdata(dc_cm_rdata),
-      .cm_forward_data(dc_forward_data),
-      .cm_ready(dc_cm_ready),
-      .mem_req(dc_mem_req),
-      .mem_we(dc_mem_we),
-      .mem_word_addr(dc_mem_word_addr),
-      .mem_len(dc_mem_len),
-      .mem_ready(dc_mem_ready),
-      .mem_wvalid(dc_mem_wvalid),
-      .mem_wready(dc_mem_wready),
-      .mem_wdata(dc_mem_wdata),
-      .mem_wbe(dc_mem_wbe),
-      .mem_rvalid(dc_mem_rvalid),
-      .mem_rdata(dc_mem_rdata),
-      .mem_rlast(dc_mem_rlast),
-      .hit_pulse(dc_hit),
-      .miss_pulse(dc_miss),
+      .flush_done(dcache_flush_done0),
+      .lu_valid(dmem0_lu_valid && dmem0_lu_in_sdram),
+      .lu_addr(dmem0_lu_addr[24:2]),
+      .lu_offset(dmem0_lu_offset),
+      .lu_funct3(dmem0_lu_funct3),
+      .cm_valid(dmem0_req && dmem0_in_sdram),
+      .cm_we(dmem0_we),
+      .cm_addr(dmem0_addr[24:2]),
+      .cm_wdata(dmem0_wdata),
+      .cm_be(dmem0_be),
+      .cm_rdata(dc0_cm_rdata),
+      .cm_forward_data(dc0_forward_data),
+      .cm_ready(dc0_cm_ready),
+      .mem_req(dc0_mem_req),
+      .mem_we(dc0_mem_we),
+      .mem_word_addr(dc0_mem_word_addr),
+      .mem_len(dc0_mem_len),
+      .mem_ready(dc0_mem_ready),
+      .mem_wvalid(dc0_mem_wvalid),
+      .mem_wready(dc0_mem_wready),
+      .mem_wdata(dc0_mem_wdata),
+      .mem_wbe(dc0_mem_wbe),
+      .mem_rvalid(dc0_mem_rvalid),
+      .mem_rdata(dc0_mem_rdata),
+      .mem_rlast(dc0_mem_rlast),
+      .hit_pulse(dc0_hit),
+      .miss_pulse(dc0_miss),
       .snoop_valid(1'b0),
       .snoop_addr(23'd0),
       .snoop_exclusive(1'b0),
@@ -446,21 +508,20 @@ module roco_soc #(
       .upgrade_req(),
       .upgrade_addr(),
       .upgrade_ack(1'b1),
-      .miss_exclusive(),
       .miss_line()
   );
 
   // ------------------------------------------------------------- AXI4 fabric
-  axi4_ar_t i_ar, d_ar, boot_ar, mmio_ar, ram_ar, periph_ar;
-  axi4_aw_t i_aw, d_aw, boot_aw, mmio_aw, ram_aw, periph_aw;
-  axi4_w_t i_w, d_w, boot_w, mmio_w, ram_w, periph_w;
-  axi4_b_t i_b, d_b, boot_b, mmio_b, ram_b, periph_b, unused_ptw_b;
-  axi4_r_t i_r, d_r, boot_r, mmio_r, ram_r, periph_r;
-  logic i_arready, d_arready, boot_arready, mmio_arready, ram_arready, periph_arready;
-  logic i_awready, d_awready, boot_awready, mmio_awready, ram_awready, periph_awready;
-  logic i_wready, d_wready, boot_wready, mmio_wready, ram_wready, periph_wready;
-  logic i_rready, d_rready, boot_rready, mmio_rready, ram_rready, periph_rready;
-  logic i_bready, d_bready, boot_bready, mmio_bready, ram_bready, periph_bready;
+  axi4_ar_t i0_ar, d0_ar, boot_ar, mmio0_ar, ram_ar, periph_ar;
+  axi4_aw_t i0_aw, d0_aw, boot_aw, mmio0_aw, ram_aw, periph_aw;
+  axi4_w_t i0_w, d0_w, boot_w, mmio0_w, ram_w, periph_w;
+  axi4_b_t i0_b, d0_b, boot_b, mmio0_b, ram_b, periph_b, unused_ptw_b;
+  axi4_r_t i0_r, d0_r, boot_r, mmio0_r, ram_r, periph_r;
+  logic i0_arready, d0_arready, boot_arready, mmio0_arready, ram_arready, periph_arready;
+  logic i0_awready, d0_awready, boot_awready, mmio0_awready, ram_awready, periph_awready;
+  logic i0_wready, d0_wready, boot_wready, mmio0_wready, ram_wready, periph_wready;
+  logic i0_rready, d0_rready, boot_rready, mmio0_rready, ram_rready, periph_rready;
+  logic i0_bready, d0_bready, boot_bready, mmio0_bready, ram_bready, periph_bready;
   // Memory-domain SDRAM port (fast clock) behind the CDC bridge.
   axi4_ar_t mem_ram_ar;
   axi4_aw_t mem_ram_aw;
@@ -471,7 +532,7 @@ module roco_soc #(
   // Cross-domain status: SDRAM readiness into the core clock.
   logic c_ready_sync0, c_ready_sync1, init_done_sync0, init_done_sync1;
   logic c_ready_synced, init_done_synced;
-  logic unused_i_wready, unused_i_done, unused_d_done, unused_boot_done;
+  logic unused_i0_wready, unused_i0_done, unused_d0_done, unused_boot_done;
 `ifdef ROCO_SOC_RAM_FORMAL
   logic [4:0] f_d_write_left, f_boot_write_left;
   logic f_boot_write_owned;
@@ -483,71 +544,76 @@ module roco_soc #(
 `endif
   logic unused_boot_rvalid, unused_boot_rlast, unused_ptw_awready, unused_ptw_wready;
   logic [31:0] unused_boot_rdata;
-  logic unused_mmio_accept, mmio_read_done, mmio_write_done, unused_mmio_wready, unused_mmio_rlast;
+  logic
+      unused_mmio0_accept,
+      mmio0_read_done,
+      mmio0_write_done,
+      unused_mmio0_wready,
+      unused_mmio0_rlast;
   logic psel, penable, pwrite, pready;
   logic [31:0] paddr, pwdata;
   logic [3:0] pstrb;
   logic [2:0] unused_pprot;
 
-  axi4_mem_master u_i_axi (
+  axi4_mem_master u_i0_axi (
       .clk(clk),
       .rst(rst),
-      .req(ic_mem_req),
+      .req(ic0_mem_req),
       .we(1'b0),
-      .addr({7'd8, ic_mem_word_addr, 2'b00}),
-      .len(ic_mem_len),
-      .ready(ic_mem_ready),
+      .addr({7'd8, ic0_mem_word_addr, 2'b00}),
+      .len(ic0_mem_len),
+      .ready(ic0_mem_ready),
       .wvalid(1'b0),
-      .wready(unused_i_wready),
+      .wready(unused_i0_wready),
       .wdata(32'd0),
       .wbe(4'd0),
-      .rvalid(ic_mem_rvalid),
-      .rdata(ic_mem_rdata),
-      .rlast(ic_mem_rlast),
-      .write_done(unused_i_done),
+      .rvalid(ic0_mem_rvalid),
+      .rdata(ic0_mem_rdata),
+      .rlast(ic0_mem_rlast),
+      .write_done(unused_i0_done),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_write_left(),
 `endif
-      .ar(i_ar),
-      .ar_ready(i_arready),
-      .r(i_r),
-      .r_ready(i_rready),
-      .aw(i_aw),
-      .aw_ready(i_awready),
-      .w(i_w),
-      .w_ready(i_wready),
-      .b(i_b),
-      .b_ready(i_bready)
+      .ar(i0_ar),
+      .ar_ready(i0_arready),
+      .r(i0_r),
+      .r_ready(i0_rready),
+      .aw(i0_aw),
+      .aw_ready(i0_awready),
+      .w(i0_w),
+      .w_ready(i0_wready),
+      .b(i0_b),
+      .b_ready(i0_bready)
   );
-  axi4_mem_master u_d_axi (
+  axi4_mem_master u_d0_axi (
       .clk(clk),
       .rst(rst),
-      .req(dc_mem_req),
-      .we(dc_mem_we),
-      .addr({7'd8, dc_mem_word_addr, 2'b00}),
-      .len(dc_mem_len),
-      .ready(dc_mem_ready),
-      .wvalid(dc_mem_wvalid),
-      .wready(dc_mem_wready),
-      .wdata(dc_mem_wdata),
-      .wbe(dc_mem_wbe),
-      .rvalid(dc_mem_rvalid),
-      .rdata(dc_mem_rdata),
-      .rlast(dc_mem_rlast),
-      .write_done(unused_d_done),
+      .req(dc0_mem_req),
+      .we(dc0_mem_we),
+      .addr({7'd8, dc0_mem_word_addr, 2'b00}),
+      .len(dc0_mem_len),
+      .ready(dc0_mem_ready),
+      .wvalid(dc0_mem_wvalid),
+      .wready(dc0_mem_wready),
+      .wdata(dc0_mem_wdata),
+      .wbe(dc0_mem_wbe),
+      .rvalid(dc0_mem_rvalid),
+      .rdata(dc0_mem_rdata),
+      .rlast(dc0_mem_rlast),
+      .write_done(unused_d0_done),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_write_left(f_d_write_left),
 `endif
-      .ar(d_ar),
-      .ar_ready(d_arready),
-      .r(d_r),
-      .r_ready(d_rready),
-      .aw(d_aw),
-      .aw_ready(d_awready),
-      .w(d_w),
-      .w_ready(d_wready),
-      .b(d_b),
-      .b_ready(d_bready)
+      .ar(d0_ar),
+      .ar_ready(d0_arready),
+      .r(d0_r),
+      .r_ready(d0_rready),
+      .aw(d0_aw),
+      .aw_ready(d0_awready),
+      .w(d0_w),
+      .w_ready(d0_wready),
+      .b(d0_b),
+      .b_ready(d0_bready)
   );
   axi4_mem_master u_boot_axi (
       .clk(clk),
@@ -579,64 +645,64 @@ module roco_soc #(
       .b(boot_b),
       .b_ready(boot_bready)
   );
-  axi4_mem_master u_mmio_axi (
+  axi4_mem_master u_mmio0_axi (
       .clk(clk),
       .rst(rst),
       // An uncached atomic reads its old value here; the cached path is
       // already served by the EX lookup, so only this port reads first.
-      .req((dmem_valid || dmem_amo_read) && !dmem_in_sdram),
-      .we(dmem_we && !dmem_amo_read),
-      .addr({dmem_addr[31:2], 2'b00}),
+      .req((dmem0_valid || dmem0_amo_read) && !dmem0_in_sdram),
+      .we(dmem0_we && !dmem0_amo_read),
+      .addr({dmem0_addr[31:2], 2'b00}),
       .len(4'd0),
-      .ready(unused_mmio_accept),
+      .ready(unused_mmio0_accept),
       .wvalid(1'b1),
-      .wready(unused_mmio_wready),
-      .wdata(dmem_wdata),
-      .wbe(dmem_be),
-      .rvalid(mmio_read_done),
-      .rdata(mmio_rsp_data),
-      .rlast(unused_mmio_rlast),
-      .write_done(mmio_write_done),
+      .wready(unused_mmio0_wready),
+      .wdata(dmem0_wdata),
+      .wbe(dmem0_be),
+      .rvalid(mmio0_read_done),
+      .rdata(mmio0_rsp_data),
+      .rlast(unused_mmio0_rlast),
+      .write_done(mmio0_write_done),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_write_left(),
 `endif
-      .ar(mmio_ar),
-      .ar_ready(mmio_arready),
-      .r(mmio_r),
-      .r_ready(mmio_rready),
-      .aw(mmio_aw),
-      .aw_ready(mmio_awready),
-      .w(mmio_w),
-      .w_ready(mmio_wready),
-      .b(mmio_b),
-      .b_ready(mmio_bready)
+      .ar(mmio0_ar),
+      .ar_ready(mmio0_arready),
+      .r(mmio0_r),
+      .r_ready(mmio0_rready),
+      .aw(mmio0_aw),
+      .aw_ready(mmio0_awready),
+      .w(mmio0_w),
+      .w_ready(mmio0_wready),
+      .b(mmio0_b),
+      .b_ready(mmio0_bready)
   );
-  assign mmio_done = mmio_read_done || mmio_write_done;
+  assign mmio0_done = mmio0_read_done || mmio0_write_done;
 
 
   axi4_xbar u_xbar (
       .clk(clk),
       .rst(rst),
-      .m0_ar(i_ar),
-      .m0_ar_ready(i_arready),
-      .m0_r(i_r),
-      .m0_r_ready(i_rready),
-      .m0_aw(i_aw),
-      .m0_aw_ready(i_awready),
-      .m0_w(i_w),
-      .m0_w_ready(i_wready),
-      .m0_b(i_b),
-      .m0_b_ready(i_bready),
-      .m1_ar(d_ar),
-      .m1_ar_ready(d_arready),
-      .m1_r(d_r),
-      .m1_r_ready(d_rready),
-      .m1_aw(d_aw),
-      .m1_aw_ready(d_awready),
-      .m1_w(d_w),
-      .m1_w_ready(d_wready),
-      .m1_b(d_b),
-      .m1_b_ready(d_bready),
+      .m0_ar(i0_ar),
+      .m0_ar_ready(i0_arready),
+      .m0_r(i0_r),
+      .m0_r_ready(i0_rready),
+      .m0_aw(i0_aw),
+      .m0_aw_ready(i0_awready),
+      .m0_w(i0_w),
+      .m0_w_ready(i0_wready),
+      .m0_b(i0_b),
+      .m0_b_ready(i0_bready),
+      .m1_ar(d0_ar),
+      .m1_ar_ready(d0_arready),
+      .m1_r(d0_r),
+      .m1_r_ready(d0_rready),
+      .m1_aw(d0_aw),
+      .m1_aw_ready(d0_awready),
+      .m1_w(d0_w),
+      .m1_w_ready(d0_wready),
+      .m1_b(d0_b),
+      .m1_b_ready(d0_bready),
       .m2_ar(boot_ar),
       .m2_ar_ready(boot_arready),
       .m2_r(boot_r),
@@ -647,26 +713,26 @@ module roco_soc #(
       .m2_w_ready(boot_wready),
       .m2_b(boot_b),
       .m2_b_ready(boot_bready),
-      .m3_ar(ptw_ar),
-      .m3_ar_ready(ptw_ready),
-      .m3_r(ptw_r),
-      .m3_r_ready(ptw_r_ready),
+      .m3_ar(ptw0_ar),
+      .m3_ar_ready(ptw0_ready),
+      .m3_r(ptw0_r),
+      .m3_r_ready(ptw0_r_ready),
       .m3_aw(53'd0),
       .m3_aw_ready(unused_ptw_awready),
       .m3_w(38'd0),
       .m3_w_ready(unused_ptw_wready),
       .m3_b(unused_ptw_b),
       .m3_b_ready(1'b1),
-      .m4_ar(mmio_ar),
-      .m4_ar_ready(mmio_arready),
-      .m4_r(mmio_r),
-      .m4_r_ready(mmio_rready),
-      .m4_aw(mmio_aw),
-      .m4_aw_ready(mmio_awready),
-      .m4_w(mmio_w),
-      .m4_w_ready(mmio_wready),
-      .m4_b(mmio_b),
-      .m4_b_ready(mmio_bready),
+      .m4_ar(mmio0_ar),
+      .m4_ar_ready(mmio0_arready),
+      .m4_r(mmio0_r),
+      .m4_r_ready(mmio0_rready),
+      .m4_aw(mmio0_aw),
+      .m4_aw_ready(mmio0_awready),
+      .m4_w(mmio0_w),
+      .m4_w_ready(mmio0_wready),
+      .m4_b(mmio0_b),
+      .m4_b_ready(mmio0_bready),
       // Hart1 masters parked until the second hart is wired (single-core
       // mode keeps lint green while the 9-master fabric is in place).
       .m5_ar('0),
@@ -969,18 +1035,20 @@ module roco_soc #(
       .uart_tx_byte(mmio_tx_byte),
       .buttons(buttons),
       .leds(leds),
-      .irq_timer(irq_timer),
+      .irq_timer0(irq_timer0),
       .irq_timer1(),
-      .irq_software(),
+      .irq_software0(),
       .irq_software1(),
       .mmio_commit1(1'b0),
-      .ic_hit(ic_hit),
-      .ic_miss(ic_miss),
-      .dc_hit(dc_hit),
-      .dc_miss(dc_miss),
+      .ic_hit(ic0_hit),
+      .ic_miss(ic0_miss),
+      .dc_hit(dc0_hit),
+      .dc_miss(dc0_miss),
       .boot_status({init_done_synced, boot_error, boot_busy, boot_done_eff}),
       .boot_addr(boot_addr),
-      .mmio_commit(dmem_req && dmem_valid && !dmem_in_sdram),
+      // dmem0_req is level-held through stalls: commit the system effect
+      // only once the MMIO transfer actually completes (the retire cycle).
+      .mmio_commit(dmem0_req && dmem0_valid && !dmem0_in_sdram && mmio0_done),
       .boot_restart(boot_restart),
       .hart1_boot_addr(hart1_boot_addr),
       .hart1_release(hart1_release),
@@ -992,20 +1060,20 @@ module roco_soc #(
   // request. Capturing unconditionally keeps late fetch/MMU qualification
   // off the address register enables; invalid responses are ignored.
   always_ff @(posedge clk) begin
-    i_unc_rsp_addr <= imem_addr;
-    imem_rsp_in_sdram <= imem_in_sdram;
+    i0_unc_rsp_addr <= imem0_addr;
+    imem0_rsp_in_sdram <= imem0_in_sdram;
   end
-  assign i_unc_rsp_data = 32'd0;
+  assign i0_unc_rsp_data = 32'd0;
 
   always_ff @(posedge clk or posedge rst) begin
-    if (rst) i_unc_rsp <= 1'b0;
-    else i_unc_rsp <= i_unc_req;
+    if (rst) i0_unc_rsp <= 1'b0;
+    else i0_unc_rsp <= i0_unc_req;
   end
 
   // ------------------------------------------------------ FENCE.I sequence
   // FENCE.I must make prior stores visible to the instruction stream, so
   // write back the whole D-cache, invalidate the I-cache, then release the
-  // stalled FENCE.I instruction. The core holds IF/ID/EX until fence_done.
+  // stalled FENCE.I instruction. The core holds IF/ID/EX until fence_done0.
   localparam logic [1:0] F_IDLE   = 2'd0;
   localparam logic [1:0] F_DCACHE = 2'd1;
   localparam logic [1:0] F_DRAIN  = 2'd2;
@@ -1016,28 +1084,28 @@ module roco_soc #(
       fence_state <= F_IDLE;
       dcache_flush <= 1'b0;
       icache_flush <= 1'b0;
-      fence_done <= 1'b0;
+      fence_done0 <= 1'b0;
       boot_cache_maintenance <= 1'b0;
     end else begin
       icache_flush <= 1'b0;
       if (boot_restart && !BOOT_OVERRIDE) begin
         boot_cache_maintenance <= 1'b1;
         dcache_flush <= 1'b1;
-        fence_done <= 1'b0;
+        fence_done0 <= 1'b0;
         fence_state <= F_DCACHE;
       end else
         case (fence_state)
           F_IDLE: begin
-            if (core_fence_req) begin
-              fence_done <= 1'b0;
+            if (core0_fence_req) begin
+              fence_done0 <= 1'b0;
               dcache_flush <= 1'b1;
               fence_state <= F_DCACHE;
             end else begin
-              fence_done <= 1'b0;
+              fence_done0 <= 1'b0;
             end
           end
           F_DCACHE: begin
-            if (dcache_flush_done) begin
+            if (dcache_flush_done0) begin
               dcache_flush <= 1'b0;
               fence_state <= F_DRAIN;
             end
@@ -1049,7 +1117,7 @@ module roco_soc #(
             end
           end
           F_ICACHE: begin
-            fence_done <= 1'b1;
+            fence_done0 <= 1'b1;
             fence_state <= F_IDLE;
             boot_cache_maintenance <= 1'b0;
           end
@@ -1063,13 +1131,13 @@ module roco_soc #(
   // ------------------------------------------------------- Response muxing
   // Both paths reply to the previous cycle's lookup. A new speculative
   // address may already select the other region while that reply arrives.
-  assign imem_rsp_valid = imem_rsp_in_sdram ? ic_cpu_rsp : i_unc_rsp;
-  assign imem_rsp_addr = imem_rsp_in_sdram ? ic_cpu_rsp_addr : i_unc_rsp_addr;
-  assign imem_rsp_data = imem_rsp_in_sdram ? ic_cpu_rsp_data : i_unc_rsp_data;
-  assign dmem_rsp_data = dmem_in_sdram ? dc_cm_rdata : mmio_rsp_data;
+  assign imem0_rsp_valid = imem0_rsp_in_sdram ? ic0_cpu_rsp : i0_unc_rsp;
+  assign imem0_rsp_addr = imem0_rsp_in_sdram ? ic0_cpu_rsp_addr : i0_unc_rsp_addr;
+  assign imem0_rsp_data = imem0_rsp_in_sdram ? ic0_cpu_rsp_data : i0_unc_rsp_data;
+  assign dmem0_rsp_data = dmem0_in_sdram ? dc0_cm_rdata : mmio0_rsp_data;
   // Only cached reads use immediate MEM-to-EX forwarding. Uncached
   // dependencies wait for WB, keeping peripheral decode off the early bus.
-  assign dmem_forward_data = dc_forward_data;
+  assign dmem0_forward_data = dc0_forward_data;
 
 `ifdef ROCO_SOC_CONTROL_FORMAL
   `include "soc_control_checks.svh"

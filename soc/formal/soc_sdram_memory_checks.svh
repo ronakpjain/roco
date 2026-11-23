@@ -98,7 +98,7 @@ always_ff @(posedge clk) begin
   if (!rst && !cache_rst) begin
     assert (f_d_write_left == f_dc_write_left);
     assert (f_dc_read_left == f_dc_cache_read_left);
-    if (!core_rst) begin
+    if (!core0_rst) begin
       assert ((f_dc_checker_pending && !f_dc_checker_abandoned) == f_dc_pending);
       if (f_dc_pending) assert (f_dc_checker_cpu_word == f_dc_word);
     end
@@ -113,14 +113,14 @@ end
 logic [22:0] dc_write_word, boot_write_word;
 logic [31:0] native_cell;
 logic dc_write_fire, boot_write_fire;
-assign dc_write_fire = dc_mem_wvalid && dc_mem_wready;
+assign dc_write_fire = dc0_mem_wvalid && dc0_mem_wready;
 assign boot_write_fire = boot_mem_wvalid && boot_mem_wready;
 always_ff @(posedge clk) begin
   if (rst) begin
     {dc_write_word, boot_write_word} <= '0;
     native_cell <= initial_cell;
   end else begin
-    if (dc_mem_req && dc_mem_ready && dc_mem_we) dc_write_word <= dc_mem_word_addr;
+    if (dc0_mem_req && dc0_mem_ready && dc0_mem_we) dc_write_word <= dc0_mem_word_addr;
     if (boot_mem_req && boot_mem_ready) boot_write_word <= boot_mem_word_addr;
     if (f_ram_write_left != 0) begin
       assert (active && writing && supported && !final_w);
@@ -132,8 +132,8 @@ always_ff @(posedge clk) begin
     if (dc_write_fire) begin
       if (dc_write_word == cell_addr)
         native_cell <= {
-          overlay(native_cell[31:16], dc_mem_wdata[31:16], dc_mem_wbe[3:2]),
-          overlay(native_cell[15:0], dc_mem_wdata[15:0], dc_mem_wbe[1:0])
+          overlay(native_cell[31:16], dc0_mem_wdata[31:16], dc0_mem_wbe[3:2]),
+          overlay(native_cell[15:0], dc0_mem_wdata[15:0], dc0_mem_wbe[1:0])
         };
       dc_write_word <= dc_write_word + 23'd1;
     end
@@ -161,10 +161,10 @@ always_ff @(posedge clk) begin
     cover (pin_write);
     cover (f_ram_read_i);
     cover (f_ram_read_d);
-    cover (ic_read_word == cell_addr && ic_mem_rvalid);
-    cover (dc_read_word == cell_addr && dc_mem_rvalid);
-    if (dc_mem_req && dc_mem_ready && !dc_mem_we) dc_read_word <= dc_mem_word_addr;
-    if (ic_mem_req && ic_mem_ready) ic_read_word <= ic_mem_word_addr;
+    cover (ic_read_word == cell_addr && ic0_mem_rvalid);
+    cover (dc_read_word == cell_addr && dc0_mem_rvalid);
+    if (dc0_mem_req && dc0_mem_ready && !dc0_mem_we) dc_read_word <= dc0_mem_word_addr;
+    if (ic0_mem_req && ic0_mem_ready) ic_read_word <= ic0_mem_word_addr;
     if (f_ram_read_d) begin
       assert (active && !writing && supported && length == 8);
       assert (base[24:2] + 23'(transferred) == dc_read_word);
@@ -173,12 +173,12 @@ always_ff @(posedge clk) begin
       assert (active && !writing && supported && length == 4);
       assert (base[24:2] + 23'(transferred) == ic_read_word);
     end
-    if (dc_mem_rvalid) begin
-      if (dc_read_word == cell_addr) assert (dc_mem_rdata == axi_cell);
+    if (dc0_mem_rvalid) begin
+      if (dc_read_word == cell_addr) assert (dc0_mem_rdata == axi_cell);
       dc_read_word <= dc_read_word + 23'd1;
     end
-    if (ic_mem_rvalid) begin
-      if (ic_read_word == cell_addr) assert (ic_mem_rdata == axi_cell);
+    if (ic0_mem_rvalid) begin
+      if (ic_read_word == cell_addr) assert (ic0_mem_rdata == axi_cell);
       ic_read_word <= ic_read_word + 23'd1;
     end
   end

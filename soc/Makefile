@@ -55,7 +55,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format_check syntax lint hooks clean test_core test_isa test_mm test_vm test_muldiv test_muldiv_core test_atomic test_vector test_vector_c test_irq test_sdram test_bus test_soc test_isa_soc test_boot test_smp synth timing bitstream
+.PHONY: all format format_check syntax lint hooks clean test_core test_isa test_mm test_vm test_muldiv test_muldiv_core test_atomic test_vector test_vector_c test_irq test_sdram test_bus test_soc test_isa_soc test_boot test_smp synth timing bitstream diamond-bitstream
 
 all: format_check syntax lint
 
@@ -454,6 +454,21 @@ $(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf constraint
 
 $(BUILD_DIR)/roco.bit: $(BUILD_DIR)/roco.config
 	$(ECPPACK) --svf $(BUILD_DIR)/roco.svf $< $@
+
+# Lattice Diamond batch flow on Hercules (proprietary A/B vs nextpnr).
+# One-time Hercules setup first: installer tarball + license.dat (see
+# soc/diamond/README.md), then soc/diamond/build.sh there. This target
+# syncs sources, runs the container batch flow over SSH, and fetches the
+# bitstream plus TRACE/MAP reports back into build/.
+DIAMOND_HOST ?= hercules
+DIAMOND_WORK ?= roco-diamond
+diamond-bitstream: $(RTL_SV) | build
+	tar -czf - rtl constraints diamond | ssh $(DIAMOND_HOST) 'rm -rf $(DIAMOND_WORK)/soc && mkdir -p $(DIAMOND_WORK)/soc && tar -xzf - -C $(DIAMOND_WORK)/soc'
+	ssh $(DIAMOND_HOST) '$(DIAMOND_WORK)/soc/diamond/run.sh'
+	scp $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond.bit $(BUILD_DIR)/roco_diamond.bit
+	scp $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond.twr $(BUILD_DIR)/roco_diamond.twr
+	scp $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond.mrp $(BUILD_DIR)/roco_diamond.mrp
+	@echo "Diamond artifacts in $(BUILD_DIR)/roco_diamond.{bit,twr,mrp}"
 
 clean:
 	rm -rf $(BUILD_DIR)

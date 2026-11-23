@@ -362,11 +362,16 @@ module tb_soc #(
     end else if (u_soc.dmem0_req && !u_soc.dmem0_in_sdram && u_soc.dmem0_valid &&
                u_soc.mmio0_done) begin
       // Retire cycle of an MMIO op (dmem0_req is level-held through stalls).
+      // apb_completed is sticky across idle cycles: the registered AXI
+      // fabric may insert bubbles between APB completion and retire.
       if (!apb_completed) $fatal(1, "MMIO committed before APB/AXI completion");
       apb_completed <= 1'b0;
     end else if (u_soc.dmem0_req && !u_soc.dmem0_in_sdram && !u_soc.dmem0_valid) begin
       if (apb_completed || u_soc.mmio0_done) $fatal(1, "failed SC touched the MMIO bus");
-    end else begin
+    end else if (!u_soc.dmem0_req || u_soc.dmem0_in_sdram) begin
+      // No hart0 MMIO op in flight: drop stale completion (e.g. hart1's
+      // unchecked transfers). Inside hart0's op the flag holds across the
+      // bubble cycles the registered fabric inserts before retire.
       apb_completed <= 1'b0;
     end
   end

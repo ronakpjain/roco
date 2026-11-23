@@ -36,7 +36,6 @@ module roco_top (
 
   logic clk_core;
   logic clk_mem;
-  logic clk_fb;
   logic pll_locked;
   logic unused_clk_os2;
   logic unused_clk_os3;
@@ -70,7 +69,7 @@ module roco_top (
       .PLL_LOCK_DELAY(200)
   ) u_pll (
       .CLKI(clk_24),
-      .CLKFB(clk_fb),
+      .CLKFB(1'b0),
       .RST(1'b0),
       .STDBY(1'b0),
       .PHASESEL0(1'b0),
@@ -92,8 +91,6 @@ module roco_top (
       .REFCLK(unused_pll_refclk),
       .CLKINTFB(unused_pll_clkintfb)
   );
-
-  assign clk_fb = clk_mem;
 
   logic [2:0] rst_core_sync, rst_mem_sync;
   logic [1:0] btn_meta;

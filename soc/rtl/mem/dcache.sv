@@ -248,6 +248,11 @@ module dcache #(
   logic cm_valid_q;
   logic cm_new;
   assign cm_new = cm_valid && (!cm_valid_q || (cm_addr != cm_addr_q));
+  logic fill_done;
+  assign fill_done = (state == S_FILL) && mem_rvalid && mem_rlast;
+  logic fill_void_lu, fill_void_mem;
+  assign fill_void_lu = fill_done && (miss_idx == lu_addr_q[IDX_HI:IDX_LO]);
+  assign fill_void_mem = fill_done && (miss_idx == mem_addr_q[IDX_HI:IDX_LO]);
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       mem_hit_q <= 1'b0;
@@ -257,7 +262,9 @@ module dcache #(
     end else begin
       cm_valid_q <= cm_valid;
       if (cm_valid) cm_addr_q <= cm_addr;
-      if (cm_new) begin
+      if (fill_void_mem) begin
+        mem_hit_q <= 1'b0;
+      end else if (cm_new) begin
         mem_hit_q <= lookup_hit_q;
         mem_addr_q <= lu_addr_q;
       end
@@ -274,9 +281,6 @@ module dcache #(
       killed_q[miss_idx] <= 1'b0;
     end
   end
-  // First cycle of a (new-address) commit answers from the live EX-side
-  // registers; held cycles use the snapshot. No lu_* signal enters the
-  // commit cone, so no combinational ready loop is possible.
   // A peer snoop that drops a line must also drop the microarchitectural
   // state shadowing it: a registered hit for a dead line, a pending
   // miss about to serve one, or a retiring store about to dirty it would
@@ -284,6 +288,11 @@ module dcache #(
   // believes is gone. The guard mirrors the valid_ram clear exactly, so
   // the clears fire precisely when the line dies. Safe direction only:
   // a coincidental same-cycle lookup loses its result and refetches.
+  // A fill that lands evicts whatever was there: any registered hit for
+  // that index now refers to the old line and must be voided, or a later
+  // commit would consume the new line's data as the old line's. The
+  // voiding is safe-only (a voided hit refetches); recovery still serves
+  // the just-filled line through its own path.
   logic snoop_kill_lu, snoop_kill_pending, snoop_kill_cm;
   assign snoop_kill_lu = snoop_valid && snoop_invalidate &&
                           (snoop_idx == lu_addr_q[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
@@ -352,7 +361,7 @@ module dcache #(
       // a still-waiting commit would drop the hit before it is consumed.
       // A snoop kill of the looked-up line voids the held hit first: the
       // line is dead, so the next commit must re-miss, never consume it.
-      if (snoop_kill_lu) begin
+      if (snoop_kill_lu || fill_void_lu) begin
         lookup_hit_q <= 1'b0;
       end else if (lu_valid) begin
         lookup_hit_q <= lu_hit_live;

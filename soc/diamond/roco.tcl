@@ -21,8 +21,21 @@ prj_impl option top "roco_top"
 # Same RTL as the Yosys flow. Synplify OEM reads SystemVerilog-2012;
 # the only vendor primitive below the board top is the EHXPLLL in
 # rtl/roco_top.sv, which Diamond understands natively.
-foreach f [glob soc/rtl/common/*.svh soc/rtl/common/*.sv] { prj_src add $f }
+# Headers (.svh) are added excluded-from-build so Synplify sees them for
+# `include resolution but doesn't compile them as design units (compiling
+# a header as Verilog is CS219). The .sv files are real design sources.
+foreach f [glob soc/rtl/common/*.svh soc/rtl/common/*.sv] {
+    catch {prj_src add $f -exclude} m
+    if {[string match "*invalid*" $m]} { puts "svh add note: $m" }
+}
 foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add $f }
+# Verilog `include "axi4_defs.svh" (bare name, header lives in
+# soc/rtl/common) needs an include search path. Option name varies by
+# Diamond version; try the known spellings, keep whichever sticks.
+foreach opt {{include path} {verilog include path} {hdr path} include} {
+    catch {prj_impl option $opt {"soc/rtl/common"}} msg
+    puts "include opt '$opt': $msg"
+}
 
 # Diamond-native LPF: LOCATE/IOBUF/FREQUENCY plus the Lattice BLOCK
 # RESETPATHS/ASYNCPATHS directives. If PAR rejects anything, fork
@@ -38,7 +51,7 @@ proc run_step {label args} {
     puts "=== $label: $args ==="
     if {[catch {eval $args} msg]} {
         puts "$label FAILED: $msg"
-        foreach pat {impl1/*.srr impl1/*.srf impl1/*.log *.srr *.log} {
+        foreach pat {impl1/*.srr impl1/*.srf impl1/*.log impl1/*.tcl impl1/synlog/* *.srr *.log} {
             foreach f [glob -nocomplain $pat] {
                 catch {file copy -force $f out/}
                 puts "saved $f -> out/"

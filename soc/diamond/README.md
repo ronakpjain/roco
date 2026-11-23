@@ -9,14 +9,17 @@ Diamond-built bitstream if Diamond closes timing that nextpnr cannot.
 Hercules already has Docker 29 and 132 GB free, so only two manual steps
 remain. Both need a lattice-semi.com account; neither can be scripted.
 
-### 1. Diamond installer tarball (login-walled download)
+### 1. Diamond installer `.run` (login-walled download)
 
 1. Log in at lattice-semi.com → Downloads → Lattice Diamond software.
 2. Download **Diamond 3.14 for Linux 64-bit (base)**. A service pack is
    optional; base alone is enough for a first timing comparison.
-3. Copy it to Hercules (any name starting with `diamond-` and ending in
-   `.tgz` works — the build script picks it up by glob):
-   `scp diamond-*-linux*.tgz hercules:roco-diamond/installer/`
+   (Confirmed working shape: `3.14.0.75.2_Diamond_lin.zip` containing one
+   `*-Diamond_lin.run` self-extracting binary.)
+3. Unzip it and copy the `.run` file to Hercules (`build.sh` picks up
+   `installer/*.run`):
+   `unzip 3.14.0.75.2_Diamond_lin.zip`
+   `scp 3.14.0.75.2_Diamond_lin.run hercules:roco-diamond/installer/`
 
 If Lattice only offers a newer 3.x, take it and pass
 `DIAMOND_VERSION=<that>` to `build.sh`; the Dockerfile keys the install

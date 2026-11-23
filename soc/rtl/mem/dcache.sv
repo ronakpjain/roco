@@ -91,9 +91,9 @@ module dcache #(
   output logic upgrade_req,
   output logic [22:0] upgrade_addr,
   input logic upgrade_ack,
-  /* Miss intent: latched when the miss is recognized; stores/AMOs want
-     Modified (peer must invalidate), loads want Shared (peer keeps copy). */
-  output logic miss_exclusive,
+  /* Line base of the in-flight miss for the coherence hub's probe. All
+     hub fills are exclusive (MSI without E): the peer is invalidated
+     after a dirty writeback, so read-sharing migrates instead of copying. */
   output logic [22:0] miss_line
 );
 
@@ -175,7 +175,6 @@ module dcache #(
   logic prev_store_match;
 
   logic [MEM_WORD_BITS-1:0] miss_line_word;
-  logic miss_exclusive_q;
   logic [IDX_BITS-1:0] miss_idx;
   logic [MEM_TAG_BITS-1:0] miss_tag;
   logic [IDX_BITS-1:0] flush_idx;
@@ -211,33 +210,41 @@ module dcache #(
   assign snoop_tag = snoop_addr[22:OFF_BITS+IDX_BITS];
   assign snoop_hit = snoop_valid && valid_ram[snoop_idx] && (tag_ram[snoop_idx] == snoop_tag);
   assign snoop_dirty = snoop_hit && dirty_ram[snoop_idx];
+  // Commit-time hit recheck against the authoritative tag RAM. A peer
+  // snoop can invalidate our line between lookup and commit (lost upgrade
+  // race); committing to it would dirty an invalid entry or read stale
+  // data. Recheck and force a write-allocate miss instead.
+  logic cm_hit_now;
+  assign cm_hit_now = valid_ram[cm_addr[IDX_HI:IDX_LO]] &&
+                      (tag_ram[cm_addr[IDX_HI:IDX_LO]] == cm_addr[24:IDX_HI+1]);
+  logic hit_eff;
+  assign hit_eff = lookup_hit_q && (!cm_valid || cm_hit_now);
   // S->M upgrade: a store hit on a clean line is Shared and must
   // invalidate the peer before going Modified. Gate commit on hub ack.
   logic upgrade_needed;
-  assign upgrade_needed = (state == S_IDLE) && cm_valid && cm_we && lookup_hit_q &&
+  assign upgrade_needed = (state == S_IDLE) && cm_valid && cm_we && hit_eff &&
                           !dirty_ram[cm_addr[IDX_HI:IDX_LO]];
   assign upgrade_req = upgrade_needed;
   assign upgrade_addr = cm_addr;
-  assign cm_ready = (pending_miss ? recovery_ready : lookup_hit_q) && (!upgrade_needed || upgrade_ack);
+  assign cm_ready = (pending_miss ? recovery_ready : hit_eff) && (!upgrade_needed || upgrade_ack);
 `ifdef ROCO_SOC_FENCE_FORMAL
   assign f_idle = state == S_IDLE;
   assign f_lookup_pending = lookup_valid_q;
 `endif
-  assign miss_exclusive = miss_exclusive_q;
   assign miss_line = miss_line_word;
+  // Lost-upgrade race: our commit target vanished under a peer snoop
+  // between lookup and commit. The S_IDLE capture below already holds our
+  // line (the pipeline holds EX while MEM waits, so lu_addr_q is ours);
+  // just raise a miss and let the fill path hold cm until recovery.
+  logic race_miss;
+  assign race_miss = (state == S_IDLE) && !pending_miss && cm_valid && !cm_hit_now;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;
       lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
       recovery_ready <= 1'b0;
-      miss_exclusive_q <= 1'b0;
     end else begin
-      // A store/AMO/SC to the missing line upgrades the fill to exclusive.
-      // Latched sticky until the fill completes so the hub sees intent.
-      if (miss_pulse) miss_exclusive_q <= 1'b0;
-      else if (cm_valid && cm_we && pending_miss && ((cm_addr & LINE_MASK) == miss_line_word))
-        miss_exclusive_q <= 1'b1;
       lookup_valid_q <= lu_valid && (state == S_IDLE);
       // Keep each response until MEM commits it.
       if (lu_valid) begin
@@ -255,7 +262,7 @@ module dcache #(
         recovery_ready <= 1'b0;
       end
       // A following miss may start on the preceding request's commit edge.
-      if (miss_pulse) begin
+      if (miss_pulse || race_miss) begin
         pending_miss <= 1'b1;
         recovery_ready <= 1'b0;
       end
@@ -437,12 +444,12 @@ module dcache #(
       end
 
       // MSI snoop invalidate: drop clean lines immediately. Dirty hits
-      // are retained so the hub can write them back first (see snoop_dirty).
-      // Lookup-tag mirror follows so later lookups miss the evicted line.
+      // are retained so the hub can flush them first (see snoop_dirty).
+      // valid_ram alone gates lookups, so the lookup-tag mirror needs no
+      // update here (it refreshes on the next fill to this index).
       if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
           (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
         valid_ram[snoop_idx] <= 1'b0;
-        lookup_tag_ram[snoop_idx] <= '0;
       end
 
       // Save the store payload alongside the address comparison.
@@ -463,7 +470,7 @@ module dcache #(
             flush_active <= 1'b1;
             flush_idx <= '0;
             state <= S_FLUSH;
-          end else if (miss_pulse) begin
+          end else if (miss_pulse || race_miss) begin
             state <= S_START;
           end
         end

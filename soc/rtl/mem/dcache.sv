@@ -215,13 +215,73 @@ module dcache #(
   assign snoop_tag = snoop_addr[22:OFF_BITS+IDX_BITS];
   assign snoop_hit = snoop_valid && valid_ram[snoop_idx] && (tag_ram[snoop_idx] == snoop_tag);
   assign snoop_dirty = snoop_hit && dirty_ram[snoop_idx];
-  // Commit-time hit recheck against the authoritative tag RAM. A peer
-  // snoop can invalidate our line between lookup and commit (lost upgrade
-  // race); committing to it would dirty an invalid entry or read stale
-  // data. Recheck and force a write-allocate miss instead.
+  // Commit-time hit without the tag RAM re-read. tag_ram and
+  // lookup_tag_ram change only on our own fills (which imply a lookup
+  // Commit-time hit without the tag RAM re-read. tag_ram and
+  // lookup_tag_ram change only on our own fills (which imply a lookup
+  // miss) and valid_ram clears only on a peer snoop invalidate of a
+  // clean line, so a held lookup hit stays a hit unless the line died
+  // after we looked it up.
+  //
+  // The snapshot records the committing op's own lookup result (hit + full
+  // address) the first cycle it is presented. A full-address match is
+  // exact across evictions and aliases, so no tag re-read is needed; a
+  // mismatch can only cost a refill, never a false hit. killed_q shadows
+  // every valid_ram clear (snoop invalidate; reset) with a sticky bit per
+  // index, cleared by our fill. Invariant: killed_q[i] -> !valid_ram[i].
+  //
+  // New-op detection keys on the presented address (commits may stream
+  // back-to-back with cm_valid never dropping), and the snapshot is only
+  // as fresh as the in-order, level-held commit protocol the cache
+  // already assumes (see prev_store_be): a younger lookup can only
+  // overwrite the EX-side registers once per op, so at the commit's first
+  // cycle they still hold its own lookup. Anything else mismatches the
+  // full address and safely misses. No lu_* signal enters the commit cone,
+  // so no combinational ready loop is possible.
   logic cm_hit_now;
-  assign cm_hit_now = valid_ram[cm_addr[IDX_HI:IDX_LO]] &&
-                      (tag_ram[cm_addr[IDX_HI:IDX_LO]] == cm_addr[24:IDX_HI+1]);
+  logic lu_hit_live;
+  assign lu_hit_live = (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
+                       (lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
+  logic mem_hit_q;
+  logic [24:2] mem_addr_q;
+  logic [24:2] cm_addr_q;
+  logic cm_valid_q;
+  logic cm_new;
+  assign cm_new = cm_valid && (!cm_valid_q || (cm_addr != cm_addr_q));
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      mem_hit_q <= 1'b0;
+      mem_addr_q <= '0;
+      cm_addr_q <= '0;
+      cm_valid_q <= 1'b0;
+    end else begin
+      cm_valid_q <= cm_valid;
+      if (cm_valid) cm_addr_q <= cm_addr;
+      if (cm_new) begin
+        mem_hit_q <= lookup_hit_q;
+        mem_addr_q <= lu_addr_q;
+      end
+    end
+  end
+  logic killed_q[0:NUM_LINES-1];
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      for (int k = 0; k < NUM_LINES; k = k + 1) killed_q[k] <= 1'b0;
+    end else if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
+                 (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
+      killed_q[snoop_idx] <= 1'b1;
+    end else if ((state == S_FILL) && mem_rvalid && mem_rlast) begin
+      killed_q[miss_idx] <= 1'b0;
+    end
+  end
+  // First cycle of a (new-address) commit answers from the live EX-side
+  // registers; held cycles use the snapshot. No lu_* signal enters the
+  // commit cone, so no combinational ready loop is possible.
+  logic src_hit;
+  logic [24:2] src_addr;
+  assign src_hit = cm_new ? lookup_hit_q : mem_hit_q;
+  assign src_addr = cm_new ? lu_addr_q : mem_addr_q;
+  assign cm_hit_now = src_hit && (cm_addr == src_addr) && !killed_q[cm_addr[IDX_HI:IDX_LO]];
   logic hit_eff;
   assign hit_eff = lookup_hit_q && (!cm_valid || cm_hit_now);
   // S->M upgrade: a store hit on a clean line is Shared and must
@@ -261,8 +321,7 @@ module dcache #(
       // (cm_ready) exactly as the old single-cycle pulse did; clearing on
       // a still-waiting commit would drop the hit before it is consumed.
       if (lu_valid) begin
-        lookup_hit_q <= (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
-                        (lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
+        lookup_hit_q <= lu_hit_live;
       end else if (cm_valid && cm_ready) begin
         lookup_hit_q <= 1'b0;
       end

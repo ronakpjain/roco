@@ -10,8 +10,9 @@ set impl impl1
 set proj roco_soc
 
 # Fresh project each run (the work tree is disposable; sources are synced).
+# NOTE: out/ is a bind mount from the host — never delete it, only write
+# into it (deleting a mount point fails with "file busy").
 file delete -force $proj
-file delete -force out
 file mkdir out
 
 prj_project new -name $proj -impl $impl -dev LFE5U-85F-6BG381C -synthesis synplify

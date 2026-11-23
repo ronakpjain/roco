@@ -407,7 +407,7 @@
   (fp_line (start -9.5 9.5) (end -9.5 -9.5) (layer F.CrtYd) (width 0.05))
   (fp_circle (center -10.27 -7.8) (end -10.15 -7.8) (layer F.SilkS) (width 0.24))
   (fp_circle (center -10.27 -7.8) (end -10.15 -7.8) (layer F.Fab) (width 0.24))
-  (model "${KIPRJMOD}/libraries/3dmodels/LFE5U-45F-6BG381C.step"
+  (model "${KIPRJMOD}/libraries/3dmodels/LFE5U-85F-6BG381C.step"
     (offset (xyz 0 0 0))
     (scale (xyz 1 1 1))
     (rotate (xyz 0 0 0))

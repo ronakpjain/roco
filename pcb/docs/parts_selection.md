@@ -25,7 +25,7 @@
 
 | Part | Qty | Purpose / short justification |
 |---|---:|---|
-| Lattice LFE5U-45F-6BG381C | 1 | ECP5 FPGA; existing project device and library. |
+| Lattice LFE5U-85F-6BG381C | 1 | ECP5 FPGA; Rev B dual-core device. Same CABGA381 footprint and ballout as the previous revision (all used balls keep bank and function class; K16/K17 change from NC to bank-2 IO and stay unconnected). |
 | Winbond W25Q128JVSIQ | 1 | 16 MiB SPI configuration/application flash. |
 | ISSI IS42S16160J-7TLI | 1 | 32 MiB x16 SDR SDRAM. |
 | Abracon ASV-24.000MHZ-LJ-T | 1 | 24 MHz reference for FPGA PLL clocks. |

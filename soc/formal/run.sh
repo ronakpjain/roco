@@ -443,7 +443,7 @@ case "$job" in
     ;;
   xbar)
     top=axi_xbar_contract
-    depth=9
+    depth=12
     sources=(rtl/bus/axi4_xbar.sv rtl/bus/axi4_register_slice.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;

@@ -145,7 +145,9 @@ module roco_cpu #(
   output logic res_store_valid,
   output logic [29:0] res_store_addr,
   input logic res_remote_valid,
-  input logic [29:0] res_remote_addr
+  input logic [29:0] res_remote_addr,
+  /* SMP TLB shootdown: remote hart's SFENCE/satp write flushes this MMU. */
+  input logic remote_tlb_flush
 );
 
   logic if_valid;
@@ -1334,7 +1336,7 @@ module roco_cpu #(
   // The external instruction port is physical; the MMU owns virtual
   // fetch responses and page-fault reporting.
   assign mmu_sfence = mem_redirect && exmem_is_sfence;
-  assign mmu_flush = mmu_sfence || satp_write;
+  assign mmu_flush = mmu_sfence || satp_write || remote_tlb_flush;
   // The I-cache can reject a request on its own busy cycle. Also respect
   // the MMU's fetch hold: a discarded page walk can still be draining
   // after the new context already has a translation (or runs bare).

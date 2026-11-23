@@ -137,7 +137,8 @@ module tb_core;
       .res_store_valid(),
       .res_store_addr(),
       .res_remote_valid(1'b0),
-      .res_remote_addr(30'd0)
+      .res_remote_addr(30'd0),
+      .remote_tlb_flush(1'b0)
   );
 
   // ------------------------------------------------------------ Clock/reset

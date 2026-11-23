@@ -322,6 +322,7 @@ module roco_soc #(
       .res_store_addr(),
       .res_remote_valid(1'b0),
       .res_remote_addr(30'd0),
+      .remote_tlb_flush(1'b0),
       .trace_valid(trace_valid),
       .trace_pc(trace_pc),
       .trace_instr(trace_instr),
@@ -432,7 +433,9 @@ module roco_soc #(
       .snoop_invalidate(1'b0),
       .upgrade_req(),
       .upgrade_addr(),
-      .upgrade_ack(1'b1)
+      .upgrade_ack(1'b1),
+      .miss_exclusive(),
+      .miss_line()
   );
 
   // ------------------------------------------------------------- AXI4 fabric

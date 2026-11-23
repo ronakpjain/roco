@@ -90,7 +90,11 @@ module dcache #(
   /* S->M upgrade: store to a clean (Shared) line must invalidate peers. */
   output logic upgrade_req,
   output logic [22:0] upgrade_addr,
-  input logic upgrade_ack
+  input logic upgrade_ack,
+  /* Miss intent: latched when the miss is recognized; stores/AMOs want
+     Modified (peer must invalidate), loads want Shared (peer keeps copy). */
+  output logic miss_exclusive,
+  output logic [22:0] miss_line
 );
 
   localparam int OFF_BITS = $clog2(LINE_WORDS);
@@ -171,6 +175,7 @@ module dcache #(
   logic prev_store_match;
 
   logic [MEM_WORD_BITS-1:0] miss_line_word;
+  logic miss_exclusive_q;
   logic [IDX_BITS-1:0] miss_idx;
   logic [MEM_TAG_BITS-1:0] miss_tag;
   logic [IDX_BITS-1:0] flush_idx;
@@ -218,13 +223,21 @@ module dcache #(
   assign f_idle = state == S_IDLE;
   assign f_lookup_pending = lookup_valid_q;
 `endif
+  assign miss_exclusive = miss_exclusive_q;
+  assign miss_line = miss_line_word;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;
       lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
       recovery_ready <= 1'b0;
+      miss_exclusive_q <= 1'b0;
     end else begin
+      // A store/AMO/SC to the missing line upgrades the fill to exclusive.
+      // Latched sticky until the fill completes so the hub sees intent.
+      if (miss_pulse) miss_exclusive_q <= 1'b0;
+      else if (cm_valid && cm_we && pending_miss && ((cm_addr & LINE_MASK) == miss_line_word))
+        miss_exclusive_q <= 1'b1;
       lookup_valid_q <= lu_valid && (state == S_IDLE);
       // Keep each response until MEM commits it.
       if (lu_valid) begin

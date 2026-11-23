@@ -91,6 +91,8 @@ lint:
 		--top-module axi4_sdram_adapter rtl/bus/axi4_sdram_adapter.sv
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module axi4_apb_bridge rtl/bus/axi4_apb_bridge.sv
+	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
+		--top-module axi_cdc_bridge rtl/bus/axi_cdc_bridge.sv
 
 hooks:
 	git config core.hooksPath .githooks

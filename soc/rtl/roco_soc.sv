@@ -27,10 +27,14 @@
 `default_nettype none
 
 module roco_soc #(
-    parameter int CLK_HZ = 96_000_000,
-    /* Power-up delay for the SDRAM controller, in clock cycles. Shortened by
-       formal cover runs so the CPU reaches running traffic inside the bound. */
-    parameter int SDRAM_POWERUP = CLK_HZ / 5000,
+    parameter int CLK_HZ = 48_000_000,
+    /* Memory clock for the SDRAM controller/adapter (e.g. 96 MHz while
+       cores run at 48 MHz). An AXI handshake CDC bridges the two. */
+    parameter int MEM_CLK_HZ = 96_000_000,
+    /* Power-up delay for the SDRAM controller, in memory-clock cycles.
+       Shortened by formal cover runs so the CPU reaches running traffic
+       inside the bound. */
+    parameter int SDRAM_POWERUP = MEM_CLK_HZ / 5000,
     parameter int BAUD = 115200,
     parameter bit BOOT_OVERRIDE = 1'b0,
     parameter int ICACHE_LINES = 128,
@@ -38,6 +42,10 @@ module roco_soc #(
 ) (
   input logic clk,
   input logic rst,
+  /* Memory-domain clock/reset for the SDRAM adapter and controller. Tie to
+     clk/rst for single-clock simulation and formal. */
+  input logic clk_mem,
+  input logic rst_mem,
   input logic [1:0] buttons,
   output logic [3:0] leds,
   input logic uart_rx,
@@ -449,6 +457,16 @@ module roco_soc #(
   logic i_wready, d_wready, boot_wready, mmio_wready, ram_wready, periph_wready;
   logic i_rready, d_rready, boot_rready, mmio_rready, ram_rready, periph_rready;
   logic i_bready, d_bready, boot_bready, mmio_bready, ram_bready, periph_bready;
+  // Memory-domain SDRAM port (fast clock) behind the CDC bridge.
+  axi4_ar_t mem_ram_ar;
+  axi4_aw_t mem_ram_aw;
+  axi4_w_t mem_ram_w;
+  axi4_b_t mem_ram_b;
+  axi4_r_t mem_ram_r;
+  logic mem_ram_arready, mem_ram_awready, mem_ram_wready, mem_ram_rready, mem_ram_bready;
+  // Cross-domain status: SDRAM readiness into the core clock.
+  logic c_ready_sync0, c_ready_sync1, init_done_sync0, init_done_sync1;
+  logic c_ready_synced, init_done_synced;
   logic unused_i_wready, unused_i_done, unused_d_done, unused_boot_done;
 `ifdef ROCO_SOC_RAM_FORMAL
   logic [4:0] f_d_write_left, f_boot_write_left;
@@ -716,6 +734,50 @@ module roco_soc #(
       .s1_b(periph_b),
       .s1_b_ready(periph_bready)
   );
+  // CDC: core-domain crossbar port to memory-domain SDRAM adapter.
+  // Single-outstanding per direction matches the crossbar's slave model.
+  axi_cdc_bridge u_mem_cdc (
+      .clk_s(clk),
+      .rst_s(rst),
+      .s_ar(ram_ar),
+      .s_ar_ready(ram_arready),
+      .s_r(ram_r),
+      .s_r_ready(ram_rready),
+      .s_aw(ram_aw),
+      .s_aw_ready(ram_awready),
+      .s_w(ram_w),
+      .s_w_ready(ram_wready),
+      .s_b(ram_b),
+      .s_b_ready(ram_bready),
+      .clk_f(clk_mem),
+      .rst_f(rst_mem),
+      .m_ar(mem_ram_ar),
+      .m_ar_ready(mem_ram_arready),
+      .m_r(mem_ram_r),
+      .m_r_ready(mem_ram_rready),
+      .m_aw(mem_ram_aw),
+      .m_aw_ready(mem_ram_awready),
+      .m_w(mem_ram_w),
+      .m_w_ready(mem_ram_wready),
+      .m_b(mem_ram_b),
+      .m_b_ready(mem_ram_bready)
+  );
+  // Synchronize memory-domain readiness back into the core clock.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      c_ready_sync0 <= 1'b0;
+      c_ready_sync1 <= 1'b0;
+      init_done_sync0 <= 1'b0;
+      init_done_sync1 <= 1'b0;
+    end else begin
+      c_ready_sync0 <= c_ready;
+      c_ready_sync1 <= c_ready_sync0;
+      init_done_sync0 <= sdram_init_done;
+      init_done_sync1 <= init_done_sync0;
+    end
+  end
+  assign c_ready_synced = c_ready_sync1;
+  assign init_done_synced = init_done_sync1;
   axi4_sdram_adapter u_sdram_axi (
 `ifdef ROCO_SOC_SDRAM_MEMORY_FORMAL
       .f_watch(f_watch),
@@ -732,18 +794,18 @@ module roco_soc #(
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
       .f_read_left(f_adapter_read_left),
 `endif
-      .clk(clk),
-      .rst(rst),
-      .ar(ram_ar),
-      .ar_ready(ram_arready),
-      .r(ram_r),
-      .r_ready(ram_rready),
-      .aw(ram_aw),
-      .aw_ready(ram_awready),
-      .w(ram_w),
-      .w_ready(ram_wready),
-      .b(ram_b),
-      .b_ready(ram_bready),
+      .clk(clk_mem),
+      .rst(rst_mem),
+      .ar(mem_ram_ar),
+      .ar_ready(mem_ram_arready),
+      .r(mem_ram_r),
+      .r_ready(mem_ram_rready),
+      .aw(mem_ram_aw),
+      .aw_ready(mem_ram_awready),
+      .w(mem_ram_w),
+      .w_ready(mem_ram_wready),
+      .b(mem_ram_b),
+      .b_ready(mem_ram_bready),
       .req_valid(c_req),
       .req_ready(c_ready),
       .req_we(c_we),
@@ -782,8 +844,9 @@ module roco_soc #(
   );
 
   // ------------------------------------------------------- SDRAM controller
+  // Runs in the memory clock domain behind the CDC bridge.
   sdram_ctrl #(
-      .CLK_HZ(CLK_HZ),
+      .CLK_HZ(MEM_CLK_HZ),
       .T_POWERUP(SDRAM_POWERUP),
       .CL(3)
   ) u_sdram (
@@ -798,8 +861,8 @@ module roco_soc #(
       .f_ctrl_pins_written(f_ctrl_pins_written),
       .f_pin_row(f_pin_row),
 `endif
-      .clk(clk),
-      .rst(rst),
+      .clk(clk_mem),
+      .rst(rst_mem),
       .req_valid(c_req),
       .req_ready(c_ready),
       .req_we(c_we),
@@ -826,7 +889,7 @@ module roco_soc #(
   );
 
   assign sdram_cke = 1'b1;
-  assign sdram_clk = clk;
+  assign sdram_clk = clk_mem;
 
   // --------------------------------------------------------------- UART
   assign uart_tx_valid = boot_tx_valid | mmio_tx_push;
@@ -911,7 +974,7 @@ module roco_soc #(
       .ic_miss(ic_miss),
       .dc_hit(dc_hit),
       .dc_miss(dc_miss),
-      .boot_status({sdram_init_done, boot_error, boot_busy, boot_done_eff}),
+      .boot_status({init_done_synced, boot_error, boot_busy, boot_done_eff}),
       .boot_addr(boot_addr),
       .mmio_commit(dmem_req && dmem_valid && !dmem_in_sdram),
       .boot_restart(boot_restart),
@@ -974,7 +1037,7 @@ module roco_soc #(
             end
           end
           F_DRAIN: begin
-            if (c_ready) begin
+            if (c_ready_synced) begin
               icache_flush <= 1'b1;
               fence_state <= F_ICACHE;
             end

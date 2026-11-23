@@ -47,6 +47,8 @@ module soc_mmio_memory #(
   ) dut (
       .clk(clk),
       .rst(rst),
+      .clk_mem(clk),
+      .rst_mem(rst),
       .buttons(buttons),
       .leds(leds),
       .uart_rx(1'b1),

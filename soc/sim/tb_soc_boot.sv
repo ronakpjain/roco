@@ -96,6 +96,8 @@ module tb_soc_boot #(
   ) u_soc (
       .clk(clk),
       .rst(rst),
+      .clk_mem(clk),
+      .rst_mem(rst),
       .buttons(buttons),
       .leds(leds),
       .uart_rx(uart_rx),

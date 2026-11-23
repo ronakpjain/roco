@@ -25,6 +25,12 @@ module roco_apb_peripherals (
   input logic [1:0] buttons,
   output logic [3:0] leds,
   output logic irq_timer,
+  // Hart1 timer + software (IPI) interrupts. mtime is shared; each hart
+  // has its own compare. mmio_commit1 lets hart1 retire halt/restart too.
+  output logic irq_timer1,
+  output logic irq_software,
+  output logic irq_software1,
+  input logic mmio_commit1,
   input logic ic_hit,
   ic_miss,
   dc_hit,
@@ -47,7 +53,8 @@ module roco_apb_peripherals (
     Syscon
   } device_t;
   device_t device;
-  logic [63:0] mtime, mtimecmp;
+  logic [63:0] mtime, mtimecmp, mtimecmp1;
+  logic swip0, swip1;
   logic [31:0] ic_hits, ic_misses, dc_hits, dc_misses, dbg0, dbg1;
   logic [31:0] uart_data, gpio_data, timer_data, counter_data, syscon_data;
   logic ic_hit_q, ic_miss_q, dc_hit_q, dc_miss_q, clear_q;
@@ -58,7 +65,8 @@ module roco_apb_peripherals (
     case (paddr)
       16'h0000, 16'h0004: device = Uart;
       16'h0010, 16'h0014: device = Gpio;
-      16'h0018, 16'h001c, 16'h0020, 16'h0024, 16'h0028: device = Timer;
+      16'h0018, 16'h001c, 16'h0020, 16'h0024, 16'h0028, 16'h002c, 16'h0050, 16'h0054, 16'h0060, 16'h0064:
+      device = Timer;
       16'h0030, 16'h0034, 16'h0038, 16'h003c: device = Counters;
       16'h0048, 16'h004c, 16'h0100, 16'h0104, 16'h0108, 16'h1000: device = Syscon;
       default: device = Unmapped;
@@ -96,15 +104,25 @@ module roco_apb_peripherals (
   assign uart_data = uart_data_addr ? {24'd0, uart_rx_data} :
                      {28'd0, uart_rx_overflow, 1'b0, uart_rx_valid, uart_tx_ready};
 
-  // GPIO and timer.
+  // GPIO and timer. Hart0 keeps the legacy 0x20/0x24/0x28 aliases; hart1
+  // uses 0x60/0x64/0x2c. 0x50/0x54 are hart0/hart1 software (IPI) bits.
   assign gpio_data = paddr == 16'h0010 ? {28'd0, leds} : {30'd0, buttons};
   assign irq_timer = mtime >= mtimecmp;
+  assign irq_timer1 = mtime >= mtimecmp1;
+  assign irq_software = swip0;
+  assign irq_software1 = swip1;
   always_comb begin
     case (paddr)
       16'h0018: timer_data = mtime[31:0];
       16'h001c: timer_data = mtime[63:32];
       16'h0020: timer_data = mtimecmp[31:0];
       16'h0024: timer_data = mtimecmp[63:32];
+      16'h0028: timer_data = {31'd0, irq_timer};
+      16'h002c: timer_data = {31'd0, irq_timer1};
+      16'h0050: timer_data = {31'd0, swip0};
+      16'h0054: timer_data = {31'd0, swip1};
+      16'h0060: timer_data = mtimecmp1[31:0];
+      16'h0064: timer_data = mtimecmp1[63:32];
       default: timer_data = {31'd0, irq_timer};
     endcase
   end
@@ -113,6 +131,9 @@ module roco_apb_peripherals (
       leds <= '0;
       mtime <= '0;
       mtimecmp <= '0;
+      mtimecmp1 <= '0;
+      swip0 <= 1'b0;
+      swip1 <= 1'b0;
     end else begin
       mtime <= mtime + 64'd1;
       if (write_fire) begin
@@ -120,6 +141,10 @@ module roco_apb_peripherals (
           16'h0010: if (pstrb[0]) leds <= pwdata[3:0];
           16'h0020: mtimecmp[31:0] <= merge_bytes(mtimecmp[31:0], pwdata, pstrb);
           16'h0024: mtimecmp[63:32] <= merge_bytes(mtimecmp[63:32], pwdata, pstrb);
+          16'h0050: if (pstrb[0]) swip0 <= pwdata[0];
+          16'h0054: if (pstrb[0]) swip1 <= pwdata[0];
+          16'h0060: mtimecmp1[31:0] <= merge_bytes(mtimecmp1[31:0], pwdata, pstrb);
+          16'h0064: mtimecmp1[63:32] <= merge_bytes(mtimecmp1[63:32], pwdata, pstrb);
           default: begin
           end
         endcase
@@ -153,7 +178,10 @@ module roco_apb_peripherals (
 
   // System control and diagnostics. The bridge holds PADDR and PWRITE
   // throughout its AXI response, including after APB PSEL deasserts.
-  assign boot_restart = mmio_commit && pwrite && (|pstrb) && paddr == 16'h0108;
+  // Either hart retiring the restart/halt address takes the effect.
+  logic any_commit;
+  assign any_commit = mmio_commit || mmio_commit1;
+  assign boot_restart = any_commit && pwrite && (|pstrb) && paddr == 16'h0108;
   always_comb begin
     case (paddr)
       16'h0048: syscon_data = dbg0;
@@ -181,7 +209,7 @@ module roco_apb_peripherals (
       if (boot_restart) begin
         halted <= 1'b0;
         exit_code <= '0;
-      end else if (mmio_commit && pwrite && (|pstrb) && paddr == 16'h1000) begin
+      end else if (any_commit && pwrite && (|pstrb) && paddr == 16'h1000) begin
         halted <= 1'b1;
       end
     end

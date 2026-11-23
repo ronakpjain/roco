@@ -55,18 +55,23 @@ proc run_step {label args} {
 run_step Synthesis prj_run Synthesis -impl $impl
 run_step Map prj_run Map -impl $impl
 run_step PAR prj_run PAR -impl $impl
-run_step Export prj_run Export -impl $impl
+run_step Export prj_run Export -impl $impl -task Bitgen
 
-# Exported names are <proj>_<impl>.<ext>; normalize for the Makefile.
-foreach {src dst} {
-    ${proj}_${impl}.bit out/roco_diamond.bit
-    ${proj}_${impl}.twr out/roco_diamond.twr
-    ${proj}_${impl}.mrp out/roco_diamond.mrp
-} {
-    if {[file exists $impl/$src]} {
-        file copy -force $impl/$src $dst
-        puts "wrote $dst"
+# Exported bitstream/report names vary by Diamond version; resolve with
+# globs and normalize for the Makefile. `list` (not braces) so the
+# project/impl names actually substitute.
+foreach {pat dst} [list \
+    "impl1/${proj}_${impl}.bit" out/roco_diamond.bit \
+    "impl1/*.bit"             out/roco_diamond.bit \
+    "impl1/${proj}_${impl}.twr" out/roco_diamond.twr \
+    "impl1/*.twr"             out/roco_diamond.twr \
+    "impl1/${proj}_${impl}.mrp" out/roco_diamond.mrp \
+    "impl1/*.mrp"             out/roco_diamond.mrp] {
+    set hits [glob -nocomplain $pat]
+    if {[llength $hits] > 0} {
+        file copy -force [lindex $hits 0] $dst
+        puts "wrote $dst from [lindex $hits 0]"
     } else {
-        puts "WARNING: expected artifact missing: $impl/$src"
+        puts "WARNING: expected artifact missing: $pat"
     }
 }

@@ -22,9 +22,9 @@ fi
 mkdir -p "$WORK/out"
 docker run --rm \
   --mac-address="$MAC" \
+  --user="$(id -u):$(id -g)" \
   -v "$WORK/soc:/work/soc:ro" \
   -v "$WORK/out:/work/out" \
   -v "$WORK/license:/lic:ro" \
   "$IMAGE" /work/soc/diamond/roco.tcl
-chown -R "$(id -u):$(id -g)" "$WORK/out"
 ls -lh "$WORK/out"

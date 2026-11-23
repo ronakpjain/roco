@@ -120,3 +120,8 @@ LOCATE COMP "sdram_cke" SITE "E13";
 IOBUF PORT "sdram_cke" IO_TYPE=LVCMOS33;
 LOCATE COMP "sdram_clk" SITE "C13";
 IOBUF PORT "sdram_clk" IO_TYPE=LVCMOS33;
+
+# Fabric clocks for TRACE sign-off. The EHXPLLL input frequency above
+# propagates to the PLL; these bound the two generated domains.
+FREQUENCY NET "clk_core" 48 MHz;
+FREQUENCY NET "clk_mem" 96 MHz;

@@ -28,7 +28,7 @@ module roco_top (
   output logic sdram_we_n,
   output logic sdram_cke,
   output logic sdram_clk,
-  inout logic [15:0] sdram_dq
+  inout wire [15:0] sdram_dq
 );
 
   localparam int CORE_CLK_HZ = 48_000_000;

@@ -29,12 +29,10 @@ prj_impl option top "roco_top"
 # design unit (compiling one is CS219). Belt and suspenders: the .sv adds
 # below also carry an absolute -include path.
 foreach f [glob soc/rtl/common/*.svh] { prj_src add -exclude $f }
-foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] { prj_src add -format VERILOG -include /work/soc/rtl/common $f }
-# Debug: dump what Diamond stored (license checkout already done by now).
-catch {puts "SRC-OPTS-ALL: [prj_src option]"} dbg1
-puts "dbg opts-all: $dbg1"
-catch {puts "SRC-OPT-ONE: [prj_src option -src soc/rtl/roco_soc.sv]"} dbg2
-puts "dbg opt-one: $dbg2"
+foreach f [glob soc/rtl/*.sv soc/rtl/*/*.sv] {
+    prj_src add $f
+    prj_src option -src $f {include path} {/work/soc/rtl/common}
+}
 
 proc run_step {label args} {
     puts "=== $label: $args ==="

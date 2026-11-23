@@ -27,12 +27,12 @@ RUN sed -i 's|^mirrorlist=|#mirrorlist=|; s|^#baseurl=http://mirror.centos.org|b
 COPY installer/${INSTALLER_RUN} /tmp/diamond-installer.run
 COPY install.qs /tmp/install.qs
 
-# Qt Installer Framework bundle: --script auto-clicks through the wizard.
+# Qt Installer Framework bundle: --console plus an auto-click --script.
 # If flags/pages differ for a newer Diamond release, the first build log
 # will say so — adjust install.qs and note the working combination in
 # soc/diamond/README.md.
 RUN chmod +x /tmp/diamond-installer.run \
- && QT_QPA_PLATFORM=minimal /tmp/diamond-installer.run --script /tmp/install.qs --prefix /usr/local/diamond \
+ && QT_QPA_PLATFORM=minimal /tmp/diamond-installer.run --console --script /tmp/install.qs --prefix /usr/local/diamond \
  && rm -f /tmp/diamond-installer.run /tmp/install.qs
 
 ENV DIAMOND_VERSION=${DIAMOND_VERSION}

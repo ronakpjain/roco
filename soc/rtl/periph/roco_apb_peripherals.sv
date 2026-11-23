@@ -42,7 +42,11 @@ module roco_apb_peripherals (
   input logic mmio_commit,
   output logic boot_restart,
   halted,
-  output logic [31:0] exit_code
+  output logic [31:0] exit_code,
+  // SMP boot mailbox: hart1 spins in reset until hart0 publishes its entry
+  // address and writes the release register. A boot restart re-parks hart1.
+  output logic [31:0] hart1_boot_addr,
+  output logic hart1_release
 );
   typedef enum logic [2:0] {
     Unmapped,
@@ -68,7 +72,8 @@ module roco_apb_peripherals (
       16'h0018, 16'h001c, 16'h0020, 16'h0024, 16'h0028, 16'h002c, 16'h0050, 16'h0054, 16'h0060, 16'h0064:
       device = Timer;
       16'h0030, 16'h0034, 16'h0038, 16'h003c: device = Counters;
-      16'h0048, 16'h004c, 16'h0100, 16'h0104, 16'h0108, 16'h1000: device = Syscon;
+      16'h0048, 16'h004c, 16'h0100, 16'h0104, 16'h0108, 16'h0110, 16'h0114, 16'h1000:
+      device = Syscon;
       default: device = Unmapped;
     endcase
   end
@@ -188,6 +193,8 @@ module roco_apb_peripherals (
       16'h004c: syscon_data = dbg1;
       16'h0100: syscon_data = {28'd0, boot_status};
       16'h0104: syscon_data = boot_addr;
+      16'h0110: syscon_data = hart1_boot_addr;
+      16'h0114: syscon_data = {31'd0, hart1_release};
       16'h1000: syscon_data = exit_code;
       default: syscon_data = '0;
     endcase
@@ -196,16 +203,23 @@ module roco_apb_peripherals (
     if (rst) begin
       halted <= 1'b0;
       {dbg0, dbg1, exit_code} <= '0;
+      hart1_boot_addr <= 32'h1000_0000;
+      hart1_release <= 1'b0;
     end else begin
       if (write_fire) begin
         case (paddr)
           16'h0048: dbg0 <= merge_bytes(dbg0, pwdata, pstrb);
           16'h004c: dbg1 <= merge_bytes(dbg1, pwdata, pstrb);
+          16'h0110: hart1_boot_addr <= merge_bytes(hart1_boot_addr, pwdata, pstrb);
+          16'h0114: hart1_release <= 1'b1;
           16'h1000: exit_code <= merge_bytes(exit_code, pwdata, pstrb);
           default: begin
           end
         endcase
       end
+      // A boot restart reloads the image for both harts: re-park hart1
+      // alongside clearing the halted state so hart0 can release it again.
+      if (boot_restart) hart1_release <= 1'b0;
       if (boot_restart) begin
         halted <= 1'b0;
         exit_code <= '0;

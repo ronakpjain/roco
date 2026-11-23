@@ -226,6 +226,9 @@ module roco_soc #(
   // ---------------------------------------------------------------- MMIO
   logic irq_timer;
   logic [31:0] mmio_rdata;
+  // SMP boot mailbox (hart1 entry + release); hart1 datapath lands later.
+  logic [31:0] hart1_boot_addr;
+  logic hart1_release;
 
   // ------------------------------------------------------- SDRAM controller
   logic c_req;
@@ -979,6 +982,8 @@ module roco_soc #(
       .boot_addr(boot_addr),
       .mmio_commit(dmem_req && dmem_valid && !dmem_in_sdram),
       .boot_restart(boot_restart),
+      .hart1_boot_addr(hart1_boot_addr),
+      .hart1_release(hart1_release),
       .halted(halted),
       .exit_code(exit_code)
   );

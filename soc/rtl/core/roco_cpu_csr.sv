@@ -13,7 +13,9 @@
 `default_nettype none
 `include "roco_cpu_defs.svh"
 
-module roco_cpu_csr (
+module roco_cpu_csr #(
+    parameter int HART_ID = 0
+) (
   input logic clk,
   input logic rst,
   // Architectural read port (used in EX).
@@ -358,8 +360,12 @@ module roco_cpu_csr (
         read_ok = counter_instret_ok;
         write_ok = 1'b0;
       end
-      12'hF11, 12'hF12, 12'hF13, 12'hF14: begin
+      12'hF11, 12'hF12, 12'hF13: begin
         rdata = '0;
+        write_ok = 1'b0;
+      end
+      12'hF14: begin  // mhartid: hard-wired hart index for SMP boot
+        rdata = 32'(HART_ID);
         write_ok = 1'b0;
       end
       default: begin

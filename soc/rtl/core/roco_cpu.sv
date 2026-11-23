@@ -24,7 +24,9 @@
 `include "roco_rvfi.svh"
 `default_nettype none
 
-module roco_cpu (
+module roco_cpu #(
+    parameter int HART_ID = 0
+) (
 `ifdef ROCO_SOC_FETCH_MEMORY_FORMAL
   input logic [22:0] formal_watch_word,
   input logic [31:0] formal_watch_data,
@@ -1066,7 +1068,9 @@ module roco_cpu (
 `ifdef ROCO_SOC_VECTOR_MEMORY_FORMAL
   `include "soc_vector_memory_checks.svh"
 `endif
-  roco_cpu_ex_stage u_ex (
+  roco_cpu_ex_stage #(
+      .HART_ID(HART_ID)
+  ) u_ex (
 `ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
       .formal_sync_capture(f_sync_capture),
       .formal_sync_pending(f_sync_pending),

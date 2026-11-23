@@ -13,7 +13,9 @@
 
 `include "roco_rvfi.svh"
 
-module roco_cpu_ex_stage (
+module roco_cpu_ex_stage #(
+    parameter int HART_ID = 0
+) (
 `ifdef ROCO_SOC_RETIRE_MEMORY_FORMAL
   output logic formal_sync_capture,
   output logic formal_sync_pending,
@@ -500,7 +502,9 @@ module roco_cpu_ex_stage (
                     ({32{idex_wb_select[0]}} & ex_alu_result);
 
   // -------------------------------------------------- CSR file (EX and WB)
-  roco_cpu_csr u_csr (
+  roco_cpu_csr #(
+      .HART_ID(HART_ID)
+  ) u_csr (
       .clk(clk),
       .rst(rst),
       .raddr(idex_csr_addr),

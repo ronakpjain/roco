@@ -277,11 +277,33 @@ module dcache #(
   // First cycle of a (new-address) commit answers from the live EX-side
   // registers; held cycles use the snapshot. No lu_* signal enters the
   // commit cone, so no combinational ready loop is possible.
+  // A peer snoop that drops a line must also drop the microarchitectural
+  // state shadowing it: a registered hit for a dead line, a pending
+  // miss about to serve one, or a retiring store about to dirty it would
+  // otherwise commit stale data or leave a dirty-invalid line the hub
+  // believes is gone. The guard mirrors the valid_ram clear exactly, so
+  // the clears fire precisely when the line dies. Safe direction only:
+  // a coincidental same-cycle lookup loses its result and refetches.
+  logic snoop_kill_lu, snoop_kill_pending, snoop_kill_cm;
+  assign snoop_kill_lu = snoop_valid && snoop_invalidate &&
+                          (snoop_idx == lu_addr_q[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
+                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
+  assign snoop_kill_pending = snoop_valid && snoop_invalidate && pending_miss &&
+                              (snoop_idx == miss_idx) && valid_ram[snoop_idx] &&
+                              (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
+  assign snoop_kill_cm = snoop_valid && snoop_invalidate && cm_valid &&
+                          (snoop_idx == cm_addr[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
+                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
   logic src_hit;
   logic [24:2] src_addr;
   assign src_hit = cm_new ? lookup_hit_q : mem_hit_q;
   assign src_addr = cm_new ? lu_addr_q : mem_addr_q;
-  assign cm_hit_now = src_hit && (cm_addr == src_addr) && !killed_q[cm_addr[IDX_HI:IDX_LO]];
+  // The live kill drops readiness the same cycle the line dies, so the
+  // commit re-misses instead of retiring into a dead line (which would
+  // silently lose a vetoed store). snoop_valid comes from the hub's
+  // registered outputs, so this adds no combinational ready loop.
+  assign cm_hit_now = src_hit && (cm_addr == src_addr) &&
+                       !killed_q[cm_addr[IDX_HI:IDX_LO]] && !snoop_kill_cm;
   logic hit_eff;
   assign hit_eff = lookup_hit_q && (!cm_valid || cm_hit_now);
   // S->M upgrade: a store hit on a clean line is Shared and must
@@ -308,22 +330,6 @@ module dcache #(
   // stalled core re-issues the lookup after the flush drains.
   logic flush_entry;
   assign flush_entry = (state == S_IDLE) && flush && !flush_active;
-  // A peer snoop that drops a line must also drop the microarchitectural
-  // state shadowing it: a registered hit for a dead line, or a pending
-  // miss about to serve one, would otherwise commit stale data. The guard
-  // mirrors the valid_ram clear exactly, so the clears fire precisely when
-  // the line dies. Safe direction only: a coincidental same-cycle lookup
-  // loses its result and refetches.
-  logic snoop_kill_lu, snoop_kill_pending, snoop_kill_cm;
-  assign snoop_kill_lu = snoop_valid && snoop_invalidate &&
-                          (snoop_idx == lu_addr_q[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
-                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
-  assign snoop_kill_pending = snoop_valid && snoop_invalidate && pending_miss &&
-                              (snoop_idx == miss_idx) && valid_ram[snoop_idx] &&
-                              (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
-  assign snoop_kill_cm = snoop_valid && snoop_invalidate && cm_valid &&
-                          (snoop_idx == cm_addr[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
-                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;

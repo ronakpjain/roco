@@ -313,11 +313,15 @@ module dcache #(
                           !dirty_ram[cm_addr[IDX_HI:IDX_LO]] && !flush_active;
   assign upgrade_req = upgrade_needed;
   assign upgrade_addr = cm_addr;
-  // Recovery serves a completed fill while pending; a snoop kill of that
-  // line in the same cycle revokes it, or the commit would retire into a
-  // dead line (silently losing a vetoed store). The core then holds cm
-  // and the race logic refetches.
-  assign cm_ready = (pending_miss ? (recovery_ready && !snoop_kill_pending) : hit_eff) &&
+  // Recovery serves a completed fill while pending; it may only serve
+  // while the recovered line is still alive. The kill shadow revokes it
+  // when a snoop lands after the fill -- or the commit would retire into
+  // a dead line (silently losing a vetoed store). The core then holds cm
+  // and the race logic refetches. Gated on the miss line rather than the
+  // commit address, since recovery asserts before the commit arrives.
+  logic recovery_ok;
+  assign recovery_ok = recovery_ready && !killed_q[miss_idx];
+  assign cm_ready = (pending_miss ? (recovery_ok && !snoop_kill_pending) : hit_eff) &&
       (!upgrade_needed || upgrade_ack) && !flush_active;
 `ifdef ROCO_SOC_FENCE_FORMAL
   assign f_idle = state == S_IDLE;

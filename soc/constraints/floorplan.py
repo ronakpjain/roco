@@ -1,37 +1,17 @@
-# roco SoC floorplan for nextpnr-ecp5 (LFE5U-85F, CABGA381).
+# Soft full fence for roco SoC (overlap variant, proven placeable).
 #
-# Goal: close timing on the 48 MHz core clock (clk_core). Without guidance
-# the dual-hart SoC places at ~37 MHz: routing dominates (~22 ns of a
-# 27 ns critical path) because hart logic for both cores and caches spreads
-# across the whole die.
-#
-# Strategy (v3: macro-anchored): constrain only the hard/distributed macros
-# (block RAM, DSP, distributed RAMW) of each hart to its own half of the
-# fabric and leave all LUT/FF logic unconstrained. The timing-driven placer
-# then pulls each hart's logic toward its own caches/DSPs instead of
-# intermixing the harts. Everything else - crossbar, CDC, SDRAM, boot,
-# UART, APB, TOP glue - stays free.
-#
-# v1 (three regions: hart0/hart1/bottom mem strip) and v2 (two full hart
-# fences for all LUT/FF/RAMW/BRAM/DSP) both failed heap legalization
-# (ERROR: Unable to find legal placement ... TRELLIS_COMB) despite generous
-# capacity, so v3 constrains only ~1k macro cells instead of ~52k logic
-# cells.
-#
-# Device grid (85F): X 0..126, Y 0..95. Logic lives on Y 2..9,11..21,
-# 23..33,35..45,47..57,59..69,71..81,83..93 (gaps: PIO/PLL Y 0..1, DSP rows
-# Y 10/34/58, BRAM rows Y 22/46/70/82). Both hart regions span Y 12..93 so
-# each keeps all four BRAM rows and the 34/58 DSP rows. The 7-column overlap
-# (X 60..66) gives shared headroom without letting the macros intermix.
-#
-# Usage: nextpnr-ecp5 ... --pre-place constraints/floorplan.py ...
-# See Makefile PNR_FLOORPLAN. Override the file (not PNR_FLAGS) to try a
-# different floorplan without losing the shared routing flags.
-
-# Hart0 macros: left half (plus overlap).
-ctx.createRectangularRegion("hart0", 0, 12, 66, 93)
-# Hart1 macros: right half (plus overlap).
-ctx.createRectangularRegion("hart1", 60, 12, 126, 93)
+# Three overlapping vertical regions (Y 2..93, all logic rows + BRAM/DSP):
+# - hart0  X 0..85    (68% width for ~44% load)
+# - center X 25..102  (62% width for ~14% load: xbar/CDC/SDRAM/boot/UART/APB/TOP)
+# - hart1  X 42..126  (67% width for ~42% load)
+# Everything non-IO is bounded; overlap keeps heap legalization feasible
+# (tight partitioned/granular fences deadlock it: ERROR Unable to find legal
+# placement). Extremes stay separated (hart0 out of far right, hart1 out of
+# far left) to shorten intra-hart paths while the shared center stays short
+# for broadcast cones.
+ctx.createRectangularRegion("hart0", 0, 2, 85, 93)
+ctx.createRectangularRegion("center", 25, 2, 102, 93)
+ctx.createRectangularRegion("hart1", 42, 2, 126, 93)
 
 HART0_PREFIXES = (
     "u_soc.u_cpu0",
@@ -51,11 +31,6 @@ HART1_PREFIXES = (
     "u_soc.u_mmio1_axi",
 )
 
-# Only anchor macros; LUT/FF logic follows via connectivity. RAMW is
-# distributed (tag RAMs, regfiles) but still worth anchoring: it is the
-# cache-adjacent state each hart's logic hangs off.
-MACRO_TYPES = ("DP16KD", "MULT18X18D", "TRELLIS_RAMW")
-
 
 def _cell_items():
     try:
@@ -71,28 +46,23 @@ def _cell_type(cell_info):
         return ""
 
 
-count_hart0 = 0
-count_hart1 = 0
-count_free = 0
-
+c0 = c1 = cc = cf = 0
 for _name, _info in _cell_items():
     _type = _cell_type(_info)
     if _type in ("TRELLIS_IO", "EHXPLLL", "DCCA", "DCSC", "EXTREFB"):
-        count_free += 1
+        cf += 1
         continue
     if _name.endswith("$tr_io") or "$iobuf" in _name or "$tr_io_" in _name:
-        count_free += 1
-        continue
-    if _type not in MACRO_TYPES:
-        count_free += 1
+        cf += 1
         continue
     if _name.startswith(HART0_PREFIXES):
         ctx.constrainCellToRegion(_name, "hart0")
-        count_hart0 += 1
+        c0 += 1
     elif _name.startswith(HART1_PREFIXES):
         ctx.constrainCellToRegion(_name, "hart1")
-        count_hart1 += 1
+        c1 += 1
     else:
-        count_free += 1
+        ctx.constrainCellToRegion(_name, "center")
+        cc += 1
 
-print("floorplan: hart0_macros=%d hart1_macros=%d unconstrained=%d" % (count_hart0, count_hart1, count_free))
+print("soft full fence: hart0=%d hart1=%d center=%d io_free=%d" % (c0, c1, cc, cf))

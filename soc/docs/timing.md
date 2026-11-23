@@ -22,34 +22,48 @@ To reproduce explicitly, use
 
 `constraints/floorplan.py` runs as a nextpnr `--pre-place` hook (see
 `PNR_FLOORPLAN` in the Makefile, shared by `make timing` and
-`make bitstream`). It creates two rectangular regions on the 85F grid
-(X 0..126, Y 0..95) and constrains packed macros by hierarchical prefix:
+`make bitstream`). It creates three overlapping rectangular regions on the
+85F grid (X 0..126, Y 0..95; logic lives on Y 2..93) and constrains every
+non-IO cell by hierarchical prefix:
 
-- `hart0` (X 0..66, Y 12..93): the `DP16KD`/`MULT18X18D`/`TRELLIS_RAMW`
-  cells of `u_soc.u_cpu0` + `u_icache0` + `u_dcache0` and their private AXI
-  masters.
-- `hart1` (X 60..126, Y 12..93): the same macro types for the hart1
-  counterparts. The 7-column overlap gives shared headroom without letting
-  the macros intermix.
+- `hart0` (X 0..85, Y 2..93): `u_soc.u_cpu0` + `u_icache0` + `u_dcache0`
+  and their private AXI masters (~44% of cells).
+- `center` (X 25..102, Y 2..93): crossbar, CDC bridge, SDRAM
+  adapter/controller, bootloader, UART, APB peripherals and Yosys-merged
+  TOP glue (~14%).
+- `hart1` (X 42..126, Y 2..93): the hart1 counterparts (~42%).
 
-Only macros are constrained; all LUT/FF logic stays free and the
-timing-driven placer pulls each hart's logic toward its own
-caches/DSPs/registers instead of intermixing the harts. The crossbar, CDC
-bridge, SDRAM adapter/controller, bootloader, UART, APB peripherals, and
-Yosys-merged TOP glue (`user_led_*`, `sdram_*`, ...) stay unconstrained, as
-do LPF-fixed cells (`TRELLIS_IO`, PLL, globals, `*$tr_io`). Each hart
-region spans Y 12..93 so it keeps all four block-RAM rows
-(Y 22/46/70/82) and the 34/58 DSP rows.
+Overlap is deliberate: tight partitioned fences deadlock heap
+legalization (`ERROR: Unable to find legal placement`) at 56% COMB
+utilization, while the shared headroom here places first try and still
+keeps the hart extremes apart (hart0 out of the far right, hart1 out of
+the far left). LPF-fixed cells (`TRELLIS_IO`, PLL, globals, `*$tr_io`)
+are never re-constrained.
 
-Fencing all LUT/FF logic (v1 with an extra bottom `mem` strip, v2 with two
-full hart fences) was tried first and reverted: the heap placer could not
-find a legal placement (`ERROR: Unable to find legal placement ...
-TRELLIS_COMB`) despite generous capacity, so v3 anchors only the ~1k macro
-cells instead of ~52k logic cells.
+## Registered AXI fabric
 
-To try a different floorplan without losing the shared routing flags,
-override the file rather than the flags, e.g.
-`make timing PNR_FLOORPLAN="--pre-place constraints/my_floorplan.py"`.
+`rtl/bus/axi4_register_slice.sv` is a 2-deep skid buffer (VALID/READY
+both flopped, one beat per cycle, +1 cycle of forward latency). The
+`axi4_xbar` instantiates 24 of them: AR/AW/W slice at each of the two
+slave ports (cutting the 9:1 owner muxes), R/B sliced per master
+(keeping beat->owner pairing when the owner changes with beats still
+in flight). Cost is ~2 core cycles per cache-line miss; MMIO/PTW
+transactions are unaffected in practice. `make test_bus` covers
+decode/bursts/stalls/concurrency/ownership/round-robin through the
+sliced fabric, and `sim/tb_soc.sv` tolerates the extra retire bubbles.
+
+## Status and next steps
+
+Best routed `clk_core` so far is 37.66 MHz (seed 96, sliced fabric +
+overlap fence; SDRAM passes at ~118 MHz). Unconstrained seeds span
+36-39 MHz, so neither fencing nor seeds close the remaining gap to
+48 MHz: every critical path is a 39-41 segment, ~82% routing broadcast
+through the D$/I$ tag compares, snoop/store-compare, branch predictor,
+PTW and regfile of both harts. The AXI fabric itself is off the critical
+path after slicing. Reaching 48 MHz needs those broadcast cones
+pipelined (registered snoop hit, store-compare and predictor-update
+paths), which is a functional RTL change with re-verification, not a
+placement change.
 
 ## CI
 

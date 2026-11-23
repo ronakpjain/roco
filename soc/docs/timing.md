@@ -1,8 +1,10 @@
 # FPGA timing and validation
 
-The board clock is 96 MHz, generated from the 24 MHz input. Routing
-uses the LFE5U-45F, CABGA381 package, speed grade 6, and the pin and clock
-constraints in `constraints/roco.lpf`.
+The board runs the SDRAM at 96 MHz and the dual-core SoC fabric at
+48 MHz, both generated from the 24 MHz input. Routing targets the
+LFE5U-85F, CABGA381 package, speed grade 6, and the pin and clock
+constraints in `constraints/roco.lpf`, whose balls follow
+`../pcb/docs/pin_plan.csv`.
 
 ## Reproduce
 

@@ -115,6 +115,9 @@ module roco_cpu #(
   output logic [1:0] dmem_lu_offset,
   output logic [2:0] dmem_lu_funct3,
   input logic dmem_ready,
+  /* D-cache is flushing (FENCE.I or coherence): hold EX lookups until it
+     drains, otherwise a lookup issued into the flush is dropped. */
+  input logic dmem_busy,
   output logic dmem_req,  // Ready-qualified commit strobe.
   output logic dmem_valid,  // In-order read/write validity, excluding failed SC.
   output logic dmem_amo_read,  // Atomic read phase for uncached targets.
@@ -466,7 +469,7 @@ module roco_cpu #(
   // Trap delegation and fetch redirection then start from a register.
   // MEM holds already stall the pipeline directly. Qualify an EX
   // translation wait without routing that same hold through lookup enable.
-  assign dmem_lu_stall = ex_lu_present && !d_fault_q && !ex_lu_hit;
+  assign dmem_lu_stall = ex_lu_present && !d_fault_q && (!ex_lu_hit || dmem_busy);
 
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin

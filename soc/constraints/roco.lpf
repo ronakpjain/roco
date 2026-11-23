@@ -1,5 +1,7 @@
-# roco Rev A pin constraints (LFE5U-45F-6BG381C).
-# Balls follow pcb/docs/pin_plan.csv.
+# roco Rev B pin constraints (LFE5U-85F-6BG381C).
+# Balls follow pcb/docs/pin_plan.csv. The 85F keeps the CABGA381 package,
+# ballout and banks of the previous revision; K16/K17 change from NC to bank-2 IO
+# and stay unconnected.
 
 BLOCK RESETPATHS;
 BLOCK ASYNCPATHS;

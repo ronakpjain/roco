@@ -115,6 +115,7 @@ module tb_core;
       .dmem_lu_offset(dmem_lu_offset),
       .dmem_lu_funct3(dmem_lu_funct3),
       .dmem_ready(dmem_ready),
+      .dmem_busy(1'b0),
       .dmem_req(dmem_req),
       .dmem_valid(),
       .dmem_we(dmem_we),

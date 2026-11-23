@@ -87,6 +87,10 @@ module dcache #(
   output logic snoop_hit,
   output logic snoop_dirty,
   input logic snoop_invalidate,
+  /* Lookup stall: the core must hold EX while a flush runs, otherwise a
+     lookup issued into the flush window is dropped (no miss is raised) yet
+     the pipeline advances on the MMU hit, stranding MEM with stale hitq. */
+  output logic flush_busy,
   /* S->M upgrade: store to a clean (Shared) line must invalidate peers. */
   output logic upgrade_req,
   output logic [22:0] upgrade_addr,
@@ -180,6 +184,7 @@ module dcache #(
   logic [IDX_BITS-1:0] flush_idx;
   logic [OFF_BITS-1:0] beat;
   logic flush_active;
+  assign flush_busy = flush_active;
 
   logic [MEM_WORD_BITS-1:0] victim_word;
   logic [MEM_WORD_BITS-1:0] flush_word;
@@ -223,10 +228,11 @@ module dcache #(
   // invalidate the peer before going Modified. Gate commit on hub ack.
   logic upgrade_needed;
   assign upgrade_needed = (state == S_IDLE) && cm_valid && cm_we && hit_eff &&
-                          !dirty_ram[cm_addr[IDX_HI:IDX_LO]];
+                          !dirty_ram[cm_addr[IDX_HI:IDX_LO]] && !flush_active;
   assign upgrade_req = upgrade_needed;
   assign upgrade_addr = cm_addr;
-  assign cm_ready = (pending_miss ? recovery_ready : hit_eff) && (!upgrade_needed || upgrade_ack);
+  assign cm_ready = (pending_miss ? recovery_ready : hit_eff) && (!upgrade_needed || upgrade_ack) &&
+      !flush_active;
 `ifdef ROCO_SOC_FENCE_FORMAL
   assign f_idle = state == S_IDLE;
   assign f_lookup_pending = lookup_valid_q;
@@ -238,6 +244,10 @@ module dcache #(
   // just raise a miss and let the fill path hold cm until recovery.
   logic race_miss;
   assign race_miss = (state == S_IDLE) && !pending_miss && cm_valid && !cm_hit_now;
+  // A flush starting on the same cycle abandons a just-detected miss: the
+  // stalled core re-issues the lookup after the flush drains.
+  logic flush_entry;
+  assign flush_entry = (state == S_IDLE) && flush && !flush_active;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;
@@ -246,11 +256,14 @@ module dcache #(
       recovery_ready <= 1'b0;
     end else begin
       lookup_valid_q <= lu_valid && (state == S_IDLE);
-      // Keep each response until MEM commits it.
+      // Keep each response until MEM commits it. The commit strobe is
+      // level-held through stalls, so only clear on the retire cycle
+      // (cm_ready) exactly as the old single-cycle pulse did; clearing on
+      // a still-waiting commit would drop the hit before it is consumed.
       if (lu_valid) begin
         lookup_hit_q <= (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
                         (lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
-      end else if (cm_valid) begin
+      end else if (cm_valid && cm_ready) begin
         lookup_hit_q <= 1'b0;
       end
       // One registered RAM read after refill makes the missed word ready.
@@ -262,7 +275,10 @@ module dcache #(
         recovery_ready <= 1'b0;
       end
       // A following miss may start on the preceding request's commit edge.
-      if (miss_pulse || race_miss) begin
+      if (flush_entry) begin
+        pending_miss <= 1'b0;
+        recovery_ready <= 1'b0;
+      end else if (miss_pulse || race_miss) begin
         pending_miss <= 1'b1;
         recovery_ready <= 1'b0;
       end
@@ -341,7 +357,7 @@ module dcache #(
     forward_raw = '0;
     for (int bank = 0; bank < BANK_COUNT; bank++) forward_raw |= forward_bank_data[bank];
   end
-  assign forward_store = (state == S_IDLE) && cm_valid && cm_we && lu_valid;
+  assign forward_store = (state == S_IDLE) && cm_valid && cm_ready && cm_we && lu_valid;
   for (genvar b = 0; b < 4; b = b + 1) begin : g_forward_mask
     assign forward_mask[8*b+:8] = {8{cm_be[b]}};
   end
@@ -365,8 +381,11 @@ module dcache #(
     ram_waddr = {lu_addr[IDX_HI:IDX_LO], lu_addr[OFF_BITS+1:2]};
     ram_wdata = cm_wdata;
     ram_wbe = cm_be;
+    // A level-held commit strobe must not write the array before the
+    // commit is accepted: an early write would clobber the victim line
+    // that a pending miss is about to write back.
     if (state == S_IDLE) begin
-      if (cm_valid && cm_we) begin
+      if (cm_valid && cm_ready && cm_we) begin
         ram_we = 1'b1;
         ram_waddr = {cm_addr[IDX_HI:IDX_LO], cm_addr[OFF_BITS+1:2]};
       end

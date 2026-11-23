@@ -55,7 +55,7 @@ RTL_SVH := $(shell find $(RTL_DIR) -name '*.svh')
 SIM_SV := $(shell find $(SIM_DIR) -name '*.sv')
 ALL_SV := $(RTL_SV) $(SIM_SV)
 
-.PHONY: all format format_check syntax lint hooks clean test_core test_isa test_mm test_vm test_muldiv test_muldiv_core test_atomic test_vector test_vector_c test_irq test_sdram test_bus test_soc test_isa_soc test_boot synth timing bitstream
+.PHONY: all format format_check syntax lint hooks clean test_core test_isa test_mm test_vm test_muldiv test_muldiv_core test_atomic test_vector test_vector_c test_irq test_sdram test_bus test_soc test_isa_soc test_boot test_smp synth timing bitstream
 
 all: format_check syntax lint
 
@@ -321,6 +321,10 @@ test_atomic_mmio: $(BUILD_DIR)/mmio_loads.hex $(BUILD_DIR)/atomic_mmio.hex $(SOC
 	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic_mmio.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/mmio_loads.hex
 
+.PHONY: test_smp
+test_smp: $(BUILD_DIR)/smp_bringup.hex $(SOC_SIM_DEP)
+	$(SOC_SIM) +hex=$(BUILD_DIR)/smp_bringup.hex
+
 .PHONY: test_csr_intent
 test_csr_intent: $(BUILD_DIR)/counter_retire.hex $(BUILD_DIR)/csr_intent.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)
 	$(CORE_SIM) +hex=$(BUILD_DIR)/csr_intent.hex
@@ -420,10 +424,11 @@ $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 # Share routing settings between timing measurements and the shipped bitstream.
 PNR_SEED ?= 96
 PNR_FLAGS ?= --placer-heap-timingweight 30
+PNR_DEVICE ?= --85k
 # Diagnostic route: report timing even when the system clock target fails.
 TIMING_SEED ?= $(PNR_SEED)
 timing: $(BUILD_DIR)/roco.json
-	$(NEXTPNR) --45k --package CABGA381 --speed 6 $(PNR_FLAGS) \
+	$(NEXTPNR) $(PNR_DEVICE) --package CABGA381 --speed 6 $(PNR_FLAGS) \
 		--json $< --lpf constraints/roco.lpf \
 		--textcfg $(BUILD_DIR)/timing_seed$(TIMING_SEED).config \
 		--report $(BUILD_DIR)/timing_seed$(TIMING_SEED).json \
@@ -435,11 +440,11 @@ bitstream: $(BUILD_DIR)/roco.bit
 # Re-route when a command-line seed or routing flag changes.
 .PHONY: force_pnr_options
 $(BUILD_DIR)/pnr_options: force_pnr_options | build
-	@printf '%s\n' "$(NEXTPNR)" "$(PNR_SEED)" "$(PNR_FLAGS)" > $@.tmp
+	@printf '%s\n' "$(NEXTPNR)" "$(PNR_DEVICE)" "$(PNR_SEED)" "$(PNR_FLAGS)" > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 
 $(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf Makefile $(BUILD_DIR)/pnr_options
-	$(NEXTPNR) --45k --package CABGA381 --speed 6 $(PNR_FLAGS) \
+	$(NEXTPNR) $(PNR_DEVICE) --package CABGA381 --speed 6 $(PNR_FLAGS) \
 		--json $(BUILD_DIR)/roco.json --lpf constraints/roco.lpf \
 		--seed $(PNR_SEED) --textcfg $@.tmp \
 		--report $(BUILD_DIR)/roco_timing.json --detailed-timing-report \

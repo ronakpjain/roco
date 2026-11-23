@@ -1,11 +1,12 @@
 // roco board top level.
 //
-// 24 MHz reference on ball A4 -> EHXPLLL -> 96 MHz system clock.
+// 24 MHz reference on ball A4 -> EHXPLLL -> 96 MHz SDRAM clock (CLKOP) and
+// a phase-aligned 48 MHz core clock (CLKOS, CLKOS_DIV = 2 x CLKOP_DIV).
 // The SoC drives the 16-bit SDRAM, the FT2232H UART, the four user LEDs
 // and samples the two user buttons. app_reset_n is the active-low board
-// reset; an unsynchronized release is filtered into the 96 MHz domain.
+// reset; an unsynchronized release is filtered into each clock domain.
 //
-// The SDRAM clock is the system clock routed to ball C13. Its
+// The SDRAM clock is the 96 MHz output routed to ball C13. Its
 // clock-to-pin delay and the board skew must be checked against the
 // IS42S16160J timing at 96 MHz; the clock is not phase shifted.
 
@@ -30,12 +31,13 @@ module roco_top (
   inout logic [15:0] sdram_dq
 );
 
-  localparam int SYS_CLK_HZ = 96_000_000;
+  localparam int CORE_CLK_HZ = 48_000_000;
+  localparam int MEM_CLK_HZ  = 96_000_000;
 
-  logic clk_sys;
+  logic clk_core;
+  logic clk_mem;
   logic clk_fb;
   logic pll_locked;
-  logic unused_clk_os;
   logic unused_clk_os2;
   logic unused_clk_os3;
   logic unused_pll_intlock;
@@ -49,6 +51,10 @@ module roco_top (
       .CLKOP_ENABLE("ENABLED"),
       .CLKOP_CPHASE(0),
       .CLKOP_FPHASE(0),
+      .CLKOS_DIV(12),
+      .CLKOS_ENABLE("ENABLED"),
+      .CLKOS_CPHASE(0),
+      .CLKOS_FPHASE(0),
       .FEEDBK_PATH("CLKOP"),
       .OUTDIVIDER_MUXA("DIVA"),
       .OUTDIVIDER_MUXB("DIVB"),
@@ -74,11 +80,11 @@ module roco_top (
       .PHASELOADREG(1'b0),
       .PLLWAKESYNC(1'b0),
       .ENCLKOP(1'b1),
-      .ENCLKOS(1'b0),
+      .ENCLKOS(1'b1),
       .ENCLKOS2(1'b0),
       .ENCLKOS3(1'b0),
-      .CLKOP(clk_sys),
-      .CLKOS(unused_clk_os),
+      .CLKOP(clk_mem),
+      .CLKOS(clk_core),
       .CLKOS2(unused_clk_os2),
       .CLKOS3(unused_clk_os3),
       .LOCK(pll_locked),
@@ -87,20 +93,25 @@ module roco_top (
       .CLKINTFB(unused_pll_clkintfb)
   );
 
-  assign clk_fb = clk_sys;
+  assign clk_fb = clk_mem;
 
-  logic [2:0] rst_sync;
+  logic [2:0] rst_core_sync, rst_mem_sync;
   logic [1:0] btn_meta;
   logic [1:0] btn_sync;
 
-  always_ff @(posedge clk_sys) begin
-    rst_sync <= {rst_sync[1:0], (app_reset_n && pll_locked)};
+  always_ff @(posedge clk_core) begin
+    rst_core_sync <= {rst_core_sync[1:0], (app_reset_n && pll_locked)};
     btn_meta <= ~user_button_n;
     btn_sync <= btn_meta;
   end
 
-  logic rst_sys;
-  assign rst_sys = !rst_sync[2];
+  always_ff @(posedge clk_mem) begin
+    rst_mem_sync <= {rst_mem_sync[1:0], (app_reset_n && pll_locked)};
+  end
+
+  logic rst_core, rst_mem;
+  assign rst_core = !rst_core_sync[2];
+  assign rst_mem = !rst_mem_sync[2];
 
   logic [3:0] soc_leds;
   logic soc_halted;
@@ -121,14 +132,20 @@ module roco_top (
   logic [15:0] sdram_dq_in;
 
   roco_soc #(
-      .CLK_HZ(SYS_CLK_HZ),
+      .CLK_HZ(CORE_CLK_HZ),
+      .MEM_CLK_HZ(MEM_CLK_HZ),
       .BAUD(115200),
       .BOOT_OVERRIDE(1'b0),
+      // The 85F fits full-size caches for both harts: 2 KiB I$ and
+      // 4 KiB D$ per hart. The hub and coherence protocol are
+      // geometry-agnostic (see docs/bus.md).
       .ICACHE_LINES(128),
       .DCACHE_LINES(128)
   ) u_soc (
-      .clk(clk_sys),
-      .rst(rst_sys),
+      .clk(clk_core),
+      .rst(rst_core),
+      .clk_mem(clk_mem),
+      .rst_mem(rst_mem),
       .buttons(btn_sync),
       .leds(soc_leds),
       .uart_rx(uart_rx),

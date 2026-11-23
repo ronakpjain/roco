@@ -6,14 +6,14 @@
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
 
-        <mxCell id="title" value="roco_top (LFE5U-45F-6BG381C)" style="text;html=1;fontStyle=1;fontSize=16;fontColor=#374151;align=left;" vertex="1" parent="1">
+        <mxCell id="title" value="roco_top (LFE5U-85F-6BG381C)" style="text;html=1;fontStyle=1;fontSize=16;fontColor=#374151;align=left;" vertex="1" parent="1">
           <mxGeometry x="40" y="25" width="320" height="30" as="geometry"/>
         </mxCell>
         <mxCell id="soc-title" value="roco_soc" style="text;html=1;fontStyle=1;fontSize=14;fontColor=#374151;align=left;" vertex="1" parent="1">
           <mxGeometry x="70" y="195" width="120" height="26" as="geometry"/>
         </mxCell>
 
-        <mxCell id="pll" value="EHXPLLL&lt;br&gt;24 MHz -&amp;gt; 48 MHz&lt;br&gt;clk_24 (A4)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="pll" value="EHXPLLL&lt;br&gt;24 MHz -&amp;gt; 96 + 48 MHz&lt;br&gt;clk_24 (A4)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="70" width="200" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="reset" value="Reset synchronizer&lt;br&gt;app_reset_n (B5)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
@@ -36,7 +36,7 @@
           <mxGeometry x="1010" y="260" width="170" height="70" as="geometry"/>
         </mxCell>
 
-        <mxCell id="icache" value="I-cache&lt;br&gt;2 KiB, 16 B lines" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="icache" value="I-cache x2&lt;br&gt;2 KiB ea, 16 B lines" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="130" y="390" width="170" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="regfile" value="register file&lt;br&gt;32 x 32" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
@@ -45,17 +45,21 @@
         <mxCell id="csr" value="CSR file&lt;br&gt;traps, counters" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="570" y="390" width="170" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="dcache" value="D-cache&lt;br&gt;4 KiB, write-back" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="dcache" value="D-cache x2&lt;br&gt;4 KiB ea, MSI WB" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="790" y="390" width="170" height="80" as="geometry"/>
         </mxCell>
+        <mxCell id="cdc" value="AXI CDC&lt;br&gt;48 &lt;-&gt; 96 MHz" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="640" y="600" width="140" height="40" as="geometry"/>
+        </mxCell>
+
         <mxCell id="hazard" value="hazard / forwarding&lt;br&gt;load-use, memory wait" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1010" y="510" width="170" height="70" as="geometry"/>
         </mxCell>
 
-        <mxCell id="arb" value="mem arbiter&lt;br&gt;round-robin" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="arb" value="AXI4 xbar + MSI hub&lt;br&gt;9 masters, 2 slaves" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="510" width="180" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="sdram_ctrl" value="SDRAM controller&lt;br&gt;BL=2, CL=3, refresh" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="sdram_ctrl" value="SDRAM controller, 96 MHz&lt;br&gt;BL=2, CL=3, refresh" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="700" y="510" width="190" height="70" as="geometry"/>
         </mxCell>
 
@@ -65,8 +69,12 @@
         <mxCell id="boot" value="UART bootloader&lt;br&gt;CRC32 image" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="330" y="650" width="170" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="mmio" value="MMIO&lt;br&gt;timer, LEDs, buttons,&lt;br&gt;cache counters, tohost" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="790" y="650" width="240" height="80" as="geometry"/>
+        <mxCell id="mmio" value="MMIO&lt;br&gt;per-hart timers, IPI,&lt;br&gt;LEDs, buttons, counters,&lt;br&gt;hart1 mailbox, tohost" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="790" y="650" width="240" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="smp-note" value="SMP: hart 0 + hart 1&lt;br&gt;mhartid in CSR&lt;br&gt;per-hart timers + IPI&lt;br&gt;shared MSI D-caches" style="text;html=1;align=left;fontSize=11;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="260" width="280" height="80" as="geometry"/>
         </mxCell>
 
         <mxCell id="sdram_chip" value="IS42S16160J&lt;br&gt;32 MiB, 16-bit&lt;br&gt;a/ba/dq/dqm/cs/ras/cas/we" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
@@ -87,7 +95,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e-rst" value="rst_48" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="reset" target="id">
+        <mxCell id="e-rst" value="rst_48 + rst_96" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="reset" target="id">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="320" y="312"/>
@@ -145,8 +153,21 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e-arb-sdram" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="arb" target="sdram_ctrl">
-          <mxGeometry relative="1" as="geometry"/>
+        <mxCell id="e-xbar-cdc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="arb" target="cdc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="680" y="540"/>
+              <mxPoint x="680" y="600"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-cdc-sdram" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="cdc" target="sdram_ctrl">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="620"/>
+              <mxPoint x="790" y="580"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="e-sdram-chip" value="dq / a / ba / ctl" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="sdram_ctrl" target="sdram_chip">
           <mxGeometry relative="1" as="geometry">

@@ -88,6 +88,25 @@ module tb_soc #(
   initial trace_on = $test$plusargs("trace");
 
   always @(posedge clk) begin
+    if (trace_on && u_soc.trace1_valid)
+      $display(
+          "  retire1 pc=%08x instr=%08x rd=%0d data=%08x",
+          u_soc.trace1_pc,
+          u_soc.trace1_instr,
+          u_soc.trace1_rd,
+          u_soc.trace1_wdata
+      );
+    if (!rst && u_soc.u_dcache0.mem_req && u_soc.u_dcache0.mem_ready)
+      $display(
+          "  dc0mem we=%b a=%h len=%0d",
+          u_soc.u_dcache0.mem_we,
+          u_soc.u_dcache0.mem_word_addr,
+          u_soc.u_dcache0.mem_len
+      );
+    if (!rst && u_soc.u_dcache0.mem_wvalid && u_soc.u_dcache0.mem_wready)
+      $display("  dc0wr d=%h", u_soc.u_dcache0.mem_wdata);
+    if (!rst && u_soc.u_dcache0.mem_rvalid)
+      $display("  dc0rd d=%h last=%b", u_soc.u_dcache0.mem_rdata, u_soc.u_dcache0.mem_rlast);
     if (trace_on && u_soc.trace0_valid) begin
       $display("  retire pc=%08x instr=%08x rd=%0d data=%08x", u_soc.trace0_pc, u_soc.trace0_instr,
                u_soc.trace0_rd, u_soc.trace0_wdata);
@@ -304,10 +323,12 @@ module tb_soc #(
         expected_ic_hits <= '0;
         expected_ic_misses <= '0;
         counter_clear_count <= counter_clear_count + 1;
-        if (u_soc.ic0_hit || u_soc.ic0_miss) counter_collision_count <= counter_collision_count + 1;
+        if ((u_soc.ic0_hit || u_soc.ic1_hit) || (u_soc.ic0_miss || u_soc.ic1_miss))
+          counter_collision_count <= counter_collision_count + 1;
       end
-      if (u_soc.ic0_hit) expected_ic_hits <= expected_ic_hits + 1;
-      if (u_soc.ic0_miss) expected_ic_misses <= expected_ic_misses + 1;
+      // Peripherals OR both harts' pulses; mirror that sum here.
+      if (u_soc.ic0_hit || u_soc.ic1_hit) expected_ic_hits <= expected_ic_hits + 1;
+      if (u_soc.ic0_miss || u_soc.ic1_miss) expected_ic_misses <= expected_ic_misses + 1;
     end
   end
   always @(negedge clk) begin

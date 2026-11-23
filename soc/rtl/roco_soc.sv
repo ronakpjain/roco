@@ -1,8 +1,13 @@
-// roco system-on-chip.
+// roco dual-hart system-on-chip.
 //
-// RV32I core with an Sv32 MMU + I/D caches + SDRAM controller + UART +
+// Two RV32I cores (mhartid 0/1) with Sv32 MMUs + I/D caches + SDRAM
+// controller (96 MHz memory clock behind an AXI CDC bridge) + UART +
 // bootloader + memory-mapped timer, LEDs, buttons, cache counters and
-// boot status. AXI4 connects the caches, bootloader, walker and MMIO port.
+// boot status. AXI4 connects the caches, bootloader, walkers and MMIO
+// ports; an MSI snooping hub keeps the D-caches coherent (see docs/bus.md).
+//
+// Hart1 spins in reset until hart0 publishes its entry point at 0x110 and
+// writes the release register at 0x114. A boot restart re-parks hart1.
 //
 // Memory map
 //   0x1000_0000  SDRAM, 32 MiB (cached)
@@ -11,14 +16,18 @@
 //   0x8000_0010  LEDs
 //   0x8000_0014  buttons
 //   0x8000_0018  mtime low            0x8000_001c  mtime high
-//   0x8000_0020  mtimecmp low         0x8000_0024  mtimecmp high
-//   0x8000_0028  timer pending
+//   0x8000_0020  hart0 mtimecmp low   0x8000_0024  hart0 mtimecmp high
+//   0x8000_0028  hart0 timer pending  0x8000_002c  hart1 timer pending
 //   0x8000_0030  I-cache hits         0x8000_0034  I-cache misses
 //   0x8000_0038  D-cache hits         0x8000_003c  D-cache misses
+//   0x8000_0050  hart0 software IRQ   0x8000_0054  hart1 software IRQ (IPI)
+//   0x8000_0060  hart1 mtimecmp low   0x8000_0064  hart1 mtimecmp high
 //   0x8000_0100  boot status: [0] done [1] busy [2] error
 //   0x8000_0104  loaded image base
 //   0x8000_0108  write to restart the bootloader
-//   0x8000_1000  tohost: write halts the core, value is the exit code
+//   0x8000_0110  hart1 boot address (R/W)
+//   0x8000_0114  hart1 release (W releases, R shows status)
+//   0x8000_1000  tohost: write halts both cores, value is the exit code
 //
 // Instruction fetch outside SDRAM returns an illegal instruction, which
 // traps through mtvec.
@@ -153,27 +162,20 @@ module roco_soc #(
   logic [31:0] i1_unc_rsp_data;
   logic dc1_cm_ready;
   logic [31:0] dc1_cm_rdata;
-  // Hart1 is instantiated in the SMP commit; park its trace until then.
-  assign trace1_valid = 1'b0;
-  assign trace1_pc = 32'd0;
-  assign trace1_instr = 32'd0;
-  assign trace1_rd = 5'd0;
-  assign trace1_wdata = 32'd0;
   logic res0_store_valid, res1_store_valid;
   logic [29:0] res0_store_addr, res1_store_addr;
   logic irq_timer1, irq_software0, irq_software1;
-  logic core_rst1;
+  logic core1_rst;
   // MSI hub: probe/flush/grant state shared by both D-caches.
   logic hub_snoop0_valid, hub_snoop1_valid;
   logic [22:0] hub_snoop0_addr, hub_snoop1_addr;
   logic hub_inv0, hub_inv1;
   logic hub_flush0, hub_flush1;
-  logic hub_stall0, hub_stall1;
-  logic dc0_mem_ready_gated, dc1_mem_ready_gated;
   logic hub_ack0, hub_ack1;
   logic core0_fence_req, core1_fence_req;
   logic fence_done0, fence_done1;
   logic fence_owner;
+  logic remote_tlb_flush0, remote_tlb_flush1;
   logic dcache_flush;
   logic dcache_flush_done0, dcache_flush_done1;
   logic icache_flush;
@@ -250,6 +252,87 @@ module roco_soc #(
   logic dc0_mem_rlast;
   logic dc0_hit;
   logic dc0_miss;
+  // Snoop/invalidate + upgrade + miss-line sideband for the MSI hub.
+  logic dc0_snoop_hit, dc0_snoop_dirty;
+  logic dc0_flush_busy, dc1_flush_busy;
+  logic dc0_upgrade_req;
+  logic [22:0] dc0_upgrade_addr;
+  logic [22:0] dc0_miss_line;
+
+  // ------------------------------------------------- Hart1 cache ports
+  logic ic1_cpu_rsp;
+  logic [31:0] ic1_cpu_rsp_addr;
+  logic [31:0] ic1_cpu_rsp_data;
+  logic ic1_mem_req;
+  logic [22:0] ic1_mem_word_addr;
+  logic [3:0] ic1_mem_len;
+  logic ic1_mem_ready;
+  logic ic1_mem_rvalid;
+  logic [31:0] ic1_mem_rdata;
+  logic ic1_mem_rlast;
+  logic ic1_hit;
+  logic ic1_miss;
+  logic ic1_cpu_miss;
+  logic ic1_cpu_busy;
+  logic imem1_miss;
+  logic imem1_busy;
+
+  logic dc1_mem_req;
+  logic dc1_mem_we;
+  logic [22:0] dc1_mem_word_addr;
+  logic [3:0] dc1_mem_len;
+  logic dc1_mem_ready;
+  logic dc1_mem_wvalid;
+  logic dc1_mem_wready;
+  logic [31:0] dc1_mem_wdata;
+  logic [3:0] dc1_mem_wbe;
+  logic dc1_mem_rvalid;
+  logic [31:0] dc1_mem_rdata;
+  logic dc1_mem_rlast;
+  logic dc1_hit;
+  logic dc1_miss;
+  logic dc1_snoop_hit, dc1_snoop_dirty;
+  logic dc1_upgrade_req;
+  logic [22:0] dc1_upgrade_addr;
+  logic [22:0] dc1_miss_line;
+
+  // Master-side D-cache ports behind the MSI hub (to axi_mem_master).
+  logic mdc0_req, mdc0_we;
+  logic [22:0] mdc0_word_addr;
+  logic [3:0] mdc0_len;
+  logic mdc0_ready;
+  logic mdc0_wvalid, mdc0_wready;
+  logic [31:0] mdc0_wdata;
+  logic [3:0] mdc0_wbe;
+  logic mdc0_rvalid;
+  logic [31:0] mdc0_rdata;
+  logic mdc0_rlast;
+  logic mdc1_req, mdc1_we;
+  logic [22:0] mdc1_word_addr;
+  logic [3:0] mdc1_len;
+  logic mdc1_ready;
+  logic mdc1_wvalid, mdc1_wready;
+  logic [31:0] mdc1_wdata;
+  logic [3:0] mdc1_wbe;
+  logic mdc1_rvalid;
+  logic [31:0] mdc1_rdata;
+  logic mdc1_rlast;
+
+  // MSI hub: probe/flush/grant state shared by both D-caches. Fills and
+  // victim writebacks pass straight to the AXI masters; only the request
+  // accept of a fill/upgrade is gated while a probe/flush is in flight.
+  typedef enum logic [2:0] {
+    H_IDLE,
+    H_PROBE,
+    H_SAMPLE,
+    H_FLUSH,
+    H_GRANT,
+    H_FILL,
+    H_UP
+  } hub_state_t;
+  hub_state_t hub_state;
+  logic hub_owner, hub_is_up, hub_rr;
+  logic [22:0] hub_addr;
 
   // ------------------------------------------------------------- Bootloader
   logic boot_rx_ready;
@@ -340,6 +423,168 @@ module roco_soc #(
   assign cache_rst = rst || (boot_cache_maintenance && icache_flush);
   assign boot_mem_ready = boot_axi_ready && !boot_cache_maintenance;
 
+  // ------------------------------------------------- Hart1 fetch/data path
+  assign imem1_in_sdram = (imem1_addr[31:25] == 7'd8);
+  assign imem1_miss = ic1_cpu_miss;
+  assign imem1_busy = ic1_cpu_busy;
+  // Same EX-lookup classification as hart0, preserved while MEM waits.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) dmem1_in_sdram <= 1'b0;
+    else if (dmem1_lu_valid) dmem1_in_sdram <= dmem1_lu_in_sdram;
+  end
+  assign dmem1_lu_in_sdram = (dmem1_lu_addr[31:25] == 7'd8);
+  assign i1_unc_req = imem1_req && !imem1_in_sdram && !ic1_cpu_busy;
+  assign dmem1_ready = dmem1_in_sdram ? dc1_cm_ready : (!(dmem1_valid || dmem1_amo_read) || mmio1_done);
+  // Hart1 spins in reset until hart0 publishes an entry point and releases
+  // it through the SMP boot mailbox.
+  assign core1_rst = rst || !boot_release || !hart1_release || boot_cache_maintenance;
+  always_ff @(posedge clk) begin
+    i1_unc_rsp_addr <= imem1_addr;
+    imem1_rsp_in_sdram <= imem1_in_sdram;
+  end
+  assign i1_unc_rsp_data = 32'd0;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) i1_unc_rsp <= 1'b0;
+    else i1_unc_rsp <= i1_unc_req;
+  end
+  assign imem1_rsp_valid = imem1_rsp_in_sdram ? ic1_cpu_rsp : i1_unc_rsp;
+  assign imem1_rsp_addr = imem1_rsp_in_sdram ? ic1_cpu_rsp_addr : i1_unc_rsp_addr;
+  assign imem1_rsp_data = imem1_rsp_in_sdram ? ic1_cpu_rsp_data : i1_unc_rsp_data;
+  assign dmem1_rsp_data = dmem1_in_sdram ? dc1_cm_rdata : mmio1_rsp_data;
+  assign dmem1_forward_data = dc1_forward_data;
+
+  // ------------------------------------------------- MSI coherence hub
+  // Write-back bus snooping between the two D-caches. Every fill is
+  // exclusive (no E state): the peer copy is invalidated after a dirty
+  // writeback. Victim writebacks need no probe and pass straight through;
+  // only fill/upgrade acceptance stalls while a probe/flush is in flight.
+  // A parked peer (in reset) is skipped so single-hart timing is unchanged.
+  logic need0_fill, need0_up, need0;
+  logic need1_fill, need1_up, need1;
+  assign need0_fill = dc0_mem_req && !dc0_mem_we;
+  assign need0_up = dc0_upgrade_req;
+  assign need0 = need0_fill || need0_up;
+  assign need1_fill = dc1_mem_req && !dc1_mem_we;
+  assign need1_up = dc1_upgrade_req;
+  assign need1 = need1_fill || need1_up;
+  logic bypass0, bypass1;
+  assign bypass0 = core1_rst;
+  assign bypass1 = core0_rst;
+  logic hub_busy, hub_resolved;
+  assign hub_busy = hub_state != H_IDLE;
+  assign hub_resolved = hub_state == H_GRANT || hub_state == H_FILL || hub_state == H_UP;
+  logic stall0_fill, stall1_fill;
+  assign stall0_fill = !bypass0 && (hub_busy && !(hub_owner == 1'b0 && hub_resolved));
+  assign stall1_fill = !bypass1 && (hub_busy && !(hub_owner == 1'b1 && hub_resolved));
+  // Request-accept gating (fills only; victim writebacks always pass).
+  assign dc0_mem_ready = mdc0_ready && (!need0_fill || !stall0_fill);
+  assign dc1_mem_ready = mdc1_ready && (!need1_fill || !stall1_fill);
+  // Master-side request mux (same gating: only fills ever stall).
+  assign mdc0_req = dc0_mem_req && (!need0_fill || !stall0_fill);
+  assign mdc1_req = dc1_mem_req && (!need1_fill || !stall1_fill);
+  assign mdc0_we = dc0_mem_we;
+  assign mdc0_word_addr = dc0_mem_word_addr;
+  assign mdc0_len = dc0_mem_len;
+  assign mdc0_wvalid = dc0_mem_wvalid;
+  assign dc0_mem_wready = mdc0_wready;
+  assign mdc0_wdata = dc0_mem_wdata;
+  assign mdc0_wbe = dc0_mem_wbe;
+  assign dc0_mem_rvalid = mdc0_rvalid;
+  assign dc0_mem_rdata = mdc0_rdata;
+  assign dc0_mem_rlast = mdc0_rlast;
+  assign mdc1_we = dc1_mem_we;
+  assign mdc1_word_addr = dc1_mem_word_addr;
+  assign mdc1_len = dc1_mem_len;
+  assign mdc1_wvalid = dc1_mem_wvalid;
+  assign dc1_mem_wready = mdc1_wready;
+  assign mdc1_wdata = dc1_mem_wdata;
+  assign mdc1_wbe = dc1_mem_wbe;
+  assign dc1_mem_rvalid = mdc1_rvalid;
+  assign dc1_mem_rdata = mdc1_rdata;
+  assign dc1_mem_rlast = mdc1_rlast;
+  // Upgrade acks: immediate when the peer is parked, hub-gated otherwise.
+  assign hub_ack0 = need0_up && (bypass0 || (hub_owner == 1'b0 && hub_resolved && hub_is_up));
+  assign hub_ack1 = need1_up && (bypass1 || (hub_owner == 1'b1 && hub_resolved && hub_is_up));
+  // Snoop probes to the peer (held through SAMPLE so tag RAMs settle).
+  assign hub_snoop1_valid = !bypass0 && hub_owner == 1'b0 &&
+      (hub_state == H_PROBE || hub_state == H_SAMPLE);
+  assign hub_snoop1_addr = hub_addr;
+  assign hub_snoop0_valid = !bypass1 && hub_owner == 1'b1 &&
+      (hub_state == H_PROBE || hub_state == H_SAMPLE);
+  assign hub_snoop0_addr = hub_addr;
+  // Fills stay shared (the peer keeps a clean copy); only upgrades
+  // invalidate. The grant is still held through fill completion so a peer
+  // store cannot slip an upgrade between our fill and its install.
+  assign hub_inv1 = !bypass0 && hub_owner == 1'b0 && hub_state == H_SAMPLE && hub_is_up &&
+      dc1_snoop_hit;
+  assign hub_inv0 = !bypass1 && hub_owner == 1'b1 && hub_state == H_SAMPLE && hub_is_up &&
+      dc0_snoop_hit;
+  assign hub_flush1 = !bypass0 && hub_owner == 1'b0 && hub_state == H_FLUSH;
+  assign hub_flush0 = !bypass1 && hub_owner == 1'b1 && hub_state == H_FLUSH;
+  // Owner-side transfer tracking.
+  logic owner_accept, owner_rlast, owner_up_req;
+  assign owner_accept = hub_owner == 1'b0 ? (mdc0_req && mdc0_ready) : (mdc1_req && mdc1_ready);
+  assign owner_rlast = hub_owner == 1'b0 ?
+      (dc0_mem_rvalid && dc0_mem_rlast) : (dc1_mem_rvalid && dc1_mem_rlast);
+  assign owner_up_req = hub_owner == 1'b0 ? dc0_upgrade_req : dc1_upgrade_req;
+  logic peer_dirty, peer_flush_done;
+  assign peer_dirty = hub_owner == 1'b0 ? dc1_snoop_dirty : dc0_snoop_dirty;
+  assign peer_flush_done = hub_owner == 1'b0 ? dcache_flush_done1 : dcache_flush_done0;
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      hub_state <= H_IDLE;
+      hub_owner <= 1'b0;
+      hub_addr <= '0;
+      hub_is_up <= 1'b0;
+      hub_rr <= 1'b0;
+    end else begin
+      case (hub_state)
+        H_IDLE: begin
+          // A hart whose peer is parked grants immediately (hub stays idle).
+          if ((need0 && !bypass0) || (need1 && !bypass1)) begin
+            if (need0 && !bypass0 && (!need1 || !bypass1 || hub_rr == 1'b0)) begin
+              hub_owner <= 1'b0;
+              hub_addr <= need0_up ? dc0_upgrade_addr : dc0_miss_line;
+              hub_is_up <= need0_up;
+            end else begin
+              hub_owner <= 1'b1;
+              hub_addr <= need1_up ? dc1_upgrade_addr : dc1_miss_line;
+              hub_is_up <= need1_up;
+            end
+            hub_state <= H_PROBE;
+          end
+        end
+        H_PROBE: hub_state <= H_SAMPLE;
+        H_SAMPLE: begin
+          if (peer_dirty) hub_state <= H_FLUSH;
+          else hub_state <= H_GRANT;
+        end
+        H_FLUSH: begin
+          if (peer_flush_done) hub_state <= H_PROBE;
+        end
+        H_GRANT: begin
+          if (hub_is_up) hub_state <= H_UP;
+          else if (owner_accept) hub_state <= H_FILL;
+        end
+        H_FILL: begin
+          if (owner_rlast) begin
+            hub_rr <= ~hub_rr;
+            hub_state <= H_IDLE;
+          end
+        end
+        // The acked upgrade may already have retired (req is level-held
+        // only while the commit is pending), so release as soon as it drops.
+        H_UP: begin
+          if (!owner_up_req) begin
+            hub_rr <= ~hub_rr;
+            hub_state <= H_IDLE;
+          end
+        end
+        default: hub_state <= H_IDLE;
+      endcase
+    end
+  end
+
   // ---------------------------------------------------------------- CPU
 `ifdef ROCO_SOC_GPR_FORMAL
   (* anyconst *) logic [4:0] f_gpr_watch_addr;
@@ -360,7 +605,7 @@ module roco_soc #(
       .halt(halted),
       .irq_timer(irq_timer0),
       .irq_external(1'b0),
-      .irq_software(1'b0),
+      .irq_software(irq_software0),
       .imem_req(imem0_req),
       .imem_addr(imem0_addr),
       .imem_rsp_valid(imem0_rsp_valid),
@@ -373,6 +618,7 @@ module roco_soc #(
       .dmem_lu_offset(dmem0_lu_offset),
       .dmem_lu_funct3(dmem0_lu_funct3),
       .dmem_ready(dmem0_ready),
+      .dmem_busy(dc0_flush_busy),
       .dmem_req(dmem0_req),
       .dmem_valid(dmem0_valid),
       .dmem_amo_read(dmem0_amo_read),
@@ -392,11 +638,11 @@ module roco_soc #(
       .ptw_r_ready(ptw0_r_ready),
       .fence_req(core0_fence_req),
       .fence_done(fence_done0),
-      .res_store_valid(),
-      .res_store_addr(),
-      .res_remote_valid(1'b0),
-      .res_remote_addr(30'd0),
-      .remote_tlb_flush(1'b0),
+      .res_store_valid(res0_store_valid),
+      .res_store_addr(res0_store_addr),
+      .res_remote_valid(res1_store_valid),
+      .res_remote_addr(res1_store_addr),
+      .remote_tlb_flush(remote_tlb_flush0),
       .trace_valid(trace0_valid),
       .trace_pc(trace0_pc),
       .trace_instr(trace0_instr),
@@ -471,7 +717,7 @@ module roco_soc #(
 `endif
       .clk(clk),
       .rst(cache_rst),
-      .flush(dcache_flush),
+      .flush(dcache_flush || hub_flush0),
       .flush_done(dcache_flush_done0),
       .lu_valid(dmem0_lu_valid && dmem0_lu_in_sdram),
       .lu_addr(dmem0_lu_addr[24:2]),
@@ -499,16 +745,143 @@ module roco_soc #(
       .mem_rlast(dc0_mem_rlast),
       .hit_pulse(dc0_hit),
       .miss_pulse(dc0_miss),
-      .snoop_valid(1'b0),
-      .snoop_addr(23'd0),
-      .snoop_exclusive(1'b0),
-      .snoop_hit(),
-      .snoop_dirty(),
-      .snoop_invalidate(1'b0),
-      .upgrade_req(),
-      .upgrade_addr(),
-      .upgrade_ack(1'b1),
-      .miss_line()
+      .snoop_valid(hub_snoop0_valid),
+      .snoop_addr(hub_snoop0_addr),
+      .snoop_exclusive(1'b1),
+      .snoop_hit(dc0_snoop_hit),
+      .snoop_dirty(dc0_snoop_dirty),
+      .snoop_invalidate(hub_inv0),
+      .upgrade_req(dc0_upgrade_req),
+      .upgrade_addr(dc0_upgrade_addr),
+      .upgrade_ack(hub_ack0),
+      .miss_line(dc0_miss_line),
+      .flush_busy(dc0_flush_busy)
+  );
+
+  // ------------------------------------------------------- Hart1 CPU
+  roco_cpu #(
+      .HART_ID(1)
+  ) u_cpu1 (
+      .clk(clk),
+      .rst(core1_rst),
+      .boot_addr(hart1_boot_addr),
+      .halt(halted),
+      .irq_timer(irq_timer1),
+      .irq_external(1'b0),
+      .irq_software(irq_software1),
+      .imem_req(imem1_req),
+      .imem_addr(imem1_addr),
+      .imem_rsp_valid(imem1_rsp_valid),
+      .imem_rsp_addr(imem1_rsp_addr),
+      .imem_rsp_data(imem1_rsp_data),
+      .imem_miss(imem1_miss),
+      .imem_busy(imem1_busy),
+      .dmem_lu_valid(dmem1_lu_valid),
+      .dmem_lu_addr(dmem1_lu_addr),
+      .dmem_lu_offset(dmem1_lu_offset),
+      .dmem_lu_funct3(dmem1_lu_funct3),
+      .dmem_ready(dmem1_ready),
+      .dmem_busy(dc1_flush_busy),
+      .dmem_req(dmem1_req),
+      .dmem_valid(dmem1_valid),
+      .dmem_amo_read(dmem1_amo_read),
+      .dmem_we(dmem1_we),
+      .dmem_addr(dmem1_addr),
+      .dmem_wdata(dmem1_wdata),
+      .dmem_be(dmem1_be),
+      .dmem_rsp_data(dmem1_rsp_data),
+      .dmem_forward_data(dmem1_forward_data),
+      .ptw_bus_rst(rst),
+      .ptw_ar(ptw1_ar),
+      .ptw_ready(ptw1_ready),
+      .ptw_r(ptw1_r),
+      .ptw_r_ready(ptw1_r_ready),
+      .fence_req(core1_fence_req),
+      .fence_done(fence_done1),
+      .res_store_valid(res1_store_valid),
+      .res_store_addr(res1_store_addr),
+      .res_remote_valid(res0_store_valid),
+      .res_remote_addr(res0_store_addr),
+      .remote_tlb_flush(remote_tlb_flush1),
+      .trace_valid(trace1_valid),
+      .trace_pc(trace1_pc),
+      .trace_instr(trace1_instr),
+      .trace_rd(trace1_rd),
+      .trace_wdata(trace1_wdata)
+  );
+
+  // ------------------------------------------------- Hart1 instruction cache
+  icache #(
+      .LINE_WORDS(4),
+      .NUM_LINES(ICACHE_LINES)
+  ) u_icache1 (
+      .clk(clk),
+      .rst(rst),
+      .flush(icache_flush),
+      .cpu_req(imem1_req && imem1_in_sdram),
+      .cpu_addr(imem1_addr),
+      .cpu_rsp_valid(ic1_cpu_rsp),
+      .cpu_rsp_addr(ic1_cpu_rsp_addr),
+      .cpu_rsp_data(ic1_cpu_rsp_data),
+      .cpu_miss(ic1_cpu_miss),
+      .cpu_busy(ic1_cpu_busy),
+      .mem_req(ic1_mem_req),
+      .mem_word_addr(ic1_mem_word_addr),
+      .mem_len(ic1_mem_len),
+      .mem_ready(ic1_mem_ready),
+      .mem_rvalid(ic1_mem_rvalid),
+      .mem_rdata(ic1_mem_rdata),
+      .mem_rlast(ic1_mem_rlast),
+      .hit_pulse(ic1_hit),
+      .miss_pulse(ic1_miss)
+  );
+
+  // ------------------------------------------------------- Hart1 data cache
+  dcache #(
+      .LINE_WORDS(8),
+      .NUM_LINES(DCACHE_LINES)
+  ) u_dcache1 (
+      .clk(clk),
+      .rst(cache_rst),
+      .flush(dcache_flush || hub_flush1),
+      .flush_done(dcache_flush_done1),
+      .lu_valid(dmem1_lu_valid && dmem1_lu_in_sdram),
+      .lu_addr(dmem1_lu_addr[24:2]),
+      .lu_offset(dmem1_lu_offset),
+      .lu_funct3(dmem1_lu_funct3),
+      .cm_valid(dmem1_req && dmem1_in_sdram),
+      .cm_we(dmem1_we),
+      .cm_addr(dmem1_addr[24:2]),
+      .cm_wdata(dmem1_wdata),
+      .cm_be(dmem1_be),
+      .cm_rdata(dc1_cm_rdata),
+      .cm_forward_data(dc1_forward_data),
+      .cm_ready(dc1_cm_ready),
+      .mem_req(dc1_mem_req),
+      .mem_we(dc1_mem_we),
+      .mem_word_addr(dc1_mem_word_addr),
+      .mem_len(dc1_mem_len),
+      .mem_ready(dc1_mem_ready),
+      .mem_wvalid(dc1_mem_wvalid),
+      .mem_wready(dc1_mem_wready),
+      .mem_wdata(dc1_mem_wdata),
+      .mem_wbe(dc1_mem_wbe),
+      .mem_rvalid(dc1_mem_rvalid),
+      .mem_rdata(dc1_mem_rdata),
+      .mem_rlast(dc1_mem_rlast),
+      .hit_pulse(dc1_hit),
+      .miss_pulse(dc1_miss),
+      .snoop_valid(hub_snoop1_valid),
+      .snoop_addr(hub_snoop1_addr),
+      .snoop_exclusive(1'b1),
+      .snoop_hit(dc1_snoop_hit),
+      .snoop_dirty(dc1_snoop_dirty),
+      .snoop_invalidate(hub_inv1),
+      .upgrade_req(dc1_upgrade_req),
+      .upgrade_addr(dc1_upgrade_addr),
+      .upgrade_ack(hub_ack1),
+      .miss_line(dc1_miss_line),
+      .flush_busy(dc1_flush_busy)
   );
 
   // ------------------------------------------------------------- AXI4 fabric
@@ -522,6 +895,24 @@ module roco_soc #(
   logic i0_wready, d0_wready, boot_wready, mmio0_wready, ram_wready, periph_wready;
   logic i0_rready, d0_rready, boot_rready, mmio0_rready, ram_rready, periph_rready;
   logic i0_bready, d0_bready, boot_bready, mmio0_bready, ram_bready, periph_bready;
+  // Hart1 AXI masters (I$, D$, PTW, MMIO) into xbar m5-m8.
+  axi4_ar_t i1_ar, d1_ar, mmio1_ar;
+  axi4_aw_t i1_aw, d1_aw, mmio1_aw;
+  axi4_w_t i1_w, d1_w, mmio1_w;
+  axi4_b_t i1_b, d1_b, mmio1_b;
+  axi4_r_t i1_r, d1_r, mmio1_r;
+  logic i1_arready, d1_arready, mmio1_arready;
+  logic i1_awready, d1_awready, mmio1_awready;
+  logic i1_wready, d1_wready, mmio1_wready;
+  logic i1_rready, d1_rready, mmio1_rready;
+  logic i1_bready, d1_bready, mmio1_bready;
+  logic unused_i1_wready, unused_i1_done, unused_d1_done;
+  logic
+      unused_mmio1_accept,
+      mmio1_read_done,
+      mmio1_write_done,
+      unused_mmio1_wready,
+      unused_mmio1_rlast;
   // Memory-domain SDRAM port (fast clock) behind the CDC bridge.
   axi4_ar_t mem_ram_ar;
   axi4_aw_t mem_ram_aw;
@@ -543,6 +934,8 @@ module roco_soc #(
   logic [8:0] f_adapter_read_left;
 `endif
   logic unused_boot_rvalid, unused_boot_rlast, unused_ptw_awready, unused_ptw_wready;
+  logic unused_ptw1_awready, unused_ptw1_wready;
+  axi4_b_t unused_ptw1_b;
   logic [31:0] unused_boot_rdata;
   logic
       unused_mmio0_accept,
@@ -588,18 +981,18 @@ module roco_soc #(
   axi4_mem_master u_d0_axi (
       .clk(clk),
       .rst(rst),
-      .req(dc0_mem_req),
-      .we(dc0_mem_we),
-      .addr({7'd8, dc0_mem_word_addr, 2'b00}),
-      .len(dc0_mem_len),
-      .ready(dc0_mem_ready),
-      .wvalid(dc0_mem_wvalid),
-      .wready(dc0_mem_wready),
-      .wdata(dc0_mem_wdata),
-      .wbe(dc0_mem_wbe),
-      .rvalid(dc0_mem_rvalid),
-      .rdata(dc0_mem_rdata),
-      .rlast(dc0_mem_rlast),
+      .req(mdc0_req),
+      .we(mdc0_we),
+      .addr({7'd8, mdc0_word_addr, 2'b00}),
+      .len(mdc0_len),
+      .ready(mdc0_ready),
+      .wvalid(mdc0_wvalid),
+      .wready(mdc0_wready),
+      .wdata(mdc0_wdata),
+      .wbe(mdc0_wbe),
+      .rvalid(mdc0_rvalid),
+      .rdata(mdc0_rdata),
+      .rlast(mdc0_rlast),
       .write_done(unused_d0_done),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_write_left(f_d_write_left),
@@ -614,6 +1007,66 @@ module roco_soc #(
       .w_ready(d0_wready),
       .b(d0_b),
       .b_ready(d0_bready)
+  );
+  axi4_mem_master u_i1_axi (
+      .clk(clk),
+      .rst(rst),
+      .req(ic1_mem_req),
+      .we(1'b0),
+      .addr({7'd8, ic1_mem_word_addr, 2'b00}),
+      .len(ic1_mem_len),
+      .ready(ic1_mem_ready),
+      .wvalid(1'b0),
+      .wready(unused_i1_wready),
+      .wdata(32'd0),
+      .wbe(4'd0),
+      .rvalid(ic1_mem_rvalid),
+      .rdata(ic1_mem_rdata),
+      .rlast(ic1_mem_rlast),
+      .write_done(unused_i1_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(),
+`endif
+      .ar(i1_ar),
+      .ar_ready(i1_arready),
+      .r(i1_r),
+      .r_ready(i1_rready),
+      .aw(i1_aw),
+      .aw_ready(i1_awready),
+      .w(i1_w),
+      .w_ready(i1_wready),
+      .b(i1_b),
+      .b_ready(i1_bready)
+  );
+  axi4_mem_master u_d1_axi (
+      .clk(clk),
+      .rst(rst),
+      .req(mdc1_req),
+      .we(mdc1_we),
+      .addr({7'd8, mdc1_word_addr, 2'b00}),
+      .len(mdc1_len),
+      .ready(mdc1_ready),
+      .wvalid(mdc1_wvalid),
+      .wready(mdc1_wready),
+      .wdata(mdc1_wdata),
+      .wbe(mdc1_wbe),
+      .rvalid(mdc1_rvalid),
+      .rdata(mdc1_rdata),
+      .rlast(mdc1_rlast),
+      .write_done(unused_d1_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(),
+`endif
+      .ar(d1_ar),
+      .ar_ready(d1_arready),
+      .r(d1_r),
+      .r_ready(d1_rready),
+      .aw(d1_aw),
+      .aw_ready(d1_awready),
+      .w(d1_w),
+      .w_ready(d1_wready),
+      .b(d1_b),
+      .b_ready(d1_bready)
   );
   axi4_mem_master u_boot_axi (
       .clk(clk),
@@ -678,6 +1131,39 @@ module roco_soc #(
       .b_ready(mmio0_bready)
   );
   assign mmio0_done = mmio0_read_done || mmio0_write_done;
+  axi4_mem_master u_mmio1_axi (
+      .clk(clk),
+      .rst(rst),
+      // Same split-phase atomic discipline as hart0: cached targets never
+      // touch this port; an uncached atomic reads first, then writes once.
+      .req((dmem1_valid || dmem1_amo_read) && !dmem1_in_sdram),
+      .we(dmem1_we && !dmem1_amo_read),
+      .addr({dmem1_addr[31:2], 2'b00}),
+      .len(4'd0),
+      .ready(unused_mmio1_accept),
+      .wvalid(1'b1),
+      .wready(unused_mmio1_wready),
+      .wdata(dmem1_wdata),
+      .wbe(dmem1_be),
+      .rvalid(mmio1_read_done),
+      .rdata(mmio1_rsp_data),
+      .rlast(unused_mmio1_rlast),
+      .write_done(mmio1_write_done),
+`ifdef ROCO_SOC_RAM_FORMAL
+      .f_write_left(),
+`endif
+      .ar(mmio1_ar),
+      .ar_ready(mmio1_arready),
+      .r(mmio1_r),
+      .r_ready(mmio1_rready),
+      .aw(mmio1_aw),
+      .aw_ready(mmio1_awready),
+      .w(mmio1_w),
+      .w_ready(mmio1_wready),
+      .b(mmio1_b),
+      .b_ready(mmio1_bready)
+  );
+  assign mmio1_done = mmio1_read_done || mmio1_write_done;
 
 
   axi4_xbar u_xbar (
@@ -733,48 +1219,47 @@ module roco_soc #(
       .m4_w_ready(mmio0_wready),
       .m4_b(mmio0_b),
       .m4_b_ready(mmio0_bready),
-      // Hart1 masters parked until the second hart is wired (single-core
-      // mode keeps lint green while the 9-master fabric is in place).
-      .m5_ar('0),
-      .m5_ar_ready(),
-      .m5_r_ready(1'b1),
-      .m5_r(),
-      .m5_aw('0),
-      .m5_aw_ready(),
-      .m5_w('0),
-      .m5_w_ready(),
-      .m5_b_ready(1'b1),
-      .m5_b(),
-      .m6_ar('0),
-      .m6_ar_ready(),
-      .m6_r_ready(1'b1),
-      .m6_r(),
-      .m6_aw('0),
-      .m6_aw_ready(),
-      .m6_w('0),
-      .m6_w_ready(),
-      .m6_b_ready(1'b1),
-      .m6_b(),
-      .m7_ar('0),
-      .m7_ar_ready(),
-      .m7_r_ready(1'b1),
-      .m7_r(),
-      .m7_aw('0),
-      .m7_aw_ready(),
-      .m7_w('0),
-      .m7_w_ready(),
+      .m5_ar(i1_ar),
+      .m5_ar_ready(i1_arready),
+      .m5_r_ready(i1_rready),
+      .m5_r(i1_r),
+      .m5_aw(i1_aw),
+      .m5_aw_ready(i1_awready),
+      .m5_w(i1_w),
+      .m5_w_ready(i1_wready),
+      .m5_b_ready(i1_bready),
+      .m5_b(i1_b),
+      .m6_ar(d1_ar),
+      .m6_ar_ready(d1_arready),
+      .m6_r_ready(d1_rready),
+      .m6_r(d1_r),
+      .m6_aw(d1_aw),
+      .m6_aw_ready(d1_awready),
+      .m6_w(d1_w),
+      .m6_w_ready(d1_wready),
+      .m6_b_ready(d1_bready),
+      .m6_b(d1_b),
+      // Hart1 page-table walker: single-beat SDRAM reads like hart0.
+      .m7_ar(ptw1_ar),
+      .m7_ar_ready(ptw1_ready),
+      .m7_r_ready(ptw1_r_ready),
+      .m7_r(ptw1_r),
+      .m7_aw(53'd0),
+      .m7_aw_ready(unused_ptw1_awready),
+      .m7_w(38'd0),
+      .m7_w_ready(unused_ptw1_wready),
+      .m7_b(unused_ptw1_b),
       .m7_b_ready(1'b1),
-      .m7_b(),
-      .m8_ar('0),
-      .m8_ar_ready(),
-      .m8_r_ready(1'b1),
-      .m8_r(),
-      .m8_aw('0),
-      .m8_aw_ready(),
-      .m8_w('0),
-      .m8_w_ready(),
-      .m8_b_ready(1'b1),
-      .m8_b(),
+      .m8_ar(mmio1_ar),
+      .m8_ar_ready(mmio1_arready),
+      .m8_r_ready(mmio1_rready),
+      .m8_r(mmio1_r),
+      .m8_aw(mmio1_aw),
+      .m8_aw_ready(mmio1_awready),
+      .m8_w(mmio1_w),
+      .m8_w_ready(mmio1_wready),
+      .m8_b_ready(mmio1_bready),
+      .m8_b(mmio1_b),
       .s0_ar(ram_ar),
 `ifdef ROCO_SOC_DC_CLIENT_FORMAL
       .f_ram_read_d(f_ram_read_d),
@@ -1036,14 +1521,15 @@ module roco_soc #(
       .buttons(buttons),
       .leds(leds),
       .irq_timer0(irq_timer0),
-      .irq_timer1(),
-      .irq_software0(),
-      .irq_software1(),
-      .mmio_commit1(1'b0),
-      .ic_hit(ic0_hit),
-      .ic_miss(ic0_miss),
-      .dc_hit(dc0_hit),
-      .dc_miss(dc0_miss),
+      .irq_timer1(irq_timer1),
+      .irq_software0(irq_software0),
+      .irq_software1(irq_software1),
+      // Either hart retiring an MMIO access takes the system effect.
+      .mmio_commit1(dmem1_req && dmem1_valid && !dmem1_in_sdram && mmio1_done),
+      .ic_hit(ic0_hit || ic1_hit),
+      .ic_miss(ic0_miss || ic1_miss),
+      .dc_hit(dc0_hit || dc1_hit),
+      .dc_miss(dc0_miss || dc1_miss),
       .boot_status({init_done_synced, boot_error, boot_busy, boot_done_eff}),
       .boot_addr(boot_addr),
       // dmem0_req is level-held through stalls: commit the system effect
@@ -1070,21 +1556,32 @@ module roco_soc #(
     else i0_unc_rsp <= i0_unc_req;
   end
 
-  // ------------------------------------------------------ FENCE.I sequence
+  // ------------------------------------------- FENCE.I/SFENCE sequence
   // FENCE.I must make prior stores visible to the instruction stream, so
-  // write back the whole D-cache, invalidate the I-cache, then release the
-  // stalled FENCE.I instruction. The core holds IF/ID/EX until fence_done0.
+  // write back both D-caches, invalidate both I-caches, then release the
+  // stalled FENCE.I instruction. The requesting core holds IF/ID/EX until
+  // its fence_done; the other hart keeps running (software must synchronize
+  // racing stores). SFENCE.VMA rides the same window and additionally
+  // flushes both TLBs via the remote_tlb_flush broadcast below.
   localparam logic [1:0] F_IDLE   = 2'd0;
   localparam logic [1:0] F_DCACHE = 2'd1;
   localparam logic [1:0] F_DRAIN  = 2'd2;
   localparam logic [1:0] F_ICACHE = 2'd3;
 
+  // TLB shootdown: the non-requesting hart flushes its MMU while either
+  // fence is in flight. Idempotent for the requesting hart (already
+  // flushing through its own mmu_flush).
+  assign remote_tlb_flush0 = (fence_state != F_IDLE) && fence_owner == 1'b1;
+  assign remote_tlb_flush1 = (fence_state != F_IDLE) && fence_owner == 1'b0;
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       fence_state <= F_IDLE;
+      fence_owner <= 1'b0;
       dcache_flush <= 1'b0;
       icache_flush <= 1'b0;
       fence_done0 <= 1'b0;
+      fence_done1 <= 1'b0;
       boot_cache_maintenance <= 1'b0;
     end else begin
       icache_flush <= 1'b0;
@@ -1092,20 +1589,22 @@ module roco_soc #(
         boot_cache_maintenance <= 1'b1;
         dcache_flush <= 1'b1;
         fence_done0 <= 1'b0;
+        fence_done1 <= 1'b0;
         fence_state <= F_DCACHE;
       end else
         case (fence_state)
           F_IDLE: begin
-            if (core0_fence_req) begin
-              fence_done0 <= 1'b0;
+            fence_done0 <= 1'b0;
+            fence_done1 <= 1'b0;
+            if (core0_fence_req || core1_fence_req) begin
+              // Hart0 wins ties; the loser stays asserted and is served next.
+              fence_owner <= core0_fence_req ? 1'b0 : 1'b1;
               dcache_flush <= 1'b1;
               fence_state <= F_DCACHE;
-            end else begin
-              fence_done0 <= 1'b0;
             end
           end
           F_DCACHE: begin
-            if (dcache_flush_done0) begin
+            if (dcache_flush_done0 && dcache_flush_done1) begin
               dcache_flush <= 1'b0;
               fence_state <= F_DRAIN;
             end
@@ -1117,7 +1616,8 @@ module roco_soc #(
             end
           end
           F_ICACHE: begin
-            fence_done0 <= 1'b1;
+            if (fence_owner == 1'b0) fence_done0 <= 1'b1;
+            else fence_done1 <= 1'b1;
             fence_state <= F_IDLE;
             boot_cache_maintenance <= 1'b0;
           end

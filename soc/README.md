@@ -2,7 +2,7 @@
 
 A five-stage pipelined RV32I processor with instruction and data caches,
 an Sv32 memory-management unit, an SDRAM controller, a UART bootloader
-and a small memory-mapped peripheral set, targeting the roco Rev A board (Lattice LFE5U-45F-6BG381C,
+and a small memory-mapped peripheral set, targeting the roco Rev B board (Lattice LFE5U-85F-6BG381C,
 16-bit SDR SDRAM, FT2232H UART).
 
 The design is plain SystemVerilog with no vendor primitives below the
@@ -19,14 +19,18 @@ validation coverage.
 
 Editable source: [docs/roco_cpu.drawio](docs/roco_cpu.drawio).
 
-`roco_top` contains the 24 MHz to 96 MHz PLL and reset synchronizer, and
-instantiates `roco_soc`. Inside the SoC:
+`roco_top` contains the 24 MHz reference PLL (96 MHz SDRAM + 48 MHz core
+outputs) and per-domain reset synchronizers, and instantiates `roco_soc`.
+Inside the SoC:
 
-- `roco_cpu` is the five-stage pipeline (IF, ID, EX, MEM, WB), built
-  from the stage modules listed below. It contains the Sv32 MMU.
-- `icache` and `dcache` are physically addressed and share the SDRAM
-  controller with the UART image loader and MMU walker over AXI4.
-- Uncached data accesses reach the UART, timer, GPIO, cache counters,
+- Two `roco_cpu` harts (`mhartid` 0/1) run the five-stage pipeline
+  (IF, ID, EX, MEM, WB), built from the stage modules listed below.
+  Each hart contains its own Sv32 MMU and TLBs.
+- Per-hart `icache` and `dcache` are physically addressed and share the
+  SDRAM controller with the UART image loader and both MMU walkers over a
+  nine-master AXI4 crossbar and a clock-domain-crossing bridge. An MSI
+  snooping hub keeps the D-caches coherent; see [the bus architecture](docs/bus.md).
+- Uncached data accesses reach the UART, timers, GPIO, cache counters,
   boot status, and `tohost` through an AXI4-to-APB4 bridge.
   See [the bus architecture](docs/bus.md) for routing and protocol limits.
 
@@ -170,14 +174,19 @@ reaches running traffic inside a bounded search. A timing-checking behavioural m
 | `0x8000_0010` | R/W | User LEDs |
 | `0x8000_0014` | R | User buttons |
 | `0x8000_0018/1c` | R | `mtime` low/high |
-| `0x8000_0020/24` | R/W | `mtimecmp` low/high |
-| `0x8000_0028` | R | Timer pending (`mtime >= mtimecmp`) |
+| `0x8000_0020/24` | R/W | Hart0 `mtimecmp` low/high |
+| `0x8000_0028` | R | Hart0 timer pending (`mtime >= mtimecmp`) |
+| `0x8000_002c` | R | Hart1 timer pending |
+| `0x8000_0050/54` | R/W | Hart0/hart1 software interrupt (IPI, bit0) |
+| `0x8000_0060/64` | R/W | Hart1 `mtimecmp` low/high |
 | `0x8000_0030/34/38/3c` | R/W | I-cache hits/misses, D-cache hits/misses (write clears) |
 | `0x8000_0048/4c` | R/W | Debug benchmark cycle/instruction counts |
 | `0x8000_0100` | R | Boot status: bit0 done, bit1 busy, bit2 error, bit3 SDRAM ready |
 | `0x8000_0104` | R | Loaded image base |
-| `0x8000_0108` | W | Restart the bootloader |
-| `0x8000_1000` | R/W | `tohost`: write halts the core, value is the exit code |
+| `0x8000_0108` | W | Restart the bootloader (re-parks hart1) |
+| `0x8000_0110` | R/W | Hart1 boot address |
+| `0x8000_0114` | R/W | Hart1 release (any write releases hart1; reads status) |
+| `0x8000_1000` | R/W | `tohost`: write halts both cores, value is the exit code |
 
 These are physical addresses. With paging enabled, virtual pages are
 mapped onto them; page tables must live in SDRAM. The APB bridge decodes word
@@ -239,6 +248,7 @@ make test_mm     # MMU unit test: translation, permissions, faults
 make test_vm     # Sv32 software test on the core and through the SoC
 make test_sdram  # SDRAM controller: bursts, refresh, retention
 make test_soc    # same program through caches, AXI4, SDRAM, and APB
+make test_smp     # dual-hart bring-up: release, coherence, cross-hart AMOs
 make test_bus    # crossbar, SDRAM adapter, and APB bridge regressions
 make test_dcache # D-cache refill, eviction, forwarding and flush
 make test_isa    # official riscv-tests rv32ui on the bare core
@@ -305,21 +315,28 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
   last resolved target. Changing targets and BTB conflicts still cause
   recovery.
 - The D-cache is blocking on misses and has no write buffer.
-- There is no cache coherence: `FENCE.I` flushes the D-cache and
-  invalidates the I-cache, and `SFENCE.VMA` uses the same flush before
-  invalidating the TLBs. There is no DMA or second master.
-- The TLBs are 16-entry direct mapped and share one walker, so a
-  conflict or concurrent I/D miss costs a page-table walk.
+- Coherence is MSI write-back snooping without an Exclusive-clean
+  state: every fill is shared and every store/atomic upgrade invalidates
+  the peer (dirty lines are written back first). Share writable data with
+  AMO/LR/SC or uncached MMIO; plain stores do not invalidate the peer.
+  `FENCE.I`/`SFENCE.VMA` broadcast to both harts (both D-caches flushed,
+  both I-caches and TLBs invalidated) and release only the requester.
+- Each hart has a private TLB pair fed by its own walker; shootdown is the
+  broadcast above rather than per-address invalidation.
+- The TLBs are 16-entry direct mapped, so a conflict or concurrent I/D
+  miss costs a page-table walk.
 - A/D bits are software-managed, and `SFENCE.VMA` always flushes
   everything rather than a single address or ASID.
 - An atomic to an uncached address is a read followed by one write. The value
   the peripheral returns is the operand of the operation; the pair is not
-  atomic against other bus masters, and the SoC has only the CPU as a master.
+  atomic against other bus masters, but LR/SC reservations are global: a
+  committed store from either hart clears the other hart's reservation.
 - Boot is over UART only. Booting from the W25Q128 flash needs an SPI
   controller and a flash-resident loader.
-- The SoC wires the machine timer interrupt but leaves the external
-  interrupt input tied low and has no CLINT. Software interrupts are raised
-  through writable `mip` bits.
+- The SoC wires per-hart machine timer interrupts plus per-hart software
+  (IPI) interrupts through the `0x50/0x54` mailboxes, but leaves the external
+  interrupt input tied low and has no full CLINT. Software interrupts are
+  also raised through writable `mip` bits.
 
 ## Layout
 

@@ -31,6 +31,7 @@ module tb_dcache;
   logic upgrade_ack = 1'b1;
   logic miss_exclusive;
   logic [22:0] miss_line;
+  logic flush_busy;
 
   dcache #(
       .NUM_LINES(256),

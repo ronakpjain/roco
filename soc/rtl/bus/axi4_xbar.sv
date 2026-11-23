@@ -183,6 +183,11 @@ module axi4_xbar (
   assign sw_ready = {s1_w_ready, s0_w_ready};
   logic [1:0] sr_ready, sb_ready;
   logic [8:0] mar_ready, maw_ready, mw_ready;
+  // Slice s_ready (flopped not-full): replaces the slave READY inputs in
+  // the arbiter so both directions terminate in flops. VALID is the MSB
+  // of each channel vector (axi4_defs.svh field order).
+  logic [1:0] ar_sr, aw_sr, w_sr;
+  logic [8:0] mr_sr, mb_sr;
 
   assign {mar[8], mar[7], mar[6], mar[5], mar[4], mar[3], mar[2], mar[1], mar[0]} = {
     m8_ar, m7_ar, m6_ar, m5_ar, m4_ar, m3_ar, m2_ar, m1_ar, m0_ar
@@ -302,11 +307,47 @@ module axi4_xbar (
     assign r = sr[s];
     axi4_b_t b;
     assign b = sb[s];
-    assign sar[s] = ar;
-    assign saw[s] = aw;
-    assign sw[s] = w;
-    assign sr_ready[s] = rd[s] == Data && mrr[ro[s]];
-    assign sb_ready[s] = wr[s] == Response && mbr[wo[s]];
+    // Slave-side slices register the 9:1 owner muxes (AR/AW/W); R/B are
+    // sliced per master in g_return to keep beat->owner pairing.
+    axi4_register_slice #(
+        .WIDTH($bits(m0_ar))
+    ) u_ar_slice (
+        .clk(clk),
+        .rst(rst),
+        .s_data(ar),
+        .s_ready(ar_sr[s]),
+        .m_data(sar[s]),
+        .m_ready(sar_ready[s])
+    );
+    axi4_register_slice #(
+        .WIDTH($bits(m0_aw))
+    ) u_aw_slice (
+        .clk(clk),
+        .rst(rst),
+        .s_data(aw),
+        .s_ready(aw_sr[s]),
+        .m_data(saw[s]),
+        .m_ready(saw_ready[s])
+    );
+    // Slave-side handshake uses the slice DRAIN (not push) for AW/W so the
+    // slave always observes AW before W. AR stays push-side: R has no such
+    // ordering constraint and the earlier advance shortens miss latency.
+    logic aw_out_v, w_out_v, w_out_last;
+    assign aw_out_v = saw[s][$bits(m0_aw)-1];
+    assign w_out_v = sw[s][$bits(m0_w)-1];
+    assign w_out_last = sw[s][0];
+    axi4_register_slice #(
+        .WIDTH($bits(m0_w))
+    ) u_w_slice (
+        .clk(clk),
+        .rst(rst),
+        .s_data(w),
+        .s_ready(w_sr[s]),
+        .m_data(sw[s]),
+        .m_ready(sw_ready[s])
+    );
+    assign sr_ready[s] = rd[s] == Data && mr_sr[ro[s]];
+    assign sb_ready[s] = wr[s] == Response && mb_sr[wo[s]];
 
     always_ff @(posedge clk or posedge rst) begin
       if (rst) begin
@@ -324,7 +365,7 @@ module axi4_xbar (
             rd[s] <= Address;
           end
           Address:
-          if (ar.valid && sar_ready[s]) begin
+          if (ar.valid && ar_sr[s]) begin
             rr[s] <= next_master(ro[s]);
             rd[s] <= Data;
           end
@@ -338,11 +379,11 @@ module axi4_xbar (
             wr[s] <= Address;
           end
           Address:
-          if (aw.valid && saw_ready[s]) begin
+          if (aw_out_v && saw_ready[s]) begin
             rw[s] <= next_master(wo[s]);
             wr[s] <= Data;
           end
-          Data: if (w.valid && w.last && sw_ready[s]) wr[s] <= Response;
+          Data: if (w_out_v && w_out_last && sw_ready[s]) wr[s] <= Response;
           Response: if (b.valid && sb_ready[s]) wr[s] <= Idle;
           default: wr[s] <= Idle;
         endcase
@@ -360,13 +401,33 @@ module axi4_xbar (
     assign w0 = wo[0] == Master;
     logic w1;
     assign w1 = wo[1] == Master;
-    assign mar_ready[m] = (r0 && rd[0] == Address && sar_ready[0]) ||
-                          (r1 && rd[1] == Address && sar_ready[1]);
-    assign maw_ready[m] = (w0 && wr[0] == Address && saw_ready[0]) ||
-                          (w1 && wr[1] == Address && saw_ready[1]);
-    assign mw_ready[m] = (w0 && wr[0] == Data && sw_ready[0]) ||
-                         (w1 && wr[1] == Data && sw_ready[1]);
-    assign mr[m] = (r0 && rd[0] == Data) ? sr[0] : (r1 && rd[1] == Data) ? sr[1] : '0;
-    assign mb[m] = (w0 && wr[0] == Response) ? sb[0] : (w1 && wr[1] == Response) ? sb[1] : '0;
+    assign mar_ready[m] = (r0 && rd[0] == Address && ar_sr[0]) ||
+                          (r1 && rd[1] == Address && ar_sr[1]);
+    assign maw_ready[m] = (w0 && wr[0] == Address && aw_sr[0]) ||
+                          (w1 && wr[1] == Address && aw_sr[1]);
+    assign mw_ready[m] = (w0 && wr[0] == Data && w_sr[0]) || (w1 && wr[1] == Data && w_sr[1]);
+    // Per-master return slices: the 2:1 slave mux stays combinational
+    // (small) and the slice registers both the beat and the READY return,
+    // so in-flight beats can never misroute when the owner advances.
+    axi4_register_slice #(
+        .WIDTH($bits(m0_r))
+    ) u_r_slice (
+        .clk(clk),
+        .rst(rst),
+        .s_data((r0 && rd[0] == Data) ? sr[0] : (r1 && rd[1] == Data) ? sr[1] : '0),
+        .s_ready(mr_sr[m]),
+        .m_data(mr[m]),
+        .m_ready(mrr[m])
+    );
+    axi4_register_slice #(
+        .WIDTH($bits(m0_b))
+    ) u_b_slice (
+        .clk(clk),
+        .rst(rst),
+        .s_data((w0 && wr[0] == Response) ? sb[0] : (w1 && wr[1] == Response) ? sb[1] : '0),
+        .s_ready(mb_sr[m]),
+        .m_data(mb[m]),
+        .m_ready(mbr[m])
+    );
   end
 endmodule

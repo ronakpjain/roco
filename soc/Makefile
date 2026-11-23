@@ -86,7 +86,7 @@ lint:
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module roco_soc $(SIM_RTL)
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
-		--top-module axi4_xbar rtl/bus/axi4_xbar.sv
+		--top-module axi4_xbar rtl/bus/axi4_xbar.sv rtl/bus/axi4_register_slice.sv
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
 		--top-module axi4_sdram_adapter rtl/bus/axi4_sdram_adapter.sv
 	$(VERILATOR) $(LINT_FLAGS) -I$(RTL_DIR)/common \
@@ -243,7 +243,7 @@ $(BUILD_DIR)/tb_sdram_ctrl.vvp: rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_
 $(BUILD_DIR)/tb_mem_arbiter.vvp: rtl/mem/mem_arbiter.sv sim/tb_mem_arbiter.sv | build
 	$(IVERILOG) -g2012 -s tb_mem_arbiter -o $@ $^
 
-$(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar: rtl/bus/axi4_xbar.sv sim/tb_axi4_xbar.sv rtl/common/axi4_defs.svh | build
+$(BUILD_DIR)/vl_tb_axi4_xbar/Vtb_axi4_xbar: rtl/bus/axi4_xbar.sv rtl/bus/axi4_register_slice.sv sim/tb_axi4_xbar.sv rtl/common/axi4_defs.svh | build
 	$(VERILATOR) $(VL_FLAGS) --top-module tb_axi4_xbar -Mdir $(BUILD_DIR)/vl_tb_axi4_xbar $(filter %.sv,$^)
 
 $(BUILD_DIR)/vl_tb_axi4_sdram_adapter/Vtb_axi4_sdram_adapter: rtl/bus/axi4_sdram_adapter.sv rtl/mem/sdram_ctrl.sv sim/sdram_model.sv sim/tb_axi4_sdram_adapter.sv rtl/common/axi4_defs.svh | build
@@ -424,11 +424,12 @@ $(BUILD_DIR)/roco.json: $(RTL_SV) | build
 # Share routing settings between timing measurements and the shipped bitstream.
 PNR_SEED ?= 96
 PNR_FLAGS ?= --placer-heap-timingweight 30
+PNR_FLOORPLAN ?= --pre-place constraints/floorplan.py
 PNR_DEVICE ?= --85k
 # Diagnostic route: report timing even when the system clock target fails.
 TIMING_SEED ?= $(PNR_SEED)
-timing: $(BUILD_DIR)/roco.json
-	$(NEXTPNR) $(PNR_DEVICE) --package CABGA381 --speed 6 $(PNR_FLAGS) \
+timing: $(BUILD_DIR)/roco.json constraints/floorplan.py
+	$(NEXTPNR) $(PNR_DEVICE) --package CABGA381 --speed 6 $(PNR_FLAGS) $(PNR_FLOORPLAN) \
 		--json $< --lpf constraints/roco.lpf \
 		--textcfg $(BUILD_DIR)/timing_seed$(TIMING_SEED).config \
 		--report $(BUILD_DIR)/timing_seed$(TIMING_SEED).json \
@@ -440,11 +441,11 @@ bitstream: $(BUILD_DIR)/roco.bit
 # Re-route when a command-line seed or routing flag changes.
 .PHONY: force_pnr_options
 $(BUILD_DIR)/pnr_options: force_pnr_options | build
-	@printf '%s\n' "$(NEXTPNR)" "$(PNR_DEVICE)" "$(PNR_SEED)" "$(PNR_FLAGS)" > $@.tmp
+	@printf '%s\n' "$(NEXTPNR)" "$(PNR_DEVICE)" "$(PNR_SEED)" "$(PNR_FLAGS)" "$(PNR_FLOORPLAN)" > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 
-$(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf Makefile $(BUILD_DIR)/pnr_options
-	$(NEXTPNR) $(PNR_DEVICE) --package CABGA381 --speed 6 $(PNR_FLAGS) \
+$(BUILD_DIR)/roco.config: $(BUILD_DIR)/roco.json constraints/roco.lpf constraints/floorplan.py Makefile $(BUILD_DIR)/pnr_options
+	$(NEXTPNR) $(PNR_DEVICE) --package CABGA381 --speed 6 $(PNR_FLAGS) $(PNR_FLOORPLAN) \
 		--json $(BUILD_DIR)/roco.json --lpf constraints/roco.lpf \
 		--seed $(PNR_SEED) --textcfg $@.tmp \
 		--report $(BUILD_DIR)/roco_timing.json --detailed-timing-report \

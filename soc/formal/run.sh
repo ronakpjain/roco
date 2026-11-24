@@ -573,6 +573,11 @@ elif [[ "$job" =~ ^soc-(mmio|gpr|gpr-forward|a|v|m|pc|trap)$ && "$mode" == cover
   if [[ "$job" == soc-v ]]; then cover_sources+=' a:src=*soc_vector_memory_ex_checks.svh* %u'; fi
   cover_selection="chformal -cover -remove $cover_sources %n; chformal -assert -remove; opt_clean -purge;"
 fi
+if [[ -n "$cover_selection" ]]; then
+  # These witness programs start on hart 0 and don't release hart 1.
+  # Scope only their cover targets; prove mode still checks both harts.
+  cover_selection="chformal -cover -remove c:*u_cpu1.*; $cover_selection"
+fi
 
 # Quote source paths for Yosys, including external references with spaces.
 printf -v files ' "%s"' "${sources[@]}"

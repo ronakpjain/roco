@@ -41,7 +41,8 @@ module tb_soc_boot #(
   logic halted;
   logic [31:0] exit_code;
 
-  logic [7:0] packet[0:65535];
+  // Sized for the 8 MiB UART boot limit; the OS image passed 64 KiB.
+  logic [7:0] packet[0:8388607];
   logic [7:0] rx_byte;
   integer packet_len;
   integer fd;

@@ -11,7 +11,12 @@
 module tb_soc_boot #(
     parameter int CLK_HZ = 96_000_000
 );
-  localparam int BAUD = 1_000_000;
+  // Simulation-only rate: the UART pin is bit-banged here, so a high
+  // baud is free and keeps boot plus console traffic responsive in the
+  // simulator. DIV = 8 still leaves the receiver enough cycles to
+  // resynchronise between back-to-back boot bytes. The board top keeps
+  // its 115200 host rate.
+  localparam int BAUD = 12_000_000;
   localparam int DIV  = CLK_HZ / BAUD;
 
   logic clk;

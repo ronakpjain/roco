@@ -16,8 +16,9 @@ def main():
     modes.add_argument("--console", action="store_true")
     args = parser.parse_args()
     sim, packet = args.sim.resolve(), args.packet.resolve()
-    # 8N1 at the testbench's 96 core clocks per bit, plus runtime headroom.
-    cycles = 960 * len(packet.read_bytes().splitlines())
+    # 8N1 at the testbench's 8 core clocks per bit (12 MBaud at 96 MHz),
+    # with margin, plus runtime headroom.
+    cycles = 160 * len(packet.read_bytes().splitlines())
     cycles += 400_000_000 if args.console else 30_000_000
     command = [str(sim), f"+packet={packet}", f"+max_cycles={cycles}"]
     commands = None

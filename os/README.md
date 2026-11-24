@@ -29,6 +29,27 @@ The same test target boots a second image where a user program on hart 1
 loads from an S-only kernel page. The test expects a load page fault
 handled by the supervisor on hart 1, rather than a successful load.
 
+## Simulated console
+
+```sh
+make console
+```
+
+Wait for `roco> `, then enter `help`, `hart`, `echo <text>`, or `exit`.
+The shell runs in user mode on hart 0 and reads and writes the simulated
+UART. Hart 1 runs a quiet user-mode check in this image. Host terminal
+line editing works as usual; `exit` or Ctrl-D ends the session.
+
+You can also pipe commands from a script:
+
+```sh
+printf 'help\nhart\necho Hello from ROCO\nexit\n' | make console
+```
+
+`make test` also checks the shell transcript over the simulated UART.
+
+## Boot artifacts
+
 `build/roco-os.elf` has kernel symbols, `build/roco-os.bin` is the flat
 board image, and `build/roco-os.packet.hex` is the UART packet for simulation.
 To upload on hardware with the SoC bootloader waiting for a packet:
@@ -73,6 +94,7 @@ stacks grow down from `0x100ff000` and `0x100fd000`.
 | 2 | `exit(status)` | Never returns; returning from `main` does the same thing |
 | 3 | `gethart()` | `0` or `1` |
 | 4 | `yield()` | `0`; currently a no-op |
+| 5 | `readchar()` | Next UART byte on hart 0, or `-1` if none is available or the caller is on hart 1 |
 
 Unknown calls return `-1`. The system stops when both programs exit with
 status zero, or immediately on a nonzero exit or an unhandled trap.

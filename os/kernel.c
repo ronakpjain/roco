@@ -156,6 +156,8 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         frame[TF_A0] = hart;
     else if (syscall == SYS_YIELD)
         frame[TF_A0] = 0;
+    else if (syscall == SYS_READCHAR && hart == 0 && (UART_STATUS & 2u) != 0)
+        frame[TF_A0] = UART_DATA & 0xffu;
     else
         frame[TF_A0] = (unsigned)-1;
 }

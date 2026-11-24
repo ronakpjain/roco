@@ -55,6 +55,14 @@ sys_yield:
 .size yield, . - yield
 .size sys_yield, . - sys_yield
 
+.globl readchar
+.type readchar, @function
+readchar:
+  li a7, 5              # SYS_READCHAR
+  ecall
+  ret
+.size readchar, . - readchar
+
 .globl syscall
 .globl sys_call
 .type syscall, @function

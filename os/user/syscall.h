@@ -9,6 +9,7 @@
  *   2: exit(a0 = status)               -> does not return
  *   3: gethart(void)                   -> hart id (0 or 1)
  *   4: yield(void)                     -> 0
+ *   5: readchar(void)                  -> byte, or -1 if unavailable
  *
  * All other trap numbers return -1.
  */
@@ -17,11 +18,13 @@
 #define SYS_EXIT 2
 #define SYS_GETHART 3
 #define SYS_YIELD 4
+#define SYS_READCHAR 5
 
 int write(const void *buffer, int length);
 void exit(int status);
 int gethart(void);
 int yield(void);
+int readchar(void);
 
 /* Generic two-argument form, useful for exercising unknown syscalls. */
 int syscall(int number, int arg0, int arg1);

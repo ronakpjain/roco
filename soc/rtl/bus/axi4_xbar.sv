@@ -144,6 +144,7 @@ module axi4_xbar (
   logic [3:0] r_pick[2], w_pick[2];
   logic [8:0] r_reserved, w_reserved;
   logic [8:0] ar_req[2], aw_req[2];
+  logic [8:0] ar_req_q[2], aw_req_q[2];
   // Use vectors for payload arrays so the Yosys frontend preserves each
   // element's width. Named fields are accessed through scalar aliases.
   logic [$bits(m0_ar)-1:0] mar[9], sar[2];
@@ -278,8 +279,20 @@ module axi4_xbar (
 `endif
 
   for (genvar s = 0; s < 2; s++) begin : g_slave
-    assign r_pick[s] = pick(ar_req[s] & ~r_reserved, rr[s]);
-    assign w_pick[s] = pick(aw_req[s] & ~w_reserved, rw[s]);
+    // Break the path from a master's request decode through the full
+    // round-robin encoder. Recheck the selected live request before locking
+    // an owner; a stale snapshot must not reserve the wrong slave.
+    always_ff @(posedge clk or posedge rst) begin
+      if (rst) begin
+        ar_req_q[s] <= '0;
+        aw_req_q[s] <= '0;
+      end else begin
+        ar_req_q[s] <= ar_req[s];
+        aw_req_q[s] <= aw_req[s];
+      end
+    end
+    assign r_pick[s] = pick(ar_req_q[s] & ~r_reserved, rr[s]);
+    assign w_pick[s] = pick(aw_req_q[s] & ~w_reserved, rw[s]);
 
 `ifdef ROCO_SOC_RAM_FORMAL
     // Induction must not invent an owner outside the master array.
@@ -368,7 +381,7 @@ module axi4_xbar (
       end else begin
         case (rd[s])
           Idle:
-          if (r_pick[s] != NO_OWNER) begin
+          if (r_pick[s] != NO_OWNER && ar_req[s][r_pick[s]]) begin
             ro[s] <= r_pick[s];
             rd[s] <= Address;
           end
@@ -382,7 +395,7 @@ module axi4_xbar (
         endcase
         case (wr[s])
           Idle:
-          if (w_pick[s] != NO_OWNER) begin
+          if (w_pick[s] != NO_OWNER && aw_req[s][w_pick[s]]) begin
             wo[s] <= w_pick[s];
             wr[s] <= Address;
           end

@@ -65,11 +65,6 @@ always_ff @(posedge clk) begin
       if (!f_mem_vec || f_mem_vec_final) assert (rvfi_exmem.next_pc == f_after_mem_pc);
     end
     if (ex_redirect_en) assert (ex_redirect_pc[1:0] == 0);
-    if (bp_update_valid && (bp_update_taken || bp_update_jal || bp_update_jalr)) begin
-      assert (bp_update_target[1:0] == 0);
-      if (!bp_update_jalr)
-        assert (bp_update_target == {bp_update_pc, 2'b00} + {{11{bp_update_imm[20]}}, bp_update_imm});
-    end
     if (rvfi_valid) assert (rvfi_pc_rdata == f_expected_pc);
     if (formal_irq_pending) begin
       assert (!mem_wait && !fence_req && !mem_redirect);

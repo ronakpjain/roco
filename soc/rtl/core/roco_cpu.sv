@@ -1414,9 +1414,30 @@ module roco_cpu #(
     end else if (mem_redirect || satp_write) begin
       bp_update_valid <= 1'b0;
     end else begin
-      bp_update_valid <= btb_update;
+      bp_update_valid <= btb_update && idex_pc[1:0] == 2'b00;
     end
   end
+
+  // A faulting target must not enter the BTB. Check the registered payload
+  // so this guard does not put the target adder back on the update path.
+  logic bp_train;
+  assign bp_train = bp_update_valid && !halt && bp_update_target[1:0] == 2'b00;
+
+`ifdef ROCO_RVFI_PC_CHECKS
+  `define ROCO_CHECK_BTB_PACKET
+`elsif ROCO_IRQ_PIPELINE_CHECKS
+  `define ROCO_CHECK_BTB_PACKET
+`elsif ROCO_SOC_PC_FORMAL
+  `define ROCO_CHECK_BTB_PACKET
+`endif
+`ifdef ROCO_CHECK_BTB_PACKET
+  always_ff @(posedge clk) begin
+    if (!rst && bp_update_valid && !bp_update_jalr &&
+        ((bp_update_branch && bp_update_taken) || bp_update_jal))
+      assert (bp_update_target == {bp_update_pc, 2'b00} + {{11{bp_update_imm[20]}}, bp_update_imm});
+  end
+  `undef ROCO_CHECK_BTB_PACKET
+`endif
 
   roco_cpu_branch_predictor u_bp (
       .clk(clk),
@@ -1428,7 +1449,7 @@ module roco_cpu #(
       .if_pred_direct(pred_direct),
       .if_pred_imm(pred_imm),
       .ex_pc(bp_update_pc),
-      .ex_update(bp_update_valid && !halt),
+      .ex_update(bp_train),
       .ex_is_branch(bp_update_branch),
       .ex_is_jal(bp_update_jal),
       .ex_is_jalr(bp_update_jalr),

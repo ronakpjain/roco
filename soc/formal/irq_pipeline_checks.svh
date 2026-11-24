@@ -41,11 +41,6 @@ always @(posedge clk) begin
       assert (!exmem_is_vload && !exmem_is_vstore && !exmem_is_sfence && !exmem_is_fence_i);
     end
     if (ex_redirect_en) assert (ex_redirect_pc[1:0] == 0);
-    if (bp_update_valid && (bp_update_taken || bp_update_jal || bp_update_jalr)) begin
-      assert (bp_update_target[1:0] == 0);
-      if (!bp_update_jalr)
-        assert (bp_update_target == {bp_update_pc, 2'b00} + {{11{bp_update_imm[20]}}, bp_update_imm});
-    end
     assert (rvfi_intr == handler_expected);
     if (!formal_irq_pending || exmem_valid) assert (architectural_pc == oldest_live);
     if (idex_valid && !formal_trap_pending && !ex_redirect_en) begin

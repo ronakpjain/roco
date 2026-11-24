@@ -221,16 +221,17 @@ module rvfi_rv32i #(
         if (formal_amo_ready && dmem_addr[31:2] == watched_addr)
           assert (trace_wdata == physical_word);
 `endif
-        assert (dmem_req == (dmem_valid && dmem_ready));
-        if (StallMemory && !$past(rst) && $past(dmem_valid && !dmem_ready)) begin
-          assert (dmem_valid && $stable({dmem_addr, dmem_we}));
+        assert (!dmem_valid || dmem_req);
+        if (StallMemory && !$past(rst) && $past(dmem_req && !dmem_ready)) begin
+          assert (dmem_req && $stable({dmem_valid, dmem_addr, dmem_we}));
           if (dmem_we) assert ($stable({dmem_be, dmem_wdata}));
-          cover (dmem_req && dmem_we);
+          cover (dmem_req && dmem_we && dmem_ready);
         end
-        // Check the actual side effect, not just the RVFI metadata. Bare
-        // M-mode makes the physical and architectural addresses identical.
-        assert (dmem_req == (rvfi_access || failed_sc));
-        if (dmem_req) begin
+        // req is held through stalls and includes failed SC. Compare side
+        // effects at the ready-qualified handshake, not at the request.
+        assert ((dmem_req && dmem_ready) == (rvfi_access || failed_sc));
+        assert ((dmem_valid && dmem_ready) == rvfi_access);
+        if (dmem_req && dmem_ready) begin
           assert (dmem_addr[31:2] == rvfi_mem_addr[31:2]);
           assert (dmem_we == (|rvfi_mem_wmask));
           if (dmem_we) assert (dmem_be == rvfi_mem_wmask);
@@ -239,7 +240,7 @@ module rvfi_rv32i #(
           if ((|rvfi_mem_rmask) && !rmw) assert (rvfi_mem_rdata == load_word);
         end
         for (integer i = 0; i < 4; i = i + 1) begin
-          if (dmem_req && dmem_we && dmem_be[i]) begin
+          if (dmem_valid && dmem_ready && dmem_we && dmem_be[i]) begin
             assert (dmem_wdata[8*i+:8] == rvfi_mem_wdata[8*i+:8]);
             if (dmem_addr[31:2] == watched_addr) physical_word[8*i+:8] <= dmem_wdata[8*i+:8];
           end

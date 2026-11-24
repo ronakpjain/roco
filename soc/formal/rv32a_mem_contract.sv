@@ -22,12 +22,13 @@ module rv32a_mem_contract (
   logic commit, req, valid, amo_read, we, wait_mem;
   logic [31:0] addr, data, result;
   logic [3:0] be;
-  logic launch, sc_succeeds, expected_commit, expected_write;
+  logic launch, sc_succeeds, expected_req, expected_commit, expected_write;
   logic [31:0] expected_data, expected_result;
   assign launch = !rst && !pending && issue && !trap;
   assign old_word = target ? high_word : low_word;
   assign sc_succeeds = reservation && reservation_bank == target;
-  assign expected_commit = pending && ready && (current_op != Amo || prepared);
+  assign expected_req = pending && (current_op != Amo || prepared);
+  assign expected_commit = expected_req && ready;
   assign expected_write = current_op == Amo || current_op == Store ||
                           (current_op == Sc && sc_succeeds);
   assign expected_result = current_op == Sc ? {31'd0, !sc_succeeds} : old_word;
@@ -172,9 +173,9 @@ module rv32a_mem_contract (
         end
       end
 
-      assert (commit == expected_commit && req == expected_commit);
-      assert (valid == (pending && (current_op != Amo || prepared) &&
-                        (current_op != Sc || sc_succeeds)));
+      // req describes the held MEM packet; only ready qualifies retirement.
+      assert (commit == expected_commit && req == expected_req);
+      assert (valid == (expected_req && (current_op != Sc || sc_succeeds)));
       assert (wait_mem == (pending && !expected_commit));
       if (expected_commit) begin
         assert (addr == {29'd0, target, 2'b00});

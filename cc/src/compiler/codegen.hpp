@@ -12,9 +12,11 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -973,9 +975,116 @@ class Codegen {
     return true;
   }
 
-  int sequence_cost(int instructions, int latency) const {
-    const int issue = options_.costs.issue > 0 ? options_.costs.issue : 1;
-    return instructions * issue + std::max(0, latency - issue);
+  enum class InstructionClass {
+    Alu,
+    Shift,
+    Compare,
+    Multiply,
+    Divide,
+    Load,
+    Store,
+    Branch,
+    Jump,
+  };
+
+  static std::string_view instruction_mnemonic(const std::string& line) {
+    const std::size_t begin = line.find_first_not_of(" \t");
+    if (begin == std::string::npos) {
+      return {};
+    }
+    const std::size_t end = line.find_first_of(" \t", begin);
+    return std::string_view(line).substr(
+        begin, end == std::string::npos ? std::string::npos : end - begin);
+  }
+
+  static InstructionClass classify_instruction(const std::string& line) {
+    const std::string_view mnemonic = instruction_mnemonic(line);
+    if (mnemonic == "slli" || mnemonic == "srli" || mnemonic == "srai" ||
+        mnemonic == "sll" || mnemonic == "srl" || mnemonic == "sra" ||
+        mnemonic == "andi" || mnemonic == "ori" || mnemonic == "xori") {
+      return InstructionClass::Shift;
+    }
+    if (mnemonic == "slt" || mnemonic == "sltu" || mnemonic == "slti" ||
+        mnemonic == "sltiu" || mnemonic == "seqz" || mnemonic == "snez") {
+      return InstructionClass::Compare;
+    }
+    if (mnemonic == "mul" || mnemonic == "mulh" || mnemonic == "mulhsu" ||
+        mnemonic == "mulhu") {
+      return InstructionClass::Multiply;
+    }
+    if (mnemonic == "div" || mnemonic == "divu" || mnemonic == "rem" ||
+        mnemonic == "remu") {
+      return InstructionClass::Divide;
+    }
+    if (mnemonic == "lb" || mnemonic == "lbu" || mnemonic == "lh" ||
+        mnemonic == "lhu" || mnemonic == "lw") {
+      return InstructionClass::Load;
+    }
+    if (mnemonic == "sb" || mnemonic == "sh" || mnemonic == "sw") {
+      return InstructionClass::Store;
+    }
+    if (mnemonic == "beq" || mnemonic == "bne" || mnemonic == "blt" ||
+        mnemonic == "bge" || mnemonic == "bltu" || mnemonic == "bgeu") {
+      return InstructionClass::Branch;
+    }
+    if (mnemonic == "j" || mnemonic == "jal" || mnemonic == "jalr" ||
+        mnemonic == "ret" || mnemonic == "call") {
+      return InstructionClass::Jump;
+    }
+    return InstructionClass::Alu;
+  }
+
+  static bool instruction_writes_result(InstructionClass instruction) {
+    return instruction != InstructionClass::Store &&
+           instruction != InstructionClass::Branch &&
+           instruction != InstructionClass::Jump;
+  }
+
+  int base_issue_cost() const {
+    return options_.costs.issue > 0 ? options_.costs.issue : 1;
+  }
+
+  int instruction_occupancy(InstructionClass instruction) const {
+    const int issue = base_issue_cost();
+    switch (instruction) {
+      case InstructionClass::Store:
+        return std::max(issue, options_.costs.store);
+      case InstructionClass::Branch:
+        return std::max(issue, options_.costs.branch);
+      case InstructionClass::Jump:
+        return std::max(issue, options_.costs.jump);
+      default:
+        return issue;
+    }
+  }
+
+  int instruction_latency(InstructionClass instruction) const {
+    switch (instruction) {
+      case InstructionClass::Shift:
+        return options_.costs.shift;
+      case InstructionClass::Compare:
+        return options_.costs.compare;
+      case InstructionClass::Multiply:
+        return options_.costs.multiply;
+      case InstructionClass::Divide:
+        return options_.costs.divide;
+      case InstructionClass::Load:
+        return options_.costs.load;
+      default:
+        return base_issue_cost();
+    }
+  }
+
+  static bool immediate_operand(const std::string& line,
+                                std::int64_t& value) {
+    const std::size_t comma = line.rfind(',');
+    if (comma == std::string::npos) {
+      return false;
+    }
+    const char* begin = line.c_str() + comma + 1;
+    char* end = nullptr;
+    value = std::strtoll(begin, &end, 10);
+    return end != begin;
   }
 
   static int highest_bit(std::uint32_t value) {
@@ -1004,42 +1113,96 @@ class Codegen {
     return (bits & 0xfffu) == 0 ? 1 : 2;
   }
 
-  int temporary_push_cost() const {
-    return temp_stack_.size() < 7 ? 1 : 2;
+  int pseudo_instruction_weight(const std::string& line,
+                                InstructionClass instruction) const {
+    if (instruction != InstructionClass::Alu) {
+      return 1;
+    }
+    const std::string_view mnemonic = instruction_mnemonic(line);
+    if (mnemonic == "la") {
+      return 2;
+    }
+    if (mnemonic != "li") {
+      return 1;
+    }
+    std::int64_t value = 0;
+    if (!immediate_operand(line, value)) {
+      return 1;
+    }
+    return immediate_instruction_count(value);
   }
 
-  int temporary_pop_cost() const {
-    return temp_stack_.size() < 7 ? 1 : 2;
+  int sequence_cost(const std::vector<std::string>& sequence) const {
+    int cost = 0;
+    for (const std::string& line : sequence) {
+      const InstructionClass instruction = classify_instruction(line);
+      const int weight = pseudo_instruction_weight(line, instruction);
+      cost += instruction_occupancy(instruction) * weight;
+      if (instruction_writes_result(instruction)) {
+        const int issue = base_issue_cost();
+        const int latency = instruction_latency(instruction);
+        if (latency > issue) {
+          cost += (latency - issue) * weight;
+        }
+      }
+    }
+    return cost;
   }
 
-  int latency_of_sequence(const std::vector<std::string>& sequence) const {
-    if (sequence.empty()) {
-      return options_.costs.arithmetic;
+  std::vector<std::string> temporary_push_sequence(
+      const std::string& source) const {
+    if (temp_stack_.size() < 7) {
+      return {"mv t" + std::to_string(temp_stack_.size()) + ", " + source};
     }
-    const std::string& last = sequence.back();
-    if (last.find("slli") != std::string::npos ||
-        last.find("srli") != std::string::npos ||
-        last.find("srai") != std::string::npos ||
-        last.find("andi") != std::string::npos ||
-        last.find("ori") != std::string::npos ||
-        last.find("xori") != std::string::npos) {
-      return options_.costs.shift;
+    return {"addi s1, s1, -4", "sw " + source + ", 0(s1)"};
+  }
+
+  std::vector<std::string> temporary_pop_sequence(
+      const std::string& destination) const {
+    if (temp_stack_.size() < 7) {
+      return {"mv " + destination + ", t" +
+              std::to_string(temp_stack_.size())};
     }
-    return options_.costs.arithmetic;
+    return {"lw " + destination + ", 0(s1)", "addi s1, s1, 4"};
+  }
+
+  std::vector<std::string> binary_fallback_sequence(
+      const std::string& operation, std::int64_t value) const {
+    std::vector<std::string> sequence = temporary_push_sequence("a0");
+    sequence.push_back("li a0, " + std::to_string(value));
+    std::vector<std::string> pop = temporary_pop_sequence("a1");
+    sequence.insert(sequence.end(), pop.begin(), pop.end());
+    sequence.push_back(operation);
+    return sequence;
+  }
+
+  std::vector<std::string> scale_fallback_sequence(
+      std::size_t scale) const {
+    return {"li a1, " + std::to_string(scale), "mul a0, a0, a1"};
+  }
+
+  std::vector<std::string> pointer_divide_fallback_sequence(
+      std::size_t scale) const {
+    return {"li a1, " + std::to_string(scale), "div a0, a0, a1"};
+  }
+
+  void emit_sequence(const std::vector<std::string>& sequence) {
+    for (const std::string& line : sequence) {
+      emit("  " + line);
+    }
   }
 
   void consider_sequence(std::vector<std::string>& best, int& best_cost,
                          std::vector<std::string> candidate) const {
-    const int cost =
-        sequence_cost(static_cast<int>(candidate.size()),
-                      latency_of_sequence(candidate));
+    const int cost = sequence_cost(candidate);
     if (cost < best_cost) {
       best_cost = cost;
       best = std::move(candidate);
     }
   }
 
-  bool emit_constant_multiply(std::int32_t value) {
+  bool emit_constant_multiply(
+      std::int32_t value, const std::vector<std::string>& fallback) {
     std::vector<std::string> best;
     int best_cost = std::numeric_limits<int>::max();
     if (value == 0) {
@@ -1148,21 +1311,17 @@ class Codegen {
       }
     }
 
-    const int fallback_cost = sequence_cost(
-        temporary_push_cost() + immediate_instruction_count(value) +
-            temporary_pop_cost() + 1,
-        options_.costs.multiply);
+    const int fallback_cost = sequence_cost(fallback);
     if (best_cost < fallback_cost) {
-      for (const std::string& line : best) {
-        emit("  " + line);
-      }
+      emit_sequence(best);
       return true;
     }
     return false;
   }
 
   bool emit_constant_divmod(BinaryOp operation, std::int32_t value,
-                            bool is_unsigned) {
+                            bool is_unsigned,
+                            const std::vector<std::string>& fallback) {
     std::vector<std::string> best;
     int best_cost = std::numeric_limits<int>::max();
     const auto consider = [&](std::vector<std::string> candidate) {
@@ -1242,14 +1401,9 @@ class Codegen {
       }
     }
 
-    const int fallback_cost = sequence_cost(
-        temporary_push_cost() + immediate_instruction_count(value) +
-            temporary_pop_cost() + 1,
-        options_.costs.divide);
+    const int fallback_cost = sequence_cost(fallback);
     if (best_cost < fallback_cost) {
-      for (const std::string& line : best) {
-        emit("  " + line);
-      }
+      emit_sequence(best);
       return true;
     }
     return false;
@@ -1269,9 +1423,19 @@ class Codegen {
       }
       const std::int32_t constant = static_cast<std::int32_t>(value);
       if (operation == BinaryOp::Mul) {
-        return emit_constant_multiply(constant);
+        return emit_constant_multiply(
+            constant,
+            binary_fallback_sequence("mul a0, a1, a0", constant));
       }
-      return emit_constant_divmod(operation, constant, is_unsigned);
+      std::string mnemonic;
+      if (operation == BinaryOp::Div) {
+        mnemonic = is_unsigned ? "divu a0, a1, a0" : "div a0, a1, a0";
+      } else {
+        mnemonic = is_unsigned ? "remu a0, a1, a0" : "rem a0, a1, a0";
+      }
+      return emit_constant_divmod(
+          operation, constant, is_unsigned,
+          binary_fallback_sequence(mnemonic, constant));
     }
     if (!fits_signed_12(value)) {
       return false;

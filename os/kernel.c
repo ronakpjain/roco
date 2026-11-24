@@ -1,4 +1,5 @@
 #include "user/syscall.h"
+#include "kernel_fs.h"
 
 #define PAGE_SIZE 4096u
 /* The SoC testbench SDRAM model aliases addresses above its first MiB. */
@@ -28,33 +29,46 @@
 #define TF_A0 10
 #define TF_A1 11
 #define TF_A2 12
+#define TF_A3 13
 #define TF_A7 17
 #define TF_PC 32
 #define TF_SAVED 33
 #define TF_WORDS 36
 #define TICK_CAUSE 0x80000005u
 #define SLICE_TICKS 20000u
-#define MAX_WRITE 256u
+#define MAX_PROCS 3
+#define MAX_FDS 8
+#define MAX_CONSOLE_WRITE 256u
+#define MAX_FILE_WRITE 4096u
+
+#define FD_FREE 0
+#define FD_CONSOLE 1
+#define FD_FILE 2
 
 extern unsigned page_tables[6144];
 extern const unsigned user_hello[3074];
 extern const unsigned user_worker[3074];
 extern const unsigned user_countdown[3074];
+extern const unsigned rootfs_count;
+extern const unsigned rootfs_entries[256];
+extern const char rootfs_names[8192];
+extern const unsigned rootfs_data[49152];
+
 void enable_paging(unsigned satp_value);
 void enter_user(unsigned pc, unsigned user_sp, unsigned kernel_sp, unsigned hart);
 void restart_worker(unsigned stack_top, unsigned hart);
 void resume_worker(unsigned stack_top, unsigned *context);
 void clear_tick(void);
-void lock_uart(unsigned *lock);
-void unlock_uart(unsigned *lock);
+void spin_lock(unsigned *lock);
+void spin_unlock(unsigned *lock);
 
 /* Only the owning hart writes its slot; 0 means running, 1 means success. */
 static volatile unsigned completed[2];
 /* The shell publishes JOB_ACTIVE + target hart in one store. Only that
    hart may run the slot and publish completion, allowing reuse on either. */
-static volatile unsigned job_state[3];
-static unsigned saved[3];
-static unsigned contexts[3 * TF_SAVED];
+static volatile unsigned job_state[MAX_PROCS];
+static unsigned saved[MAX_PROCS];
+static unsigned contexts[MAX_PROCS * TF_SAVED];
 static unsigned current[2];
 
 /*
@@ -66,6 +80,12 @@ static unsigned current[2];
  */
 static unsigned uart_lock;
 static unsigned console_owner = 1;
+
+static unsigned fd_kind[MAX_PROCS][MAX_FDS];
+static unsigned fd_obj[MAX_PROCS][MAX_FDS];
+static unsigned fd_off[MAX_PROCS][MAX_FDS];
+static unsigned fd_flags[MAX_PROCS][MAX_FDS];
+static unsigned proc_cwd[MAX_PROCS];
 
 static int console_image(void)
 {
@@ -112,20 +132,20 @@ static void console_write(unsigned pid, const char *src, unsigned len)
 
     if (console_image() && pid != console_owner)
         return;
-    lock_uart(&uart_lock);
+    spin_lock(&uart_lock);
     for (i = 0; i < len; ++i)
         put_byte(src[i]);
-    unlock_uart(&uart_lock);
+    spin_unlock(&uart_lock);
 }
 
 static int console_readchar(void)
 {
     int value = -1;
 
-    lock_uart(&uart_lock);
+    spin_lock(&uart_lock);
     if ((UART_STATUS & 2u) != 0)
         value = (int)(UART_DATA & 0xffu);
-    unlock_uart(&uart_lock);
+    spin_unlock(&uart_lock);
     return value;
 }
 
@@ -181,10 +201,45 @@ static void setup_user(unsigned slot, const unsigned *image)
     reset_user(slot, image);
 }
 
+static void fd_reset(unsigned slot)
+{
+    unsigned fd;
+
+    for (fd = 0; fd < MAX_FDS; ++fd) {
+        fd_kind[slot][fd] = FD_FREE;
+        fd_obj[slot][fd] = 0;
+        fd_off[slot][fd] = 0;
+        fd_flags[slot][fd] = 0;
+    }
+    fd_kind[slot][0] = FD_CONSOLE;
+    fd_flags[slot][0] = FS_O_RDONLY;
+    fd_kind[slot][1] = FD_CONSOLE;
+    fd_flags[slot][1] = FS_O_WRONLY;
+    fd_kind[slot][2] = FD_CONSOLE;
+    fd_flags[slot][2] = FS_O_WRONLY;
+    proc_cwd[slot] = 0;
+}
+
 void kernel_init(void)
 {
+    unsigned slot;
+
+    put_byte('A');
+    {
+        int mounted = fs_init(&rootfs_count, rootfs_entries, rootfs_names, rootfs_data);
+        if (mounted != 0) {
+            TOHOST = 0xbad00100u | (unsigned)mounted;
+            for (;;) {}
+        }
+    }
+    put_byte('B');
+    for (slot = 0; slot < MAX_PROCS; ++slot)
+        fd_reset(slot);
+    put_byte('C');
     setup_user(0, user_hello);
+    put_byte('D');
     setup_user(1, user_worker);
+    put_byte('E');
     if (console_image())
         setup_user(2, user_countdown);
 }
@@ -206,14 +261,12 @@ static unsigned next_slot(unsigned hart)
 {
     unsigned slot = current[hart];
     unsigned i;
-    for (i = 0; i < 3; ++i) {
-        ++slot;
-        if (slot == 3)
-            slot = 0;
+    for (i = 1; i <= MAX_PROCS; ++i) {
+        slot = (slot + 1u) % MAX_PROCS;
         if (runnable(slot, hart))
             return slot;
     }
-    return 3;
+    return MAX_PROCS;
 }
 
 void worker_loop(unsigned stack_top, unsigned hart)
@@ -225,7 +278,7 @@ void worker_loop(unsigned stack_top, unsigned hart)
 
     do {
         id = next_slot(hart);
-    } while (id == 3);
+    } while (id == MAX_PROCS);
     current[hart] = id;
     context = contexts + id * TF_SAVED;
     if (!saved[id]) {
@@ -234,6 +287,7 @@ void worker_loop(unsigned stack_top, unsigned hart)
         else
             image = user_countdown;
         reset_user(id, image);
+        fd_reset(id);
         for (i = 0; i < TF_SAVED; ++i)
             context[i] = 0;
         context[TF_HART] = hart;
@@ -254,6 +308,11 @@ void supervisor_main(unsigned hart, unsigned stack_top)
         arm_tick(hart);
     }
     enter_user(USER_BASE, USER_TOP, stack_top, hart);
+}
+
+static unsigned current_slot(unsigned hart)
+{
+    return console_image() ? current[hart] : hart;
 }
 
 static int user_buffer(unsigned slot, unsigned addr, unsigned len, unsigned write)
@@ -279,20 +338,303 @@ static int user_buffer(unsigned slot, unsigned addr, unsigned len, unsigned writ
     return 0;
 }
 
-static int user_write(unsigned hart, unsigned fd, unsigned addr, unsigned len)
+static char *user_alias(unsigned slot, unsigned addr)
 {
-    unsigned slot = console_image() ? current[hart] : hart;
-    const char *src;
+    return (char *)(USER_RAM + slot * USER_STRIDE + (addr - USER_BASE));
+}
 
-    if (fd != 1 && fd != 2)
+static int user_str(unsigned slot, unsigned addr, char *buffer, unsigned cap)
+{
+    unsigned i;
+
+    if (cap == 0)
+        return -1;
+    for (i = 0; i + 1 < cap; ++i) {
+        if (!user_buffer(slot, addr + i, 1, 0))
+            return -1;
+        buffer[i] = *user_alias(slot, addr + i);
+        if (buffer[i] == 0)
+            return (int)i;
+    }
+    buffer[cap - 1] = 0;
+    return -1;
+}
+
+static int user_put_words(unsigned slot, unsigned addr, const unsigned *words, unsigned n)
+{
+    unsigned i;
+    unsigned *dst;
+
+    if (!user_buffer(slot, addr, n * 4u, 1))
+        return -1;
+    dst = (unsigned *)user_alias(slot, addr);
+    for (i = 0; i < n; ++i)
+        dst[i] = words[i];
+    return 0;
+}
+
+static int user_put_string(unsigned slot, unsigned addr, unsigned cap, const char *s)
+{
+    unsigned n = 0;
+    unsigned i;
+
+    while (s[n] != 0)
+        ++n;
+    if (n + 1u > cap || !user_buffer(slot, addr, n + 1u, 1))
+        return -1;
+    for (i = 0; i <= n; ++i)
+        *user_alias(slot, addr + i) = s[i];
+    return 0;
+}
+
+static int fd_alloc(unsigned slot)
+{
+    unsigned fd;
+    for (fd = 3; fd < MAX_FDS; ++fd) {
+        if (fd_kind[slot][fd] == FD_FREE)
+            return (int)fd;
+    }
+    return -1;
+}
+
+static int fd_readable(unsigned flags)
+{
+    return (flags & 3u) != FS_O_WRONLY;
+}
+
+static int fd_writable(unsigned flags)
+{
+    return (flags & 3u) != FS_O_RDONLY;
+}
+
+static int sys_write(unsigned hart, unsigned fd, unsigned addr, unsigned len)
+{
+    unsigned slot = current_slot(hart);
+    const char *src;
+    int n;
+
+    if (fd >= MAX_FDS || fd_kind[slot][fd] == FD_FREE || !fd_writable(fd_flags[slot][fd]))
         return -1;
     if (len == 0)
         return 0;
-    if (len > MAX_WRITE || !user_buffer(slot, addr, len, 0))
+    if (fd_kind[slot][fd] == FD_CONSOLE) {
+        if (len > MAX_CONSOLE_WRITE || !user_buffer(slot, addr, len, 0))
+            return -1;
+        src = user_alias(slot, addr);
+        console_write(slot + 1, src, len);
+        return (int)len;
+    }
+    if (len > MAX_FILE_WRITE || !user_buffer(slot, addr, len, 0))
         return -1;
-    src = (const char *)(USER_RAM + slot * USER_STRIDE + (addr - USER_BASE));
-    console_write(slot + 1, src, len);
-    return (int)len;
+    src = user_alias(slot, addr);
+    if ((fd_flags[slot][fd] & FS_O_APPEND) != 0)
+        fd_off[slot][fd] = (unsigned)fs_size((int)fd_obj[slot][fd]);
+    n = fs_write((int)fd_obj[slot][fd], fd_off[slot][fd], src, len);
+    if (n > 0)
+        fd_off[slot][fd] += (unsigned)n;
+    return n;
+}
+
+static int sys_read(unsigned hart, unsigned fd, unsigned addr, unsigned len)
+{
+    unsigned slot = current_slot(hart);
+    int n;
+
+    if (fd >= MAX_FDS || fd_kind[slot][fd] == FD_FREE || !fd_readable(fd_flags[slot][fd]))
+        return -1;
+    if (len == 0)
+        return 0;
+    if (!user_buffer(slot, addr, len, 1))
+        return -1;
+    if (fd_kind[slot][fd] == FD_CONSOLE) {
+        unsigned i;
+        char *dst = user_alias(slot, addr);
+        if (fd != 0 || (console_image() && slot + 1u != console_owner))
+            return -1;
+        for (i = 0; i < len; ++i) {
+            n = console_readchar();
+            if (n < 0)
+                break;
+            dst[i] = (char)n;
+        }
+        return i == 0 ? SYS_AGAIN : (int)i;
+    }
+    n = fs_read((int)fd_obj[slot][fd], fd_off[slot][fd], user_alias(slot, addr), len);
+    if (n > 0)
+        fd_off[slot][fd] += (unsigned)n;
+    return n;
+}
+
+static int sys_open(unsigned hart, unsigned path_va, unsigned flags)
+{
+    unsigned slot = current_slot(hart);
+    char path[FS_MAX_PATH];
+    int ino;
+    int fd;
+
+    if ((flags & ~0x1ffu) != 0)
+        return -1;
+    if (user_str(slot, path_va, path, FS_MAX_PATH) < 0)
+        return -1;
+    ino = fs_open_path((int)proc_cwd[slot], path, flags);
+    if (ino < 0)
+        return -1;
+    fd = fd_alloc(slot);
+    if (fd < 0)
+        return -1;
+    fd_kind[slot][fd] = FD_FILE;
+    fd_obj[slot][fd] = (unsigned)ino;
+    fd_flags[slot][fd] = flags;
+    fd_off[slot][fd] = (flags & FS_O_APPEND) != 0 ? (unsigned)fs_size(ino) : 0;
+    return fd;
+}
+
+static int sys_close(unsigned hart, unsigned fd)
+{
+    unsigned slot = current_slot(hart);
+
+    if (fd >= MAX_FDS || fd_kind[slot][fd] == FD_FREE)
+        return -1;
+    fd_kind[slot][fd] = FD_FREE;
+    return 0;
+}
+
+static int sys_seek(unsigned hart, unsigned fd, int offset, unsigned whence)
+{
+    unsigned slot = current_slot(hart);
+    int base;
+    int next;
+
+    if (fd >= MAX_FDS || fd_kind[slot][fd] != FD_FILE)
+        return -1;
+    if (whence == SEEK_SET)
+        base = 0;
+    else if (whence == SEEK_CUR)
+        base = (int)fd_off[slot][fd];
+    else if (whence == SEEK_END)
+        base = fs_size((int)fd_obj[slot][fd]);
+    else
+        return -1;
+    next = base + offset;
+    if (next < 0)
+        return -1;
+    fd_off[slot][fd] = (unsigned)next;
+    return next;
+}
+
+static int sys_stat_path(unsigned hart, unsigned path_va, unsigned info_va)
+{
+    unsigned slot = current_slot(hart);
+    char path[FS_MAX_PATH];
+    unsigned info[4];
+    int ino;
+
+    if (user_str(slot, path_va, path, FS_MAX_PATH) < 0)
+        return -1;
+    ino = fs_lookup_path((int)proc_cwd[slot], path);
+    if (ino < 0)
+        return -1;
+    if (fs_stat(ino, info) != 0)
+        return -1;
+    return user_put_words(slot, info_va, info, 4);
+}
+
+static int sys_fstat(unsigned hart, unsigned fd, unsigned info_va)
+{
+    unsigned slot = current_slot(hart);
+    unsigned info[4];
+
+    if (fd >= MAX_FDS || fd_kind[slot][fd] == FD_FREE)
+        return -1;
+    if (fd_kind[slot][fd] == FD_CONSOLE) {
+        info[0] = FS_DEV;
+        info[1] = 0;
+        info[2] = 0;
+        info[3] = 0;
+    } else if (fs_stat((int)fd_obj[slot][fd], info) != 0)
+        return -1;
+    return user_put_words(slot, info_va, info, 4);
+}
+
+static int sys_readdir(unsigned hart, unsigned fd, unsigned index,
+                       unsigned name_va, unsigned cap)
+{
+    unsigned slot = current_slot(hart);
+    char name[FS_MAX_NAME];
+    int type;
+
+    if (fd >= MAX_FDS || fd_kind[slot][fd] != FD_FILE || cap == 0)
+        return -1;
+    if (fs_type((int)fd_obj[slot][fd]) != FS_TYPE_DIR)
+        return -1;
+    type = fs_readdir((int)fd_obj[slot][fd], index, name, FS_MAX_NAME);
+    if (type <= 0)
+        return type < 0 ? -1 : 0;
+    if (user_put_string(slot, name_va, cap, name) < 0)
+        return -1;
+    return type;
+}
+
+static int sys_path(unsigned hart, unsigned path_va, unsigned op)
+{
+    unsigned slot = current_slot(hart);
+    char path[FS_MAX_PATH];
+    int result;
+
+    if (user_str(slot, path_va, path, FS_MAX_PATH) < 0)
+        return -1;
+    if (op == SYS_UNLINK)
+        result = fs_unlink_path((int)proc_cwd[slot], path);
+    else if (op == SYS_MKDIR)
+        result = fs_create_path((int)proc_cwd[slot], path, FS_TYPE_DIR, 0, 0);
+    else if (op == SYS_RMDIR)
+        result = fs_rmdir_path((int)proc_cwd[slot], path);
+    else if (op == SYS_CHDIR) {
+        result = fs_lookup_path((int)proc_cwd[slot], path);
+        if (result >= 0 && fs_type(result) != FS_TYPE_DIR)
+            result = FS_ENOTDIR;
+        if (result >= 0)
+            proc_cwd[slot] = (unsigned)result;
+    } else
+        result = FS_EINVAL;
+    return result < 0 ? -1 : 0;
+}
+
+static int sys_rename(unsigned hart, unsigned from_va, unsigned to_va)
+{
+    unsigned slot = current_slot(hart);
+    char from[FS_MAX_PATH];
+    char to[FS_MAX_PATH];
+    int result;
+
+    if (user_str(slot, from_va, from, FS_MAX_PATH) < 0)
+        return -1;
+    if (user_str(slot, to_va, to, FS_MAX_PATH) < 0)
+        return -1;
+    result = fs_rename_path((int)proc_cwd[slot], from, to);
+    return result < 0 ? -1 : 0;
+}
+
+static int sys_getcwd(unsigned hart, unsigned buf_va, unsigned cap)
+{
+    unsigned slot = current_slot(hart);
+    char path[FS_MAX_PATH];
+
+    if (fs_cwd_path((int)proc_cwd[slot], path, FS_MAX_PATH) != 0)
+        return -1;
+    return user_put_string(slot, buf_va, cap, path);
+}
+
+static int sys_fsinfo(unsigned hart, unsigned info_va)
+{
+    unsigned slot = current_slot(hart);
+    unsigned info[4];
+
+    info[0] = fs_total_blocks();
+    info[1] = fs_free_blocks();
+    info[2] = fs_total_inodes();
+    info[3] = fs_free_inodes();
+    return user_put_words(slot, info_va, info, 4);
 }
 
 static void finish(unsigned hart, unsigned status)
@@ -350,11 +692,11 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
 {
     unsigned hart = frame[TF_HART];
     unsigned syscall = frame[TF_A7];
+    unsigned slot = current_slot(hart);
 
     if (cause == 8u)
         frame[TF_PC] += 4;
     if (from_supervisor == 0 && console_image()) {
-        unsigned slot = current[hart];
         if (cause == TICK_CAUSE) {
             clear_tick();
             reschedule(frame);
@@ -374,7 +716,35 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         for (;;) {}
     }
     if (syscall == SYS_WRITE)
-        frame[TF_A0] = (unsigned)user_write(hart, frame[TF_A0], frame[TF_A1], frame[TF_A2]);
+        frame[TF_A0] = (unsigned)sys_write(hart, frame[TF_A0], frame[TF_A1], frame[TF_A2]);
+    else if (syscall == SYS_READ)
+        frame[TF_A0] = (unsigned)sys_read(hart, frame[TF_A0], frame[TF_A1], frame[TF_A2]);
+    else if (syscall == SYS_OPEN)
+        frame[TF_A0] = (unsigned)sys_open(hart, frame[TF_A0], frame[TF_A1]);
+    else if (syscall == SYS_CLOSE)
+        frame[TF_A0] = (unsigned)sys_close(hart, frame[TF_A0]);
+    else if (syscall == SYS_SEEK)
+        frame[TF_A0] = (unsigned)sys_seek(hart, frame[TF_A0], (int)frame[TF_A1], frame[TF_A2]);
+    else if (syscall == SYS_STAT)
+        frame[TF_A0] = (unsigned)sys_stat_path(hart, frame[TF_A0], frame[TF_A1]);
+    else if (syscall == SYS_FSTAT)
+        frame[TF_A0] = (unsigned)sys_fstat(hart, frame[TF_A0], frame[TF_A1]);
+    else if (syscall == SYS_UNLINK || syscall == SYS_MKDIR ||
+             syscall == SYS_RMDIR || syscall == SYS_CHDIR)
+        frame[TF_A0] = (unsigned)sys_path(hart, frame[TF_A0], syscall);
+    else if (syscall == SYS_RENAME)
+        frame[TF_A0] = (unsigned)sys_rename(hart, frame[TF_A0], frame[TF_A1]);
+    else if (syscall == SYS_READDIR)
+        frame[TF_A0] = (unsigned)sys_readdir(hart, frame[TF_A0], frame[TF_A1],
+                                             frame[TF_A2], frame[TF_A3]);
+    else if (syscall == SYS_FSINFO)
+        frame[TF_A0] = (unsigned)sys_fsinfo(hart, frame[TF_A0]);
+    else if (syscall == SYS_GETCWD)
+        frame[TF_A0] = (unsigned)sys_getcwd(hart, frame[TF_A0], frame[TF_A1]);
+    else if (syscall == SYS_GETPID)
+        frame[TF_A0] = slot + 1u;
+    else if (syscall == SYS_GETPPID)
+        frame[TF_A0] = 0;
     else if (syscall == SYS_EXIT) {
         /* Keep the shell schedulable while a local job drains. Retry the
            ecall after the next slice without losing its exit status. */

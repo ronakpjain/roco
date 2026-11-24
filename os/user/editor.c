@@ -4,8 +4,11 @@
 #define ROWS 12
 #define COLS 80
 #define MAX_NUMBER 999999u
+#define PATH_CAP 96
 
 static char document[ROWS * COLS];
+static char file_name[PATH_CAP];
+static int have_file;
 static int rows;
 
 static char *word_end(char *s)
@@ -38,6 +41,86 @@ static char *number(char *s, unsigned *value)
     return skip_space(s);
 }
 
+static void add_line(const char *text)
+{
+    if (rows == ROWS)
+        return;
+    strcpy(document + rows * COLS, text);
+    ++rows;
+}
+
+const char *editor_name(void)
+{
+    return have_file ? file_name : "";
+}
+
+int editor_open(const char *path)
+{
+    char line[COLS];
+    char c;
+    int fd;
+    int n = 0;
+    int ch;
+
+    /* With no path the current document survives; .clear empties it. */
+    if (path == 0 || *path == 0)
+        return 0;
+    rows = 0;
+    have_file = 0;
+    file_name[0] = 0;
+    strncpy(file_name, path, PATH_CAP);
+    have_file = 1;
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return 0;
+    for (;;) {
+        ch = read(fd, &c, 1);
+        if (ch <= 0)
+            break;
+        if (c == '\r')
+            continue;
+        if (c == '\n') {
+            line[n] = 0;
+            add_line(line);
+            n = 0;
+        } else if (n < COLS - 1) {
+            line[n++] = c;
+        }
+    }
+    if (n != 0) {
+        line[n] = 0;
+        add_line(line);
+    }
+    close(fd);
+    return 0;
+}
+
+int editor_save(void)
+{
+    int fd;
+    int i;
+    unsigned len;
+
+    if (!have_file)
+        return -1;
+    fd = open(file_name, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0)
+        return -1;
+    for (i = 0; i < rows; ++i) {
+        len = strlen(document + i * COLS);
+        if (write(fd, document + i * COLS, (int)len) != (int)len) {
+            close(fd);
+            return -1;
+        }
+        if (write(fd, "\n", 1) != 1) {
+            close(fd);
+            return -1;
+        }
+    }
+    close(fd);
+    return 0;
+}
+
 int editor_line(char *line)
 {
     int i;
@@ -47,10 +130,8 @@ int editor_line(char *line)
     if (*line != '.') {
         if (rows == ROWS)
             print("Document full.\n");
-        else {
-            strcpy(document + rows * COLS, line);
-            ++rows;
-        }
+        else
+            add_line(line);
         return 1;
     }
     args = word_end(line);
@@ -69,6 +150,19 @@ int editor_line(char *line)
             print(document + i * COLS);
             print("\n");
         }
+    } else if (strcmp(line, ".save") == 0) {
+        if (*args != 0) {
+            strncpy(file_name, args, PATH_CAP);
+            have_file = 1;
+        }
+        if (!have_file)
+            print("No file name: use .save <path>.\n");
+        else if (editor_save() == 0) {
+            print("Saved ");
+            print(file_name);
+            print(".\n");
+        } else
+            print("Could not save file.\n");
     } else if (strcmp(line, ".set") == 0 || strcmp(line, ".del") == 0) {
         args = number(args, &n);
         if (args == (char *)0 || n == 0 || n > (unsigned)rows)
@@ -82,7 +176,7 @@ int editor_line(char *line)
         } else
             print("Usage: .del N\n");
     } else
-        print("Use .list, .set N text, .del N, .clear, .quit.\n");
+        print("Use .list, .set N text, .del N, .clear, .save [path], .quit.\n");
     return 1;
 }
 

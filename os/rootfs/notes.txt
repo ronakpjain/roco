@@ -1,0 +1,6 @@
+Notes
+-----
+Use the editor to change this file:
+  edit /home/user/notes.txt
+  .quit
+  cat /home/user/notes.txt

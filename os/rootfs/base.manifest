@@ -1,0 +1,12 @@
+# Base root filesystem shared by every image.
+dir /bin
+dir /dev
+dir /examples
+dir /home
+dir /home/user
+dir /tmp
+
+txt /motd motd.txt
+txt /readme.txt readme.txt
+txt /home/user/notes.txt notes.txt
+txt /examples/hello.script hello.script

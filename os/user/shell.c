@@ -3,6 +3,153 @@
 
 #define LINE_CAP 80
 
+static void show_file(const char *path)
+{
+    char buffer[128];
+    int fd;
+    int n;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        print("cat: cannot open ");
+        print(path);
+        print(".\n");
+        return;
+    }
+    for (;;) {
+        n = read(fd, buffer, sizeof(buffer));
+        if (n <= 0)
+            break;
+        write(1, buffer, n);
+    }
+    close(fd);
+}
+
+static void show_motd(void)
+{
+    show_file("/motd");
+}
+
+static void list_dir(char *path)
+{
+    char name[32];
+    int fd;
+    int type;
+    int index;
+
+    if (*path == 0)
+        path = ".";
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        print("ls: cannot open ");
+        print(path);
+        print(".\n");
+        return;
+    }
+    for (index = 0; ; ++index) {
+        type = readdir(fd, index, name, sizeof(name));
+        if (type == 0)
+            break;
+        if (type < 0) {
+            print("ls: not a directory.\n");
+            break;
+        }
+        if (type == FS_DIR)
+            print("d ");
+        else
+            print("- ");
+        print(name);
+        print("\n");
+    }
+    close(fd);
+}
+
+static void show_cwd(void)
+{
+    char path[96];
+    if (getcwd(path, sizeof(path)) == 0) {
+        print(path);
+        print("\n");
+    } else
+        print("pwd: failed.\n");
+}
+
+static void change_dir(char *path)
+{
+    if (*path == 0)
+        path = "/";
+    if (chdir(path) != 0) {
+        print("cd: cannot enter ");
+        print(path);
+        print(".\n");
+    }
+}
+
+static void make_dir(char *path)
+{
+    if (*path == 0)
+        print("Usage: mkdir <path>\n");
+    else if (mkdir(path) != 0)
+        print("mkdir: cannot create directory.\n");
+}
+
+static void remove_dir(char *path)
+{
+    if (*path == 0)
+        print("Usage: rmdir <path>\n");
+    else if (rmdir(path) != 0)
+        print("rmdir: cannot remove directory.\n");
+}
+
+static void move_file(char *args)
+{
+    char *from = args;
+    char *to = args;
+
+    while (*to != 0 && *to != ' ' && *to != '\t')
+        ++to;
+    if (*to == 0) {
+        print("Usage: mv <from> <to>\n");
+        return;
+    }
+    *to = 0;
+    ++to;
+    while (*to == ' ' || *to == '\t')
+        ++to;
+    if (*from == 0 || *to == 0) {
+        print("Usage: mv <from> <to>\n");
+        return;
+    }
+    if (rename(from, to) != 0)
+        print("mv: cannot move file.\n");
+}
+
+static void remove_file(char *path)
+{
+    if (*path == 0)
+        print("Usage: rm <path>\n");
+    else if (unlink(path) != 0)
+        print("rm: cannot remove file.\n");
+}
+
+static void show_space(void)
+{
+    int info[4];
+    if (fsinfo(info) != 0) {
+        print("df: failed.\n");
+        return;
+    }
+    print("blocks ");
+    print_num(info[1]);
+    print("/");
+    print_num(info[0]);
+    print(" free, inodes ");
+    print_num(info[3]);
+    print("/");
+    print_num(info[2]);
+    print(" free\n");
+}
+
 static void run_job(char *args)
 {
     char *end = args;
@@ -108,7 +255,7 @@ static int command(char *line, int *editing)
     }
 
     if (strcmp(line, "help") == 0)
-        print("Commands: help, hart, echo [text], run <worker|countdown> [0|1] &, jobs, wait, edit, script, exit\n");
+        print("Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n");
     else if (strcmp(line, "hart") == 0) {
         if (gethart() == 0)
             print("hart 0\n");
@@ -117,15 +264,39 @@ static int command(char *line, int *editing)
     } else if (strcmp(line, "echo") == 0) {
         print(args);
         print("\n");
-    } else if (strcmp(line, "run") == 0)
+    } else if (strcmp(line, "ls") == 0)
+        list_dir(args);
+    else if (strcmp(line, "cat") == 0)
+        show_file(args);
+    else if (strcmp(line, "pwd") == 0)
+        show_cwd();
+    else if (strcmp(line, "cd") == 0)
+        change_dir(args);
+    else if (strcmp(line, "mkdir") == 0)
+        make_dir(args);
+    else if (strcmp(line, "rmdir") == 0)
+        remove_dir(args);
+    else if (strcmp(line, "mv") == 0)
+        move_file(args);
+    else if (strcmp(line, "rm") == 0)
+        remove_file(args);
+    else if (strcmp(line, "df") == 0)
+        show_space();
+    else if (strcmp(line, "run") == 0)
         run_job(args);
     else if (strcmp(line, "jobs") == 0)
         show_job(0);
     else if (strcmp(line, "wait") == 0)
         show_job(1);
-    else if (strcmp(line, "edit") == 0 && *args == 0) {
+    else if (strcmp(line, "edit") == 0) {
+        editor_open(args);
         *editing = 1;
-        print("Append text or use .list, .set N text, .del N, .clear, .quit.\n");
+        if (*args != 0) {
+            print("Editing ");
+            print(args);
+            print(".\n");
+        }
+        print("Append text or use .list, .set N text, .del N, .clear, .save, .quit.\n");
     } else if (strcmp(line, "script") == 0 && *args == 0)
         script_run();
     else if (strcmp(line, "exit") == 0)
@@ -146,6 +317,7 @@ int main(void)
 
     if (gethart() != 0)
         return 1;
+    show_motd();
     print("roco_os user shell; type help.\nroco_os> ");
     for (;;) {
         ch = readchar();

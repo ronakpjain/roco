@@ -97,6 +97,62 @@ to 20 times. An invalid statement stops execution and reports the line
 number. Scripts run in the shell task; background jobs still get their
 own time slices.
 
+## Filesystem
+
+The kernel image embeds a small RAM filesystem built from
+`rootfs/base.manifest` by `tools/mkfs.py`. At boot the kernel copies every
+manifest entry into 512-byte blocks in a 192 KiB SDRAM arena; directories,
+file data, and free space all live there until the next reset. There are 64
+inodes and 384 blocks.
+
+The shell works with paths the way you would expect:
+
+```text
+roco_os> ls /examples
+roco_os> cat /readme.txt
+roco_os> mkdir /home/user/work
+roco_os> cd /home/user
+roco_os> pwd
+roco_os> edit /home/user/notes.txt
+roco_os> df
+```
+
+`edit [path]` opens a file into the 12-line editor, or resumes the
+current document with no path. `.save [path]` writes the document back,
+`.clear` empties it, `.quit` leaves the editor without discarding it, and
+`script` still runs the document as before.
+`read` on a console descriptor never blocks the kernel: it returns what is
+available, or `-2` when the input queue is empty.
+
+User programs use these calls:
+
+| Number | Call | Result |
+| --- | --- | --- |
+| 7 | `open(path, flags)` | File descriptor, or `-1` |
+| 8 | `close(fd)` | `0`, or `-1` |
+| 9 | `seek(fd, offset, whence)` | New offset, or `-1` |
+| 10 | `stat(path, info)` | `0`, or `-1` |
+| 11 | `fstat(fd, info)` | `0`, or `-1` |
+| 12 | `unlink(path)` | `0`, or `-1` |
+| 13 | `mkdir(path)` | `0`, or `-1` |
+| 14 | `rmdir(path)` | `0`, or `-1` |
+| 15 | `rename(from, to)` | `0`, or `-1` |
+| 16 | `readdir(fd, index, name, cap)` | Entry type, `0` at the end, or `-1` |
+| 17 | `fsinfo(info)` | `0`, or `-1` |
+| 18 | `chdir(path)` | `0`, or `-1` |
+| 19 | `getcwd(buffer, cap)` | `0`, or `-1` |
+| 20 | `getpid()` | Process id |
+| 21 | `getppid()` | Parent process id (`0`) |
+
+`open` flags are `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREAT`, `O_TRUNC`,
+and `O_APPEND`; `seek` origins are `SEEK_SET`, `SEEK_CUR`, and `SEEK_END`.
+`stat` fills four words: type (`FS_FILE`, `FS_DIR`, `FS_DEV`), size in
+bytes, inode number, and block count. `fsinfo` fills four words: total and
+free blocks, then total and free inodes. Every process has its own
+descriptors and working directory; descriptors 0, 1, and 2 start as
+console input, console output, and console output.
+
+
 ## Boot artifacts
 
 `build/roco_os.elf` has kernel symbols, `build/roco_os.bin` is the flat
@@ -143,7 +199,7 @@ kernel stacks grow down from `0x100ff000` and `0x100fd000`.
 
 | Number | Call | Result |
 | --- | --- | --- |
-| 1 | `write(fd, buf, len)` | Bytes written, or `-1` for a non-console descriptor, an invalid nonempty buffer, or a length over 256 |
+| 1 | `write(fd, buf, len)` | Bytes written, `-2` on a nonblocking descriptor with no space, or `-1` |
 | 2 | `exit(status)` | Never returns; returning from `main` does the same thing |
 | 3 | `gethart()` | `0` or `1` |
 | 4 | `yield()` | `0`; a console task gives up the rest of its time slice if another task is runnable |

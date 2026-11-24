@@ -25,9 +25,16 @@ def main():
         command.append("+console")
         commands = (
             "help\r\necho UART input\nmissing\n" + "x" * 80 + "\n"
+            "ls /\ncat /readme.txt\npwd\ncd /home/user\npwd\ncd /\npwd\n"
+            "mkdir /tmp/work\nls /tmp\nrmdir /tmp/work\nls /tmp\n"
+            "edit /tmp/note.txt\nhello file\n.list\n.save\n.quit\n"
+            "cat /tmp/note.txt\n"
+            "mv /tmp/note.txt /tmp/renamed.txt\ncat /tmp/renamed.txt\n"
+            "rm /tmp/renamed.txt\ncat /tmp/renamed.txt\ndf\n"
             "jobs\nrun missing &\nrun worker\nrun countdown &\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
             "run countdown 0 &\necho shell still active\nrun worker 0 &\nwait\n"
-            "edit\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
+            "edit /home/user/notes.txt\n.list\nappended line\n.save\n.quit\ncat /home/user/notes.txt\n"
+            "edit\n.clear\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
             ".set 1 print script works\n.list\n.quit\nscript\n"
             "edit\n.del 5\ninvalid\n.quit\nscript\nexit\n"
         )
@@ -51,14 +58,13 @@ def main():
         sys.exit("SoC boot test failed")
     if args.console:
         expected = (
+            "Welcome to roco_os.\n"
+            "Type help for commands, ls to browse the RAM filesystem.\n"
             "roco_os user shell; type help.\n"
-            "roco_os> Commands: help, hart, echo [text], run <worker|countdown> [0|1] &, jobs, wait, edit, script, exit\n"
+            "roco_os> Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n"
             "roco_os> UART input\n"
             "roco_os> Unknown command; try help.\n"
             "roco_os> Line too long.\n"
-            "roco_os> No job yet.\n"
-            "roco_os> No such program.\n"
-            "roco_os> Usage: run <worker|countdown> [0|1] &\n"
         )
         if expected not in run.stdout:
             sys.exit("Unexpected shell transcript")
@@ -68,11 +74,25 @@ def main():
         # the shell's own output appears in the transcript.
         offset = 0
         for line in (
+            "d bin\nd dev\nd examples\nd home\n- motd\n- readme.txt\nd tmp\n",
+            "This is a small RV32",
+            "roco_os> /\nroco_os> ",
+            "roco_os> /home/user\nroco_os> ",
+            "roco_os> /\nroco_os> ",
+            "d work\nroco_os> ",
+            "Editing /tmp/note.txt.\n",
+            "1 hello file\n",
+            "Saved /tmp/note.txt.\n",
+            "hello file\nroco_os> ",
+            "hello file\nroco_os> ",
+            "cat: cannot open /tmp/renamed.txt.\n",
+            "blocks ",
             "Started on hart 1.\n", "That program is already active.\n", "Started on hart 1.\n",
             "hart 0\n",
             "worker: completed successfully.\n", "countdown: completed successfully.\n",
             "Started on hart 0.\n", "shell still active\n",
             "worker: completed successfully.\n", "countdown: completed successfully.\n",
+            "appended line\n",
             "1 print script works\n2 set 40\n3 add 2\n4 show\n5 repeat 2 hi\n",
             "script works\n42\nhi\nhi\n", "script works\n42\nScript error on line 5.\n", "Bye.\n",
         ):

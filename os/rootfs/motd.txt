@@ -1,0 +1,2 @@
+Welcome to roco_os.
+Type help for commands, ls to browse the RAM filesystem.

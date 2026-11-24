@@ -1,6 +1,6 @@
 .section .text
 .globl enable_paging, enter_user, restart_worker, resume_worker, clear_tick
-.globl s_trap_vector, lock_uart, unlock_uart
+.globl s_trap_vector, spin_lock, spin_unlock
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
@@ -167,7 +167,7 @@ s_double_trap:
     sw t0, 0(t1)
 1:  j 1b
 
-lock_uart:
+spin_lock:
     li t0, 1
 1:  lw t1, 0(a0)
     bnez t1, 1b
@@ -175,7 +175,7 @@ lock_uart:
     bnez t1, 1b
     ret
 
-unlock_uart:
+spin_unlock:
     amoswap.w.rl zero, zero, (a0)
     ret
 

@@ -1,0 +1,5 @@
+# Editor script: show a small counter.
+set 40
+add 2
+show
+repeat 2 roco

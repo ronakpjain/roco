@@ -10,7 +10,8 @@
 logic [7:0] formal_vec_stored, reference_vec_byte;
 logic [4:0] f_vec_byte_delta;
 logic [1:0] f_vec_bus_lane;
-logic f_vec_lane;
+logic f_vec_lane, f_vec_transfer;
+assign f_vec_transfer = dmem_req && dmem_ready;
 assign f_vec_byte_delta = {1'b0, formal_vec_byte} - (5'(exmem_vec_elem) << exmem_vec_sew);
 assign f_vec_bus_lane = dmem_addr[1:0] + f_vec_byte_delta[1:0];
 assign f_vec_lane = exmem_instr[11:7] == formal_vec_reg &&
@@ -36,7 +37,7 @@ always_ff @(posedge clk or posedge rst) begin
   if (rst) reference_vec_byte <= '0;
   else if (retire && vec_full_write && exmem_rd == formal_vec_reg)
     reference_vec_byte <= exmem_vec_data[8*formal_vec_byte+:8];
-  else if (dmem_req && exmem_is_vload && f_vec_lane)
+  else if (f_vec_transfer && exmem_is_vload && f_vec_lane)
     reference_vec_byte <= dmem_rsp_data[8*f_vec_bus_lane+:8];
 end
 
@@ -51,7 +52,7 @@ always_ff @(posedge clk) begin
       assert (vec_rf_vd_data[8*formal_vec_byte+:8] == reference_vec_byte);
 
     assert (!(vec_full_write && vec_mem_we));
-    assert (vec_mem_we == (dmem_req && exmem_is_vload));
+    assert (vec_mem_we == (f_vec_transfer && exmem_is_vload));
     if (vec_full_write) assert (retire && !dmem_req);
     if (vec_mem_we) begin
       assert (!dmem_we && vec_mem_wd == exmem_instr[11:7]);
@@ -61,12 +62,12 @@ always_ff @(posedge clk) begin
     end
     if (exmem_valid && (exmem_is_vload || exmem_is_vstore)) begin
       assert (dmem_addr == exmem_alu && dmem_we == exmem_is_vstore && dmem_be == exmem_be);
-      assert (dmem_valid == !halt && dmem_req == (dmem_valid && dmem_ready));
-      assert (retire == (dmem_req && exmem_vec_last));
+      assert (dmem_valid == !halt && dmem_req == dmem_valid);
+      assert (retire == (f_vec_transfer && exmem_vec_last));
       // Every committed store byte must equal the live source byte once the
       // pipeline has been stable: then operand, EX/MEM, and architectural
       // state all agree, so this verifies the forwarding path end to end.
-      if (dmem_req && exmem_is_vstore && f_s_stable == 2 &&
+      if (f_vec_transfer && exmem_is_vstore && f_s_stable == 2 &&
           exmem_pc == f_s_pc && exmem_instr == f_s_instr)
         for (int lane = 0; lane < 4; lane++)
         if (exmem_be[lane])

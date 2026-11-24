@@ -250,8 +250,7 @@ module dcache #(
   assign cm_new = cm_valid && (!cm_valid_q || (cm_addr != cm_addr_q));
   logic fill_done;
   assign fill_done = (state == S_FILL) && mem_rvalid && mem_rlast;
-  logic fill_void_lu, fill_void_mem;
-  assign fill_void_lu = fill_done && (miss_idx == lu_addr_q[IDX_HI:IDX_LO]);
+  logic fill_void_mem;
   assign fill_void_mem = fill_done && (miss_idx == mem_addr_q[IDX_HI:IDX_LO]);
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -283,10 +282,7 @@ module dcache #(
   // commit would consume the new line's data as the old line's. The
   // voiding is safe-only (a voided hit refetches); recovery still serves
   // the just-filled line through its own path.
-  logic snoop_kill_lu, snoop_kill_pending, snoop_kill_cm;
-  assign snoop_kill_lu = snoop_valid && snoop_invalidate &&
-                          (snoop_idx == lu_addr_q[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
-                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
+  logic snoop_kill_pending, snoop_kill_cm;
   assign snoop_kill_pending = snoop_valid && snoop_invalidate && pending_miss &&
                               (snoop_idx == miss_idx) && valid_ram[snoop_idx] &&
                               (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx] &&
@@ -366,11 +362,15 @@ module dcache #(
       // level-held through stalls, so only clear on the retire cycle
       // (cm_ready) exactly as the old single-cycle pulse did; clearing on
       // a still-waiting commit would drop the hit before it is consumed.
-      // A snoop kill of the looked-up line voids the held hit first: the
-      // line is dead, so the next commit must re-miss, never consume it.
-      if (snoop_kill_lu || fill_void_lu) begin
-        lookup_hit_q <= 1'b0;
-      end else if (lu_valid) begin
+      // Do not clear the held hit here on a snoop or a fill. It is the
+      // only thing that can satisfy register-readiness during an atomic's
+      // operand-read phase, where the core presents no commit strobe:
+      // dmem_ready for a cached target reduces to cm_ready, which without
+      // cm_valid reduces to lookup_hit_q. Clearing it strands that phase
+      // forever (no further lookup is ever issued). Correctness is enforced
+      // at the commit instead, by cm_hit_now, which vetoes a dead line
+      // through killed_q and forces the re-miss.
+      if (lu_valid) begin
         lookup_hit_q <= lu_hit_live;
       end else if (cm_valid && cm_ready) begin
         lookup_hit_q <= 1'b0;

@@ -158,6 +158,22 @@ module tb_soc #(
           u_soc.u_dcache0.mem_req, u_soc.u_dcache0.mem_we, u_soc.u_dcache0.mem_wvalid,
           u_soc.u_dcache0.mem_wready);
     end
+    // Coherence/fabric wedge diagnostics: +smpdbg prints both harts' PCs,
+    // the D-cache commit state, and the hub FSM so a hang shows which
+    // block stopped first.
+    if ($test$plusargs("smpdbg") && (cycles % 1000 == 0)) begin
+      $display(
+          "  smp cyc=%0d pc0=%08x pc1=%08x dc0=%0d dc1=%0d cv1=%b rd1=%b hit1=%b lu1=%b pend1=%b hubst=%0d own=%b rq0=%b rq1=%b ack0=%b ack1=%b",
+          cycles, u_soc.u_cpu0.u_if.pc_if, u_soc.u_cpu1.u_if.pc_if, u_soc.u_dcache0.state,
+          u_soc.u_dcache1.state, u_soc.u_dcache1.cm_valid, u_soc.u_dcache1.cm_ready,
+          u_soc.u_dcache1.lookup_hit_q, u_soc.u_dcache1.lu_valid, u_soc.u_dcache1.pending_miss,
+          u_soc.hub_state, u_soc.hub_owner, u_soc.dc0_upgrade_req, u_soc.dc1_upgrade_req,
+          u_soc.hub_ack0, u_soc.hub_ack1);
+      $display("  cpu1 exv=%b idex=%b amo_rd=%b dmem_rd=%b stalled=%b deps=%b bub=%b",
+               u_soc.u_cpu1.exmem_valid, u_soc.u_cpu1.idex_valid, u_soc.u_cpu1.u_mem.amo_ready,
+               u_soc.u_cpu1.u_mem.dmem_ready, u_soc.u_cpu1.u_mem.exmem_is_amo,
+               u_soc.u_cpu1.mem_result_dependency, u_soc.u_cpu1.bubble);
+    end
   end
 
   always @(posedge clk) begin

@@ -74,14 +74,38 @@ the lookup and snoop-hit arcs, which still combinationally read the tag
 arrays — further rounds would need those arcs registered too, at a cache
 latency cost.
 
-The 48 MHz vehicle is Lattice Diamond, not further nextpnr tuning: the
-first Diamond P&R of this SoC (Synplify + Map + PAR, all clean) times
-the same RTL substantially faster than nextpnr — a synthesis+mapping+
-placement gap, not a design error. Remaining Diamond work is flow, not
-RTL: real FREQUENCY constraints for both clocks in the LPF, Export task
-wiring plus artifact-path fixes in `diamond/roco.tcl`, and the `run.sh`
-ownership wart. The pipelining above still helps Diamond (same cones,
-more margin) and stays regardless.
+The 48 MHz vehicle is Lattice Diamond, not further nextpnr tuning:
+Diamond's Synplify mapping plus PAR closes the target, while nextpnr
+does not — a synthesis+mapping+placement gap, not a design error.
+
+Diamond runs headless in a container on a separate x86 host (see
+`soc/diamond/README.md`); `make diamond-bitstream` syncs the sources,
+runs `synthesis -> Map -> PAR -> Export(Bitgen)` and fetches the
+bitstream back. Two flow rules matter:
+
+- Timing is reported and gated against the **LPF-derived** preference
+  file (`constraints/roco.lpf`), never PAR's internal `.pt`. The `.pt`
+  is not delivered with the build and its derived clock relations
+  disagree with the LPF on the same NCD, so it is kept only as
+  `roco_diamond_par.twr` for comparison. `roco_diamond.twr` is
+  reproduced exactly by re-running TRACE on the delivered
+  `.ncd`/`.prf`, and a failing preference fails the build.
+- Both `clk_core` (48 MHz) and `clk_mem` (96 MHz) are constrained as
+  nets, and the PLL input net (`clk_24_c`, the post-buffer name Diamond
+  uses — a `FREQUENCY PORT` scores zero items) is constrained too, so
+  the PLL's derived output periods are correct instead of defaulting.
+
+Cross-domain transfers between `clk_core` and `clk_mem` are timed, not
+blocked: the two clocks are related outputs of one PLL, and Lattice's
+own constraint reference warns that blanket `BLOCK INTERCLOCKDOMAIN
+PATHS` is unsafe. Every such crossing in this SoC is a two-flop
+synchronizer or toggle-handshake payload (`axi_cdc_bridge`, plus the
+`c_ready`/`init_done` synchronizers in `roco_soc`), so the design is
+correct under either clock relationship rather than relying on
+single-cycle closure across the boundary.
+
+The cache pipelining above still helps Diamond (same cones, more
+margin) and stays regardless.
 
 ## CI
 

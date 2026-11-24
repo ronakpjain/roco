@@ -155,9 +155,11 @@ static unsigned pte(unsigned pa, unsigned flags)
     return (pa >> 2) | flags | PTE_V;
 }
 
+/* The APB bridge holds a UART data write until the TX FIFO has room, so
+   the store itself is the only wait needed. Polling the status register
+   first doubled the MMIO traffic for every character. */
 static void put_byte(char c)
 {
-    while ((UART_STATUS & 1u) == 0) {}
     UART_DATA = (unsigned char)c;
 }
 

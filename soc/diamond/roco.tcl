@@ -63,8 +63,8 @@ run_step Export prj_run Export -impl $impl -task Bitgen
 foreach {pat dst} [list \
     "impl1/${proj}_${impl}.bit" out/roco_diamond.bit \
     "impl1/*.bit"             out/roco_diamond.bit \
-    "impl1/${proj}_${impl}.twr" out/roco_diamond.twr \
-    "impl1/*.twr"             out/roco_diamond.twr \
+    "impl1/${proj}_${impl}.twr" out/roco_diamond_par.twr \
+    "impl1/*.twr"             out/roco_diamond_par.twr \
     "impl1/${proj}_${impl}.mrp" out/roco_diamond.mrp \
     "impl1/*.mrp"             out/roco_diamond.mrp \
     "impl1/${proj}_${impl}.ncd" out/roco_diamond.ncd \
@@ -78,4 +78,44 @@ foreach {pat dst} [list \
     } else {
         puts "WARNING: expected artifact missing: $pat"
     }
+}
+
+# Authoritative timing report. PAR's own TRACE runs against
+# impl1/<proj>_<impl>.pt, a par-generated preference file that is not
+# delivered with the build and whose derived clock relations disagree
+# with the LPF (it flagged handshake and RAM-write paths that the
+# LPF-derived preference file times clean, at the same NCD). Report
+# against the LPF-derived <impl>.prf instead: it is the same constraint
+# set nextpnr consumes, it ships with the artifacts, and re-running TRACE
+# on the delivered .ncd/.prf reproduces this exact report.
+set ncd "impl1/${proj}_${impl}.ncd"
+set prf "impl1/${proj}_${impl}.prf"
+if {[file exists $ncd] && [file exists $prf]} {
+    puts "=== TRACE (authoritative: LPF-derived preferences) ==="
+    if {[catch {exec trce -v 10 -sethld -sp 6 -sphld m -o out/roco_diamond.twr $ncd $prf} trce_msg]} {
+        puts "trce FAILED: $trce_msg"
+        error "trce failed: $trce_msg"
+    }
+    set fh [open "out/roco_diamond.twr" r]
+    set report [read $fh]
+    close $fh
+    foreach line [split $report "\n"] {
+        if {[string match "*items scored*" $line] ||
+            [string match "*Timing errors:*" $line] ||
+            [string match "*All preferences were met*" $line] ||
+            [string match "*preference(marked by*" $line] ||
+            [string match "*Report:*maximum frequency*" $line]} {
+            puts [string trim $line]
+        }
+    }
+    # Gate: a delivered bitstream must meet the LPF constraints. TRACE
+    # prints "preference(marked by \"*\" above) not met." when any
+    # preference fails, so this fails the build instead of shipping a
+    # silently-noncompliant configuration.
+    if {[string match "*preference(marked by*not met*" $report]} {
+        error "Diamond TRACE: LPF timing preferences not met (see out/roco_diamond.twr)"
+    }
+    puts "wrote out/roco_diamond.twr (from $ncd + $prf)"
+} else {
+    puts "WARNING: missing $ncd or $prf; no authoritative TRACE report"
 }

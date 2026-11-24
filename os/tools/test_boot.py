@@ -40,6 +40,7 @@ def main():
             "sleep 200000\nuptime\n"
             "run alloc &\nwait\ncat /tmp/alloc.ok\n"
             "echo recall me\n\x1b[A\n"
+            "echo second\n\x1bOA\n"
             "run countdown\n"
             "run worker 0\n"
             "edit /home/user/notes.txt\n.list\nappended line\n.save\n.quit\ncat /home/user/notes.txt\n"
@@ -117,6 +118,8 @@ def main():
             "alloc ok\nroco_os> ",
             "recall me\n",
             "recall me\n",
+            "second\n",
+            "second\n",
             "countdown: 3\n",
             "countdown: done\n",
             "countdown: completed successfully.\n",

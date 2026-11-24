@@ -158,6 +158,31 @@ static unsigned pte(unsigned pa, unsigned flags)
 /* The APB bridge holds a UART data write until the TX FIFO has room, so
    the store itself is the only wait needed. Polling the status register
    first doubled the MMIO traffic for every character. */
+static void put_byte(char c);
+
+static void put_hex(unsigned w)
+{
+    int i;
+    for (i = 7; i >= 0; --i) {
+        unsigned n = (w >> (unsigned)(i * 4)) & 15u;
+        put_byte((char)(n < 10u ? '0' + n : 'a' + n - 10u));
+    }
+}
+
+/* TEMPORARY DIAGNOSTIC: report fatal traps over UART before halting. */
+static void report_fatal(unsigned hart, unsigned epc, unsigned cause, unsigned tval)
+{
+    put_byte('F');
+    put_hex(hart);
+    put_byte(':');
+    put_hex(epc);
+    put_byte(':');
+    put_hex(cause);
+    put_byte(':');
+    put_hex(tval);
+    put_byte('\n');
+}
+
 static void put_byte(char c)
 {
     UART_DATA = (unsigned char)c;
@@ -939,6 +964,8 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         }
     }
     if (from_supervisor != 0 || cause != 8u) {
+        unsigned epc = frame[TF_PC];
+        report_fatal(hart, epc, cause, 0);
         TOHOST = 0x400u | (hart << 8) | (cause & 0xffu);
         for (;;) {}
     }

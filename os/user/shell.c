@@ -56,8 +56,11 @@ static void history_move(char *line, int *n, int direction)
     print(line);
 }
 
-/* Read the rest of an arrow-key sequence after ESC. Yields while waiting
-   so background jobs keep running; gives up on anything unexpected. */
+/* Read the rest of an arrow-key sequence after ESC. Accepts both the
+   ANSI form (ESC [ A) and the application-cursor form (ESC O A) that
+   xterm-style terminals send after leaving programs like bash. Yields
+   while waiting so background jobs keep running; gives up on anything
+   unexpected (already-consumed bytes are dropped). */
 static int read_arrow(void)
 {
     int tries = 0;
@@ -65,7 +68,7 @@ static int read_arrow(void)
 
     while (tries < 5000) {
         ch = readchar();
-        if (ch == '[')
+        if (ch == '[' || ch == 'O')
             break;
         if (ch >= 0)
             return 0;
@@ -73,7 +76,7 @@ static int read_arrow(void)
             yield();
         ++tries;
     }
-    if (ch != '[')
+    if (ch != '[' && ch != 'O')
         return 0;
     tries = 0;
     for (;;) {

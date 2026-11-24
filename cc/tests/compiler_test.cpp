@@ -321,6 +321,53 @@ TEST(CompilerTest, UsesCostModelToChooseInstructionSequences) {
 }
 
 
+TEST(CompilerTest, UsesCostModelForAddressScaling) {
+  const char* source = "int row(int a[][12], int i) { return a[i][0]; }\n";
+  roco::CompilerOptions options;
+  options.optimization = roco::OptimizationLevel::O2;
+
+  // The direct scale fallback is `li` + `mul`, not the temporary-stack
+  // fallback used by a general binary expression. At the default costs it
+  // ties the three-instruction shift/add sequence, so `mul` remains.
+  const std::string tied = roco::compile_to_assembly(source, "scale.c", options);
+  EXPECT_NE(tied.find("mul a0, a0, a1"), std::string::npos);
+
+  options.costs.multiply = 3;
+  const std::string strengthened =
+      roco::compile_to_assembly(source, "scale.c", options);
+  EXPECT_EQ(strengthened.find("mul a0, a0, a1"), std::string::npos);
+  EXPECT_NE(strengthened.find("slli"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(strengthened, "compiler-output.S"));
+
+  // A general constant multiply has the two temporary moves in its fallback,
+  // so the same constant already prefers shifts at the default multiply cost.
+  options.costs.multiply = 2;
+  const std::string generic = roco::compile_to_assembly(
+      "int times(int x) { return x * 12; }\n", "scale.c", options);
+  EXPECT_EQ(generic.find("mul a0, a1, a0"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(generic, "compiler-output.S"));
+}
+
+TEST(CompilerTest, UsesCostModelForPointerDifferences) {
+  const char* source =
+      "int distance(int *a, int *b) { return a - b; }\n";
+  roco::CompilerOptions options;
+  options.optimization = roco::OptimizationLevel::O2;
+
+  const std::string shifted =
+      roco::compile_to_assembly(source, "pointer.c", options);
+  EXPECT_NE(shifted.find("srai a0, a0, 2"), std::string::npos);
+  EXPECT_EQ(shifted.find("div a0, a0, a1"), std::string::npos);
+
+  options.costs.shift = 100;
+  options.costs.divide = 1;
+  const std::string divided =
+      roco::compile_to_assembly(source, "pointer.c", options);
+  EXPECT_NE(divided.find("div a0, a0, a1"), std::string::npos);
+  EXPECT_EQ(divided.find("srai a0, a0, 2"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(divided, "compiler-output.S"));
+}
+
 TEST(CompilerTest, MaterializesConstantCallArgumentsDirectlyAtO1) {
   const char* source = R"(
     int add(int a, int b) { return a + b; }

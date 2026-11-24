@@ -343,17 +343,27 @@ static void run_job(char *args)
         print("Could not start job.\n");
 }
 
+/* ps always prints a line per pid, including slots no job owns: a killed
+   or never-used slot reports itself idle instead of leaving the "pid N "
+   prefix dangling. jobs/wait keep their compact form via job_line(). */
+static void ps_line(int pid, int slot, int status)
+{
+    print("pid ");
+    print_num(pid);
+    print(" ");
+    if (status != JOB_IDLE) {
+        job_line(slot_name(slot), status);
+        return;
+    }
+    print(slot_name(slot));
+    print(": idle.\n");
+}
+
 static void show_ps(void)
 {
-    int status;
-
     print("pid 1 shell: active on hart 0.\n");
-    status = syscall(SYS_JOB_STATUS, JOB_WORKER, 0);
-    print("pid 2 ");
-    job_line(slot_name(JOB_WORKER), status);
-    status = syscall(SYS_JOB_STATUS, JOB_COUNTDOWN, 0);
-    print("pid 3 ");
-    job_line(slot_name(JOB_COUNTDOWN), status);
+    ps_line(2, JOB_WORKER, syscall(SYS_JOB_STATUS, JOB_WORKER, 0));
+    ps_line(3, JOB_COUNTDOWN, syscall(SYS_JOB_STATUS, JOB_COUNTDOWN, 0));
 }
 
 static void kill_job(char *args)

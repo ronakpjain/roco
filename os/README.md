@@ -200,6 +200,10 @@ roco_os> ps
 pid 1 shell: active on hart 0.
 pid 2 spin: active on hart 1.
 roco_os> kill 2
+roco_os> ps
+pid 1 shell: active on hart 0.
+pid 2 spin: idle.
+pid 3 countdown: idle.
 roco_os> jobs
 No job yet.
 ```

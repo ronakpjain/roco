@@ -52,7 +52,10 @@ module roco_top (
       .CLKOP_FPHASE(0),
       .CLKOS_DIV(12),
       .CLKOS_ENABLE("ENABLED"),
-      .CLKOS_CPHASE(0),
+      // Shift CLKOS by one CLKOP period (six VCO cycles). The active
+      // edges remain coincident, but Diamond relates the coincident
+      // edges instead of imposing a full CLKOP cycle of hold skew.
+      .CLKOS_CPHASE(6),
       .CLKOS_FPHASE(0),
       .FEEDBK_PATH("INT_OP"),
       .OUTDIVIDER_MUXA("DIVA"),

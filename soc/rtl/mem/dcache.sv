@@ -212,22 +212,26 @@ module dcache #(
   // Both MEM phases name their address. A registered data read is usable
   // only if it belongs to that word and its line still has the right tag.
   // Use this same test for EX hits, replays, and recovery after a fill.
-  logic lu_hit_live, demand, target_live, target_probed, read_valid_q;
+  logic demand, read_valid_q, read_hit_q, read_matches, read_live, read_probed;
+  logic read_tag_match;
   logic [24:2] target_addr, read_addr, read_addr_q;
-  logic [IDX_BITS-1:0] target_idx;
-  assign lu_hit_live = (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
-                       (lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
+  logic [IDX_BITS-1:0] target_idx, read_idx, read_idx_q;
   assign demand = cm_valid || cm_amo_read;
   assign target_addr = demand ? cm_addr : lu_addr_q;
   assign target_idx = target_addr[IDX_HI:IDX_LO];
-  assign target_probed = snoop_valid && target_addr[24:OFF_BITS+2] == snoop_addr[22:OFF_BITS];
-  assign target_live = valid_ram[target_idx] &&
-                       tag_ram[target_idx] == target_addr[24:IDX_HI+1] &&
-                       !(snoop_drop && target_probed);
+  assign read_idx = read_addr[IDX_HI:IDX_LO];
+  assign read_idx_q = read_addr_q[IDX_HI:IDX_LO];
+  assign read_tag_match = lookup_tag_ram[read_idx] == read_addr[24:IDX_HI+1];
+  assign read_matches = read_valid_q && read_addr_q == target_addr;
+  assign read_probed = snoop_valid && read_addr_q[24:OFF_BITS+2] == snoop_addr[22:OFF_BITS];
+  // Register the tag check alongside the data. A fill can change the tag
+  // only in S_FILL, which cannot produce a valid read. Invalidation can
+  // still race the registered read, so recheck the valid bit and probe.
+  assign read_live = read_hit_q && valid_ram[read_idx_q] && !(snoop_drop && read_probed);
   assign recovery_ready = pending_miss && read_valid_q;
   assign cm_ready = state == S_IDLE && !flush_busy && !full_flush_entry && !probe_writeback_entry &&
-                    (demand || lookup_hit_q || recovery_ready) && target_live &&
-                    read_valid_q && read_addr_q == target_addr && !(cm_amo_read && target_probed);
+                    (demand || lookup_hit_q || recovery_ready) && read_live && read_matches &&
+                    !(cm_amo_read && read_probed);
 
   // Do not pin the line against probes. If ownership is revoked while the
   // core holds an AMO operand, send it back to the read phase, not to a
@@ -256,7 +260,7 @@ module dcache #(
   assign miss_line = miss_line_word;
   logic start_miss;
   assign start_miss = state == S_IDLE && !flush_busy && !full_flush_entry &&
-                      !probe_writeback_entry && (demand ? !target_live : miss_pulse);
+                      !probe_writeback_entry && (demand ? read_matches && !read_live : miss_pulse);
   assign probe_writeback_entry = (state == S_IDLE || state == S_FILL_REQ) &&
       snoop_writeback && !snoop_writeback_done && snoop_match && dirty_ram[snoop_idx] &&
       !flush_busy;
@@ -268,14 +272,16 @@ module dcache #(
       lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
       read_valid_q <= 1'b0;
+      read_hit_q <= 1'b0;
       read_addr_q <= '0;
     end else begin
       lookup_valid_q <= lu_valid && state == S_IDLE;
-      if (lu_valid) lookup_hit_q <= lu_hit_live;
+      if (lu_valid) lookup_hit_q <= state == S_IDLE && valid_ram[read_idx] && read_tag_match;
       else if (cm_valid && cm_ready) lookup_hit_q <= 1'b0;
       if (start_miss) pending_miss <= 1'b1;
       else if (cm_valid && cm_ready) pending_miss <= 1'b0;
       read_valid_q <= state == S_IDLE && !start_miss && !full_flush_entry && !probe_writeback_entry;
+      read_hit_q <= read_tag_match;
       read_addr_q <= read_addr;
     end
   end
@@ -593,6 +599,10 @@ module dcache #(
   always_ff @(posedge clk) begin
     if (!rst) begin
       assert (!dirty_ram[f_snoop_index] || valid_ram[f_snoop_index]);
+      if (valid_ram[f_snoop_index])
+        assert (lookup_tag_ram[f_snoop_index] == tag_ram[f_snoop_index]);
+      if (read_valid_q && read_hit_q && read_idx_q == f_snoop_index && valid_ram[f_snoop_index])
+        assert (tag_ram[f_snoop_index] == read_addr_q[24:IDX_HI+1]);
       if (cm_ready && target_idx == f_snoop_index) begin
         assert (valid_ram[f_snoop_index]);
         assert (tag_ram[f_snoop_index] == target_addr[24:IDX_HI+1]);

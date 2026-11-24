@@ -6,6 +6,10 @@ roco_ld ?= $(roco_dir)/build/roco_ld
 PYTHON ?= python3
 
 BUILD := build
+# roco_cc tops out at -O2 (there is no -O3). The kernel and filesystem
+# startup path is heavier than the user runtime, and -O2 shrinks the image
+# as well as the instruction count. Override for debugging if needed.
+KERNEL_CFLAGS ?= -O2
 USER_RUNTIME := $(addprefix $(BUILD)/,user-start.o user-syscall.o user-lib.o user_layout.o)
 KERNEL_OBJS := $(addprefix $(BUILD)/,boot.o supervisor.o kernel.o fs.o)
 BOOT_SIM := $(SOC_DIR)/build/vl_tb_soc_boot/Vtb_soc_boot
@@ -30,10 +34,10 @@ $(BUILD)/%.o: %.S $(roco_as) | $(BUILD)
 	$(roco_as) -o $@ $<
 
 $(BUILD)/kernel.o: kernel.c user/syscall.h kernel_fs.h $(roco_cc) | $(BUILD)
-	$(roco_cc) -c -o $@ ./$<
+	$(roco_cc) $(KERNEL_CFLAGS) -c -o $@ ./$<
 
 $(BUILD)/fs.o: fs.c kernel_fs.h $(roco_cc) | $(BUILD)
-	$(roco_cc) -c -o $@ ./$<
+	$(roco_cc) $(KERNEL_CFLAGS) -c -o $@ ./$<
 
 $(BUILD)/rootfs-%.S: tools/mkfs.py rootfs/%.manifest $(ROOTFS_TXT) $(ROOTFS_ELFS)
 	$(PYTHON) tools/mkfs.py rootfs/$*.manifest -o $@ -I $(BUILD)

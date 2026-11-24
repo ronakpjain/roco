@@ -21,6 +21,7 @@
 // Machine timer/external and software interrupts are supported.
 
 `include "axi4_defs.svh"
+`include "roco_cpu_defs.svh"
 `include "roco_rvfi.svh"
 `default_nettype none
 

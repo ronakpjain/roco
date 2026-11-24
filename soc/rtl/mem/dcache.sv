@@ -271,16 +271,6 @@ module dcache #(
     end
   end
   logic killed_q[0:NUM_LINES-1];
-  always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
-      for (int k = 0; k < NUM_LINES; k = k + 1) killed_q[k] <= 1'b0;
-    end else if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
-                 (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
-      killed_q[snoop_idx] <= 1'b1;
-    end else if ((state == S_FILL) && mem_rvalid && mem_rlast) begin
-      killed_q[miss_idx] <= 1'b0;
-    end
-  end
   // A peer snoop that drops a line must also drop the microarchitectural
   // state shadowing it: a registered hit for a dead line, a pending
   // miss about to serve one, or a retiring store about to dirty it would
@@ -299,7 +289,8 @@ module dcache #(
                           (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
   assign snoop_kill_pending = snoop_valid && snoop_invalidate && pending_miss &&
                               (snoop_idx == miss_idx) && valid_ram[snoop_idx] &&
-                              (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
+                              (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx] &&
+                              (state == S_IDLE);
   assign snoop_kill_cm = snoop_valid && snoop_invalidate && cm_valid &&
                           (snoop_idx == cm_addr[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
                           (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
@@ -350,6 +341,19 @@ module dcache #(
   // stalled core re-issues the lookup after the flush drains.
   logic flush_entry;
   assign flush_entry = (state == S_IDLE) && flush && !flush_active;
+  // A snoop revokes the line; a miss starts a new fetch epoch for it.
+  // The snoop wins ties: a kill landing with a new miss means the fetch
+  // postdates the invalidation and must not validate blindly.
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      for (int k = 0; k < NUM_LINES; k = k + 1) killed_q[k] <= 1'b0;
+    end else if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
+                 (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
+      killed_q[snoop_idx] <= 1'b1;
+    end else if ((miss_pulse || race_miss) && (state == S_IDLE)) begin
+      killed_q[miss_idx] <= 1'b0;
+    end
+  end
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;
@@ -390,6 +394,12 @@ module dcache #(
         pending_miss <= 1'b1;
         recovery_ready <= 1'b0;
       end else if (snoop_kill_pending) begin
+        pending_miss <= 1'b0;
+        recovery_ready <= 1'b0;
+      end else if (fill_done && killed_q[miss_idx] && pending_miss) begin
+        // A kill landed mid-fill, so the completion above did not validate.
+        // Drop the pending miss so the waiting commit re-misses and
+        // refetches post-snoop data instead of stalling forever.
         pending_miss <= 1'b0;
         recovery_ready <= 1'b0;
       end
@@ -651,8 +661,13 @@ module dcache #(
         S_FILL: begin
           if (mem_rvalid) begin
             if (mem_rlast) begin
-              valid_ram[miss_idx] <= 1'b1;
-              dirty_ram[miss_idx] <= 1'b0;
+              // A kill that landed mid-fill voids the mixed-vintage beats:
+              // leave the line invalid so the waiter re-misses instead of
+              // consuming possibly stale data.
+              if (!killed_q[miss_idx]) begin
+                valid_ram[miss_idx] <= 1'b1;
+                dirty_ram[miss_idx] <= 1'b0;
+              end
               state <= S_IDLE;
             end else begin
               beat <= beat + 1'b1;

@@ -53,8 +53,8 @@ On macOS: `brew install googletest doxygen`.
 `-O0` is the default and keeps hardware-directed tests predictable.
 `-O1` adds local scalar cleanups. `-O2` uses the configurable
 [target cost model](targets/roco_soc.costs) to choose shift/add sequences
-instead of multiply/divide. See the
-[optimization reference](docs/optimizations.md).
+instead of multiply/divide for constants, address scaling, and pointer
+differences. See the [optimization reference](docs/optimizations.md).
 
 The assembler accepts labels, numeric local labels, data directives,
 pseudoinstructions, ELF sections, and the relocation forms needed by the

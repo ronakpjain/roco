@@ -121,9 +121,10 @@ backend work.
 direct lowering used by hardware-directed tests. `-O1` adds local scalar
 cleanups. `-O2` uses the costs in
 [`../targets/roco_soc.costs`](../targets/roco_soc.costs) to choose between
-hardware multiply/divide and shift/add sequences. Update that file when the
-multiply pipeline or divider changes, or override individual values with
-`--cost multiply=N` / `--cost divide=N`. See
+hardware multiply/divide and shift/add sequences, including address scaling
+and pointer differences. Update that file when the multiply pipeline,
+divider, load-use path, or branch redirect changes, or override individual
+values with `--cost multiply=N` / `--cost divide=N`. See
 [optimizations](optimizations.md) for the defaults and transformations.
 
 - `roco_cc` supplies freestanding `<stdint.h>`; quoted headers are searched

@@ -88,10 +88,11 @@ by hardware-directed tests. `-O1` folds constants with 32-bit C semantics,
 canonicalizes commutative operands so constants sit on the right, lowers
 conditions to direct branches, folds constant indexes and index scaling,
 applies immediate compound assignments, removes dead expression results,
-and materializes constant call arguments directly. `-O2` adds cost-model instruction selection for
-constant multiply, divide, and remainder: powers of two, `2^a ± 2^b`
-multipliers, signed division bias sequences, and unsigned masks replace the
-hardware operation only when their score beats the fallback.
+and materializes constant call arguments directly. `-O2` adds cost-model
+instruction selection for constant multiply, divide, remainder, address
+scaling, and pointer differences: powers of two, `2^a ± 2^b` multipliers,
+signed division bias sequences, and unsigned masks replace the hardware
+operation only when their score beats the actual fallback sequence.
 
 The target costs are configurable with `--cost-model FILE` or repeated
 `--cost key=value` options. See the

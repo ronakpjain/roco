@@ -8,7 +8,7 @@ wasteful" from "change the instruction selected using this SoC's timing".
 | --- | --- |
 | `-O0` | Default. Stack-machine lowering with no new optimization pass. Hardware-directed tests use this level so the exact instruction under test is emitted. |
 | `-O1` | Local scalar cleanups: constant folding, direct branches, better addresses, dead results, and constant call arguments. |
-| `-O2` | Everything in `-O1`, plus cost-model-driven instruction selection for constant multiply, divide, and remainder. |
+| `-O2` | Everything in `-O1`, plus cost-model-driven instruction selection for constant multiply, divide, remainder, address scaling, and pointer differences. |
 
 The pass order is frontend constant folding, then the existing single-pass
 backend with the level's code-generation policy. There is no register
@@ -159,16 +159,26 @@ longer take a temporary-stack round trip.
 ## `-O2` cost-model instruction selection
 
 `-O2` compares the hardware multiply/divide sequence with a generated
-shift/add or bias sequence. Each candidate has a score:
+shift/add or bias sequence. Every candidate, including its fallback, is
+scored instruction by instruction:
 
 ```text
-cost = instructions * issue + max(0, final_latency - issue)
+cost = sum(issue for result instructions, occupancy for store/branch/jump)
+     + sum(max(0, result_latency - issue) for result instructions)
 ```
 
-The fallback cost includes the two temporary-stack moves around the
-constant right operand, the cost of materializing the constant, and the
-final `mul`/`div` latency. The shift sequence is emitted only when its score
-is strictly lower.
+Pseudo-instructions are weighted by their expansion: `li` costs one slot
+when its value is a 12-bit immediate or a 20-bit `lui` constant, and two
+otherwise; `la` costs two. Instructions without a register result use their
+occupancy cost: `store`, `branch`, or `jump`. An empty sequence costs zero.
+
+The fallback is context-specific. A general constant binary operation
+includes the two temporary-stack moves around the right operand, while
+address scaling already has the value in `a0` and only needs `li` + `mul`.
+That difference matters: scaling by 12 ties at the default multiply cost and
+keeps `mul`, but a general `x * 12` has enough stack-move overhead that the
+shift/add form wins. A candidate is emitted only when its score is strictly
+lower than its actual fallback.
 
 ### Constant multiply
 
@@ -221,6 +231,43 @@ a generic binary shift/add chain. It keeps the shortest-cost form.
   sub a0, a0, a1
 ```
 
+### Address scaling
+
+Array indexing reuses the constant-multiply selector, but scores it against
+the two-instruction `li` + `mul` fallback rather than the temporary-stack
+fallback of a general binary expression. Power-of-two scales still lower to
+one shift at `-O1`; at `-O2` the model can keep the hardware multiply when
+its score is not worse.
+
+```asm
+# int row(int a[][12], int i) { return a[i][0]; }   -O2, multiply=2
+  li a1, 48
+  mul a0, a0, a1
+
+# -O2, multiply=3
+  slli a1, a0, 5
+  slli a0, a0, 4
+  add a0, a0, a1            # 48 * i
+```
+
+### Pointer differences
+
+The element-size division after `p - q` is selected from the same model.
+For power-of-two element sizes the candidate is one arithmetic shift; the
+fallback is `li` + `div`. If the model prices a shift above the divider,
+the compiler keeps `div` instead.
+
+```asm
+# int distance(int *a, int *b) { return a - b; }   -O2, default costs
+  sub a0, a1, a0
+  srai a0, a0, 2
+
+# -O2, shift=100 divide=1
+  sub a0, a1, a0
+  li a1, 4
+  div a0, a0, a1
+```
+
 ## Target cost model
 
 The defaults live in
@@ -228,18 +275,22 @@ The defaults live in
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `issue` | 1 | Cost of issuing one additional instruction |
+| `issue` | 1 | Cycles between independent instructions |
 | `arithmetic` | 1 | Single-cycle ALU result latency |
 | `shift` | 1 | Shift/bitwise result latency |
+| `compare` | 1 | Comparison result latency (`slt`, `snez`, ...) |
 | `multiply` | 2 | `mul` dependent-result latency (one EX/MEM bubble) |
 | `divide` | 20 | Iterative radix-four divider dependent-result latency |
-| `load` | 2 | Cache-hit load latency |
-| `store` | 1 | Store latency |
-| `branch` | 1 | Conditional-branch latency |
+| `load` | 2 | Cache-hit load latency, including the load-use bubble |
+| `store` | 1 | Store pipeline occupancy |
+| `branch` | 1 | Conditional-branch occupancy/redirect |
+| `jump` | 1 | Unconditional jump/call occupancy/redirect |
 
-`multiply`, `divide`, `shift`, `arithmetic`, and `issue` currently score
-instruction sequences. `load`, `store`, and `branch` record the rest of the
-pipeline and are available for future memory and branch scheduling.
+All of these values participate in sequence scoring. `compare` distinguishes
+comparison results from plain ALU results. `load` also charges the load-use
+bubble when a spilled temporary is reloaded immediately before the hardware
+operation, and `store` charges the spill itself. `branch` and `jump` are
+used for control-flow instructions, which have no register result.
 
 The file is intentionally external to the compiler so it can change with
 the SoC:
@@ -288,4 +339,5 @@ instruction-selection changes and is verified separately by
   against the real core testbench.
 - Unit tests check the exact assembly shapes for each level, the 32-bit
   constant-folding rules, cost-model parsing, and that cost overrides can
-  switch instruction selection back to `mul`/`div`.
+  switch instruction selection between shift/add and `mul`/`div`, including
+  address scaling and pointer differences.

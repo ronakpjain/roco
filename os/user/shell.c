@@ -6,6 +6,91 @@ static const char *slot_name(int slot);
 static void show_job(int wait);
 
 #define LINE_CAP 80
+#define HIST_COUNT 8
+
+/* Command history for the shell prompt (editor lines are not recorded).
+   Up recalls older entries, down moves toward a blank line. */
+static char history[HIST_COUNT][LINE_CAP];
+static int hist_used;
+static int hist_pos;
+
+static void history_push(const char *line)
+{
+    int i;
+
+    if (*line == 0)
+        return;
+    if (hist_used == HIST_COUNT) {
+        for (i = 1; i < HIST_COUNT; ++i)
+            strcpy(history[i - 1], history[i]);
+        --hist_used;
+    }
+    strcpy(history[hist_used], line);
+    ++hist_used;
+    hist_pos = hist_used;
+}
+
+static void history_move(char *line, int *n, int direction)
+{
+    int old = *n;
+
+    hist_pos += direction;
+    if (hist_pos < 0)
+        hist_pos = 0;
+    if (hist_pos > hist_used)
+        hist_pos = hist_used;
+    if (hist_pos == hist_used) {
+        *n = 0;
+    } else {
+        strcpy(line, history[hist_pos]);
+        *n = (int)strlen(line);
+    }
+    print("\rroco_os> ");
+    line[*n] = 0;
+    print(line);
+    while (old > *n) {
+        print(" ");
+        --old;
+    }
+    print("\rroco_os> ");
+    print(line);
+}
+
+/* Read the rest of an arrow-key sequence after ESC. Yields while waiting
+   so background jobs keep running; gives up on anything unexpected. */
+static int read_arrow(void)
+{
+    int tries = 0;
+    int ch;
+
+    while (tries < 5000) {
+        ch = readchar();
+        if (ch == '[')
+            break;
+        if (ch >= 0)
+            return 0;
+        if ((tries & 63) == 0)
+            yield();
+        ++tries;
+    }
+    if (ch != '[')
+        return 0;
+    tries = 0;
+    for (;;) {
+        ch = readchar();
+        if (ch == 'A')
+            return -1;
+        if (ch == 'B')
+            return 1;
+        if (ch >= 0)
+            return 0;
+        if ((tries & 63) == 0)
+            yield();
+        ++tries;
+        if (tries > 5000)
+            return 0;
+    }
+}
 
 static void show_file(const char *path)
 {
@@ -464,11 +549,21 @@ int main(void)
             if (overflow)
                 print("Line too long.\n");
             else {
+                /* command() NUL-terminates the command word in place,
+                   so keep a copy for history first. */
+                char full[LINE_CAP];
+                int done;
                 line[n] = 0;
-                if (editing)
+                if (editing) {
                     editing = editor_line(line);
-                else if (command(line, &editing))
-                    break;
+                } else {
+                    strcpy(full, line);
+                    done = command(line, &editing);
+                    if (done)
+                        break;
+                    if (!editing)
+                        history_push(full);
+                }
             }
             n = 0;
             overflow = 0;
@@ -477,7 +572,11 @@ int main(void)
             else
                 print("roco_os> ");
         } else if (!overflow) {
-            if (ch == 8 || ch == 127) {
+            if (ch == 27 && !editing) {
+                int move = read_arrow();
+                if (move != 0)
+                    history_move(line, &n, move);
+            } else if (ch == 8 || ch == 127) {
                 if (n > 0)
                     --n;
             } else if ((ch >= 32 && ch < 127) || ch == '\t') {

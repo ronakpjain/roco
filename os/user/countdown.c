@@ -5,9 +5,9 @@ static int pause(void)
 {
     unsigned i;
     unsigned sum = 0;
-    for (i = 0; i < 30000u; ++i)
+    for (i = 0; i < 3000u; ++i)
         sum += i;
-    return sum == 449985000u;
+    return sum == 4498500u;
 }
 
 int main(void)

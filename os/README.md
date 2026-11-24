@@ -185,7 +185,9 @@ starts the new program from its entry point with a fresh stack.
 `/bin/spin` yields forever until the shell kills it.
 
 `sleep <ticks>` parks the calling task for at least that many `mtime`
-ticks; `uptime` prints the low 32 bits of `mtime`. `sbrk` moves the
+ticks; `uptime` prints the low 32 bits of `mtime`. The shell keeps the
+last eight commands: Up recalls older entries and Down moves back toward
+a blank line. `sbrk` moves the
 program break inside the 8 KiB heap, and the user runtime builds
 `malloc`, `free`, and `calloc` on top of it; `/bin/alloc` exercises the
 allocator and records `/tmp/alloc.ok`. `ps` lists every

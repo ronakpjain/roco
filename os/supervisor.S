@@ -1,6 +1,6 @@
 .section .text
 .globl enable_paging, enter_user, restart_worker, resume_worker, clear_tick
-.globl s_trap_vector, spin_lock, spin_unlock, flush_icache
+.globl s_trap_vector, spin_lock, spin_unlock, flush_icache, set_scratch
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
@@ -184,6 +184,13 @@ spin_unlock:
 # kernel_init; runtime reloads in worker_loop and exec need it per load.
 flush_icache:
     fence.i
+    ret
+
+# Publish the supervisor stack top before first use, so an early S-mode
+# trap reports through the normal fatal path instead of double-trapping
+# on a zero sscratch.
+set_scratch:
+    csrw sscratch, a0
     ret
 
 .section .bss

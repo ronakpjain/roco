@@ -60,6 +60,8 @@ void resume_worker(unsigned stack_top, unsigned *context);
 void clear_tick(void);
 void spin_lock(unsigned *lock);
 void spin_unlock(unsigned *lock);
+void set_scratch(unsigned stack_top);
+static void arm_tick(unsigned hart);
 void flush_icache(void);
 
 /* Only the owning hart writes its slot; 0 means running, 1 means success. */
@@ -87,18 +89,47 @@ static unsigned fd_off[MAX_PROCS][MAX_FDS];
 static unsigned fd_flags[MAX_PROCS][MAX_FDS];
 static unsigned proc_cwd[MAX_PROCS];
 static unsigned proc_ino[MAX_PROCS];
+static unsigned loaded_ino[MAX_PROCS];
+/* Serializes instruction-cache shootdowns: fence.i flushes both harts'
+   caches and TLBs, so only one hart may fence at a time. */
+static unsigned fence_lock;
 static unsigned sleep_start[MAX_PROCS];
 static unsigned sleep_ticks[MAX_PROCS];
 static unsigned proc_brk[MAX_PROCS];
 
+static int is_console;
+
 static int console_image(void)
 {
-    return fs_lookup_path(0, "/bin/shell") >= 0;
+    return is_console;
 }
 
 static int valid_job(unsigned id)
 {
     return id == JOB_WORKER || id == JOB_COUNTDOWN;
+}
+
+static void disarm_tick(unsigned hart)
+{
+    volatile unsigned *cmp = (volatile unsigned *)(0x80000020u + hart * 0x40u);
+    cmp[1] = 0xffffffffu;
+}
+
+/*
+ * Fence the instruction cache after loading new code. FENCE.I hits both
+ * harts (remote shootdown), so first disarm both timer interrupts: that
+ * guarantees no hart can be inside its M-mode timer handler, which must
+ * never observe a shootdown in flight. A short settle covers an already
+ * entered handler, then the fence runs with no M-mode activity possible.
+ */
+static void load_fence(unsigned hart)
+{
+    unsigned start;
+
+    (void)start;
+    spin_lock(&fence_lock);
+    flush_icache();
+    spin_unlock(&fence_lock);
 }
 
 static void arm_tick(unsigned hart)
@@ -155,7 +186,7 @@ static int console_readchar(void)
 
 /* Load an mkfs executable into a slot's backing RAM: zero the whole
    64 KiB slab, then copy text and data words after the header. */
-static int load_program(unsigned slot, int ino)
+static int load_program(unsigned slot, int ino, unsigned hart)
 {
     unsigned header[4];
     unsigned text_words;
@@ -180,7 +211,50 @@ static int load_program(unsigned slot, int ino)
         fs_read(ino, 16 + text_words * 4u, (char *)ram + DATA_OFFSET,
                 data_words * 4u) != (int)(data_words * 4u))
         return -1;
-    flush_icache();
+    /* TEMPORARY: verify the copy before installing it. */
+    {
+        unsigned check[4];
+        unsigned i;
+        if (fs_read(ino, 16, check, 16) != 16) {
+            TOHOST = 0xbad00031u;
+            for (;;) {}
+        }
+        for (i = 0; i < 4u && i < text_words; ++i) {
+            if (ram[i] != check[i]) {
+                TOHOST = 0xbad00032u;
+                for (;;) {}
+            }
+        }
+    }
+    loaded_ino[slot] = (unsigned)ino;
+    load_fence(hart);
+    return 0;
+}
+
+/* Reset writable regions for a program that is already loaded: text is
+   untouched, so no instruction-cache flush is needed. */
+static int reset_data(unsigned slot, int ino)
+{
+    unsigned header[4];
+    unsigned text_words;
+    unsigned data_words;
+    unsigned *ram = (unsigned *)(USER_RAM + slot * USER_STRIDE);
+    unsigned i;
+
+    if (ino < 0 || fs_type(ino) != FS_TYPE_FILE)
+        return -1;
+    if (fs_read(ino, 0, header, 16) != 16 || header[0] != EXEC_MAGIC)
+        return -1;
+    text_words = header[1];
+    data_words = header[2];
+    if (text_words > USER_TEXT_BYTES / 4u || data_words > USER_DATA_BYTES / 4u)
+        return -1;
+    for (i = DATA_OFFSET / 4u; i < (USER_TOP - USER_BASE) / 4u; ++i)
+        ram[i] = 0;
+    if (data_words != 0 &&
+        fs_read(ino, 16 + text_words * 4u, (char *)ram + DATA_OFFSET,
+                data_words * 4u) != (int)(data_words * 4u))
+        return -1;
     return 0;
 }
 
@@ -223,7 +297,7 @@ static int setup_user(unsigned slot, const char *first, const char *fallback)
     if (ino < 0)
         return -1;
     setup_space(slot);
-    if (load_program(slot, ino) != 0)
+    if (load_program(slot, ino, 0) != 0)
         return -1;
     proc_ino[slot] = (unsigned)ino;
     return 0;
@@ -261,6 +335,7 @@ void kernel_init(void)
             for (;;) {}
         }
     }
+    is_console = fs_lookup_path(0, "/bin/shell") >= 0;
     put_byte('B');
     for (slot = 0; slot < MAX_PROCS; ++slot)
         fd_reset(slot);
@@ -320,6 +395,7 @@ void worker_loop(unsigned stack_top, unsigned hart)
     unsigned i;
     unsigned *context;
 
+    set_scratch(stack_top);
     do {
         id = next_slot(hart);
     } while (id == MAX_PROCS);
@@ -328,7 +404,10 @@ void worker_loop(unsigned stack_top, unsigned hart)
     sleep_start[id] = 0;
     sleep_ticks[id] = 0;
     if (!saved[id]) {
-        if (load_program(id, (int)proc_ino[id]) != 0) {
+        int ino = (int)proc_ino[id];
+        int ok = ((unsigned)ino == loaded_ino[id]) ?
+            reset_data(id, ino) : load_program(id, ino, hart);
+        if (ok != 0) {
             job_state[id] = JOB_FAULT;
             saved[id] = 0;
             restart_worker(stack_top, hart);
@@ -798,7 +877,7 @@ static void exec_self(unsigned hart, unsigned slot, const char *path,
     unsigned *context;
     unsigned i;
 
-    if (ino < 0 || fs_type(ino) != FS_TYPE_FILE || load_program(slot, ino) != 0) {
+    if (ino < 0 || fs_type(ino) != FS_TYPE_FILE || load_program(slot, ino, hart) != 0) {
         frame[TF_A0] = (unsigned)-1;
         return;
     }

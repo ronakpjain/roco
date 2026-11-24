@@ -252,6 +252,56 @@ TEST(CompilerTest, IndexesMultidimensionalArraysByRow) {
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
+TEST(CompilerTest, AllocatesHotLocalsToCalleeSavedRegisters) {
+  const char* source = R"(
+    int sum(int n) {
+      int total = 0;
+      for (int i = 0; i < n; i++) total += i;
+      return total;
+    }
+  )";
+  const std::string baseline = compile(source);
+  EXPECT_NE(baseline.find("lw a0, -"), std::string::npos);
+  EXPECT_EQ(baseline.find("s2"), std::string::npos);
+
+  const std::string optimized =
+      compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(optimized.find("sw s2, 16(s0)"), std::string::npos);
+  EXPECT_NE(optimized.find("bge s"), std::string::npos);
+  EXPECT_NE(optimized.find("add s"), std::string::npos);
+  EXPECT_EQ(optimized.find("lw a0, -"), std::string::npos);
+  EXPECT_EQ(optimized.find("sw a0, -"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(optimized, "compiler-output.S"));
+}
+
+TEST(CompilerTest, KeepsAddressTakenLocalsInMemory) {
+  const std::string assembly = compile(R"(
+    int read(int value) {
+      int *pointer = &value;
+      return *pointer;
+    }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("sw a0, -4(s0)"), std::string::npos);
+  EXPECT_NE(assembly.find("addi a0, s0, -4"), std::string::npos);
+  EXPECT_EQ(assembly.find("s2"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
+TEST(CompilerTest, OperatesDirectlyOnRegisterLocals) {
+  const std::string assembly = compile(R"(
+    int quad(int value) { return value + value + value + value; }
+    char bump(char value) {
+      value++;
+      value += 1;
+      return value;
+    }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("add a0, s2, s2"), std::string::npos);
+  EXPECT_NE(assembly.find("addi s2, s2, 1"), std::string::npos);
+  EXPECT_NE(assembly.find("srai s2, s2, 24"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
 TEST(CompilerTest, DropsDeadExpressionResultsAtO1) {
   const char* decrement = "int f(int x) { while (x) x--; return x; }\n";
   const char* discard = "int f(int x, int y) { x + y; return x; }\n";

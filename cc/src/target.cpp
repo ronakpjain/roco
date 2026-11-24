@@ -70,6 +70,10 @@ bool set_cost(CostModel& costs, std::string_view name, int value) {
     costs.shift = value;
     return true;
   }
+  if (name == "compare") {
+    costs.compare = value;
+    return true;
+  }
   if (name == "multiply") {
     costs.multiply = value;
     return true;
@@ -88,6 +92,10 @@ bool set_cost(CostModel& costs, std::string_view name, int value) {
   }
   if (name == "branch") {
     costs.branch = value;
+    return true;
+  }
+  if (name == "jump") {
+    costs.jump = value;
     return true;
   }
   return false;

@@ -20,28 +20,36 @@ enum class OptimizationLevel { O0 = 0, O1 = 1, O2 = 2 };
  *
  * The values are dependent-result latencies in cycles for the roco SoC.
  * Independent instructions continue to issue while a multi-cycle operation
- * is in flight, so the compiler scores a candidate sequence as
- * `instructions * issue + (latency - issue)`. Keeping these values in a file
- * makes it possible to retarget the compiler when the pipeline changes
+ * is in flight. The compiler scores a candidate sequence instruction by
+ * instruction, charging the issue interval for every instruction and the
+ * extra result latency of every instruction that produces a register value.
+ * Instructions without a result (`store`, conditional `branch`, and `jump`)
+ * are charged their pipeline occupancy instead. Keeping these values in a
+ * file makes it possible to retarget the compiler when the pipeline changes
  * without editing the backend.
  */
 struct CostModel {
-  /// Issue cost of one extra instruction.
+  /// Cycles between independent instructions (pipeline issue interval).
   int issue = 1;
   /// Result latency of a single-cycle integer ALU operation.
   int arithmetic = 1;
   /// Result latency of a shift or bitwise immediate operation.
   int shift = 1;
+  /// Result latency of a comparison such as `slt` or `snez`.
+  int compare = 1;
   /// Dependent-result latency of `mul` (one pipeline bubble on roco).
   int multiply = 2;
   /// Dependent-result latency of `div`/`rem` (iterative radix-four divider).
   int divide = 20;
-  /// Dependent-result latency of a cache-hit load.
+  /// Dependent-result latency of a cache-hit load, including the load-use
+  /// bubble that follows it.
   int load = 2;
-  /// Dependent-result latency of a store.
+  /// Pipeline occupancy of a store.
   int store = 1;
-  /// Dependent-result latency of a conditional branch.
+  /// Pipeline occupancy of a conditional branch.
   int branch = 1;
+  /// Pipeline occupancy of an unconditional jump or call.
+  int jump = 1;
 };
 
 /** @brief Return the roco defaults for the cost model. */

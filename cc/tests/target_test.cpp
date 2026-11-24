@@ -10,9 +10,15 @@ namespace {
 TEST(TargetTest, UsesRocoDefaults) {
   const roco::CostModel costs = roco::default_cost_model();
   EXPECT_EQ(costs.issue, 1);
+  EXPECT_EQ(costs.arithmetic, 1);
+  EXPECT_EQ(costs.shift, 1);
+  EXPECT_EQ(costs.compare, 1);
   EXPECT_EQ(costs.multiply, 2);
   EXPECT_EQ(costs.divide, 20);
   EXPECT_EQ(costs.load, 2);
+  EXPECT_EQ(costs.store, 1);
+  EXPECT_EQ(costs.branch, 1);
+  EXPECT_EQ(costs.jump, 1);
 }
 
 TEST(TargetTest, ParsesCommentsAndOverrides) {
@@ -21,9 +27,14 @@ TEST(TargetTest, ParsesCommentsAndOverrides) {
     multiply = 3
     divide=24
     shift = 1
+    compare = 2
+    jump = 3
   )");
   EXPECT_EQ(costs.multiply, 3);
   EXPECT_EQ(costs.divide, 24);
+  EXPECT_EQ(costs.shift, 1);
+  EXPECT_EQ(costs.compare, 2);
+  EXPECT_EQ(costs.jump, 3);
   EXPECT_EQ(costs.arithmetic, 1);
 }
 

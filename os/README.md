@@ -39,20 +39,21 @@ Wait for `roco> `, then try:
 
 ```text
 run countdown &
+run worker &
 hart
 jobs
-wait
-run worker &
 wait
 exit
 ```
 
-The shell runs in user mode on hart 0 while the job runs in its own user
-address space on hart 1. `run <worker|countdown> &` returns immediately;
-if hart 1 already has a job, the shell rejects the request instead of
-queuing it. `jobs` reports the current or last job, and `wait` waits for
-completion. You can rerun either program; its writable data and stack
-are reset on each launch. Both programs are bundled at build time.
+The shell runs in user mode on hart 0. Hart 1 time-slices `worker` and
+`countdown` in separate user address spaces, with a hardware timer tick
+every 20,000 `mtime` ticks while a job runs. `yield()` can hand off early.
+`run <worker|countdown> &` returns immediately. There is one instance
+slot for each bundled program; duplicate active launches are rejected.
+`jobs` reports both slots and `wait` waits for all active jobs. A fresh
+launch resets that program's writable data and stack. Both programs
+are bundled at build time.
 
 Job output uses the same UART and can appear next to the shell prompt.
 Host terminal line editing works as usual. `exit` or Ctrl-D closes the
@@ -112,14 +113,14 @@ stacks grow down from `0x100ff000` and `0x100fd000`.
 | 1 | `write(buf, len)` | Bytes written, or `-1` for an invalid nonempty buffer or a length over 256 |
 | 2 | `exit(status)` | Never returns; returning from `main` does the same thing |
 | 3 | `gethart()` | `0` or `1` |
-| 4 | `yield()` | `0`; currently a no-op |
+| 4 | `yield()` | `0`; a console job gives up the rest of its time slice if the other slot is active |
 | 5 | `readchar()` | Next UART byte on hart 0, or `-1` if none is available or the caller is on hart 1 |
 | 6 | `syscall(SYS_RUN_JOB, id, 0)` | Console hart 0 only: submits a job, returns `0`, `JOB_BUSY`, or `-1` |
-| 7 | `syscall(SYS_JOB_STATUS, 0, 0)` | Console hart 0 only: returns idle, active job ID, or completion status |
+| 7 | `syscall(SYS_JOB_STATUS, id, 0)` | Console hart 0 only: returns idle, active, or completion status for a program slot |
 
 Unknown calls return `-1`. In the default image the system stops when both
 programs exit successfully, or immediately on a nonzero exit or an
 unhandled trap. In the console image a nonzero job exit or a delegated
 user-mode fault is reported as job status rather than stopping the shell.
-There is no scheduler, timer preemption, filesystem, or runtime executable
-loading.
+The scheduler saves RV32 integer registers and the program counter; vector
+jobs are not supported. There is no filesystem or runtime executable loading.

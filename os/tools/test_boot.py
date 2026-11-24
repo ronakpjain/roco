@@ -25,7 +25,7 @@ def main():
         command.append("+console")
         commands = (
             "help\r\necho UART input\nmissing\n" + "x" * 80 + "\n"
-            "jobs\nrun missing &\nrun worker\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
+            "jobs\nrun missing &\nrun worker\nrun countdown &\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
             "run worker &\nwait\nrun worker &\nwait\nexit\n"
         )
     run = subprocess.run(
@@ -63,16 +63,18 @@ def main():
         # not their exact position relative to the next shell prompt.
         offset = 0
         for line in (
-            "Started on hart 1.\n", "Hart 1 is busy.\n", "hart 0\n",
-            "countdown is running on hart 1.\n", "countdown: done\n",
-            "Job completed successfully.\n", "hart 1 user worker\n",
-            "Job completed successfully.\n", "hart 1 user worker\n",
-            "Job completed successfully.\n", "Bye.\n",
+            "Started on hart 1.\n", "That program is already active.\n", "Started on hart 1.\n",
+            "countdown: 3\n", "hart 1 user worker\n", "countdown: done\n",
+            "countdown: completed successfully.\n", "hart 1 user worker\n",
+            "worker: completed successfully.\n", "hart 1 user worker\n",
+            "worker: completed successfully.\n", "Bye.\n",
         ):
             pos = run.stdout.find(line, offset)
             if pos < 0:
                 sys.exit(f"Missing or out-of-order shell output: {line.rstrip()!r}")
             offset = pos + len(line)
+        if "hart 0\n" not in run.stdout.partition("countdown: done\n")[0]:
+            sys.exit("Expected the shell to respond while countdown was active")
         return
     for expected in ("hart 0 user hello\n", "hart 1 user worker\n"):
         if run.stdout.count(expected) != 1:

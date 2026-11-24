@@ -58,30 +58,39 @@ static void run_job(char *args)
     if (result == 0)
         print("Started on hart 1.\n");
     else if (result == JOB_BUSY)
-        print("Hart 1 is busy.\n");
+        print("That program is already active.\n");
     else
         print("Could not start job.\n");
 }
 
+static void job_line(const char *name, int state)
+{
+    if (state == JOB_IDLE)
+        return;
+    print(name);
+    if (state == JOB_ACTIVE)
+        print(": active on hart 1.\n");
+    else if (state == JOB_DONE)
+        print(": completed successfully.\n");
+    else if (state >= JOB_FAULT)
+        print(": stopped by a user-mode fault.\n");
+    else
+        print(": failed.\n");
+}
+
 static void show_job(int wait)
 {
-    int state;
+    int worker;
+    int countdown;
     do {
-        state = syscall(SYS_JOB_STATUS, 0, 0);
-    } while (wait && (state == JOB_WORKER || state == JOB_COUNTDOWN));
+        worker = syscall(SYS_JOB_STATUS, JOB_WORKER, 0);
+        countdown = syscall(SYS_JOB_STATUS, JOB_COUNTDOWN, 0);
+    } while (wait && (worker == JOB_ACTIVE || countdown == JOB_ACTIVE));
 
-    if (state == JOB_IDLE)
+    if (worker == JOB_IDLE && countdown == JOB_IDLE)
         print("No job yet.\n");
-    else if (state == JOB_WORKER)
-        print("worker is running on hart 1.\n");
-    else if (state == JOB_COUNTDOWN)
-        print("countdown is running on hart 1.\n");
-    else if (state == JOB_DONE)
-        print("Job completed successfully.\n");
-    else if (state >= JOB_FAULT)
-        print("Job stopped by a user-mode fault.\n");
-    else
-        print("Job failed.\n");
+    job_line("worker", worker);
+    job_line("countdown", countdown);
 }
 
 static int command(char *line)

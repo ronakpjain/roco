@@ -1,11 +1,13 @@
 #include "syscall.h"
 
-/* Leave time for commands on hart 0 between the countdown messages. */
-static void pause(void)
+/* Deliberately make no syscalls here: another job needs a timer tick to run. */
+static int pause(void)
 {
-    int i;
-    for (i = 0; i < 1800; ++i)
-        yield();
+    unsigned i;
+    unsigned sum = 0;
+    for (i = 0; i < 30000u; ++i)
+        sum += i;
+    return sum == 449985000u;
 }
 
 int main(void)
@@ -13,11 +15,14 @@ int main(void)
     if (gethart() != 1)
         return 1;
     write("countdown: 3\n", 13);
-    pause();
+    if (!pause())
+        return 2;
     write("countdown: 2\n", 13);
-    pause();
+    if (!pause())
+        return 2;
     write("countdown: 1\n", 13);
-    pause();
+    if (!pause())
+        return 2;
     write("countdown: done\n", 16);
     return 0;
 }

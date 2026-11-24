@@ -23,7 +23,7 @@ _start:
   mv sp, s1
   la gp, __global_pointer$
 
-  # Machine traps are fatal.  Interrupts are not used during boot.
+  # Interrupts stay disabled during boot.
   la t0, m_trap_vector
   csrw mtvec, t0
   csrw mscratch, zero
@@ -90,6 +90,22 @@ bss_done:
 
   # ---------------------------------------------------------------- hart 1
 boot_hart1:
+  beqz s0, enter_supervisor
+  la t0, user_countdown
+  lw t0, 0(t0)
+  beqz t0, enter_supervisor
+  # The compare register resets to zero, so disarm it before enabling MTIE.
+  li t0, 0x80000060
+  li t1, -1
+  sw t1, 4(t0)
+  sw t1, 0(t0)
+  la t0, timer_scratch
+  csrw mscratch, t0
+  li t0, 0x20            # Delegate supervisor timer interrupts.
+  csrw mideleg, t0
+  li t0, 0xa0            # Enable machine and supervisor timer sources.
+  csrw mie, t0
+enter_supervisor:
   # mstatus: MPP=S, interrupts off, MPRV clear.  Satp is still reset (bare);
   # supervisor_main() installs its own page table after entering S mode.
   csrw mstatus, zero
@@ -107,11 +123,31 @@ boot_hart1:
 .size _start, . - _start
 
 # ------------------------------------------------------------------------
-# Fatal M-mode trap.  Writing a non-1 exit code to tohost halts both harts.
-# The low byte carries mcause and bits 15:8 carry mhartid.
+# Forward hart 1's timer to S mode. Other M-mode traps are fatal.
 .balign 4
 .type m_trap_vector, @function
 m_trap_vector:
+  csrrw t0, mscratch, t0
+  beqz t0, m_fatal
+  sw t1, 0(t0)
+  sw t2, 4(t0)
+  csrr t1, mcause
+  li t2, 0x80000007
+  bne t1, t2, m_fatal
+
+  # Disarm the physical interrupt and post STIP. S mode rearms mtimecmp.
+  li t1, 0x80000060
+  li t2, -1
+  sw t2, 4(t1)
+  sw t2, 0(t1)
+  li t1, 0x20
+  csrs mip, t1
+  lw t1, 0(t0)
+  lw t2, 4(t0)
+  csrrw t0, mscratch, t0
+  mret
+
+m_fatal:
   csrr t0, mcause
   csrr t1, mhartid
   slli t1, t1, 8
@@ -122,6 +158,7 @@ m_trap_vector:
   sw t0, 0(t1)
 1:
   j 1b
+
 .size m_trap_vector, . - m_trap_vector
 
 # An impossible hart id is also fatal rather than running off the image.
@@ -139,3 +176,8 @@ boot_fail:
   sw t0, 0(t1)
 1:
   j 1b
+
+.section .bss
+.balign 4
+timer_scratch:
+  .zero 8

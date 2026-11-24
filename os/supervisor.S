@@ -1,5 +1,6 @@
 .section .text
-.globl enable_paging, enter_user, restart_worker, s_trap_vector, lock_uart, unlock_uart
+.globl enable_paging, enter_user, restart_worker, resume_worker, clear_tick
+.globl s_trap_vector, lock_uart, unlock_uart
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
@@ -13,10 +14,30 @@ restart_worker:
     mv sp, a0
     tail worker_loop
 
+clear_tick:
+    li t0, 0x20
+    csrc sip, t0
+    ret
+
+# Copy a saved context into the common return frame. No caller will return.
+resume_worker:
+    addi sp, a0, -144
+    mv t0, sp
+    addi t1, a1, 132
+1:  lw t2, 0(a1)
+    sw t2, 0(t0)
+    addi a1, a1, 4
+    addi t0, t0, 4
+    bne a1, t1, 1b
+    # Resumed contexts always return to U, with S-mode interrupts masked.
+    li t0, 0x40122
+    csrc sstatus, t0
+    j restore_user
+
 # The trap frame lives at the top of this hart's supervisor stack.
 enter_user:
     csrw sepc, a0
-    sw a3, -128(a2)
+    sw a3, -144(a2)
     csrw sscratch, a2
     li t0, 0x40122  # SUM, SPP, SPIE, SIE
     csrc sstatus, t0
@@ -57,7 +78,7 @@ enter_user:
 s_trap_vector:
     csrrw sp, sscratch, sp
     beqz sp, s_double_trap
-    addi sp, sp, -128
+    addi sp, sp, -144
     sw ra, 4(sp)
     sw gp, 12(sp)
     sw tp, 16(sp)
@@ -90,6 +111,8 @@ s_trap_vector:
     sw t6, 124(sp)
     csrrw t0, sscratch, zero
     sw t0, 8(sp)
+    csrr t0, sepc
+    sw t0, 128(sp)
     la gp, __global_pointer$
     mv a0, sp
     csrr a1, scause
@@ -97,11 +120,10 @@ s_trap_vector:
     andi a2, a2, 0x100
     call supervisor_trap
 
-    # Only U-mode ecall returns from the dispatcher (RV32, no C extension).
-    csrr t0, sepc
-    addi t0, t0, 4
+restore_user:
+    lw t0, 128(sp)
     csrw sepc, t0
-    addi t0, sp, 128
+    addi t0, sp, 144
     csrw sscratch, t0
     lw ra, 4(sp)
     lw gp, 12(sp)

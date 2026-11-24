@@ -21,6 +21,9 @@
 #define UART_DATA REG(0x80000000u)
 #define UART_STATUS REG(0x80000004u)
 #define MTIME_LOW REG(0x80000018u)
+#define MTIME_HIGH REG(0x8000001cu)
+#define WORKER_CMP_LOW REG(0x80000060u)
+#define WORKER_CMP_HIGH REG(0x80000064u)
 #define TOHOST REG(0x80001000u)
 
 /* Trap frame offsets are the integer register numbers, except slot 0. */
@@ -28,7 +31,11 @@
 #define TF_A0 10
 #define TF_A1 11
 #define TF_A7 17
-#define TF_WORDS 32
+#define TF_PC 32
+#define TF_SAVED 33
+#define TF_WORDS 36
+#define TICK_CAUSE 0x80000005u
+#define SLICE_TICKS 20000u
 #define MAX_WRITE 256u
 
 extern unsigned page_tables[6144];
@@ -38,15 +45,18 @@ extern const unsigned user_countdown[2050];
 void enable_paging(unsigned satp_value);
 void enter_user(unsigned pc, unsigned user_sp, unsigned kernel_sp, unsigned hart);
 void restart_worker(unsigned stack_top);
+void resume_worker(unsigned stack_top, unsigned *context);
+void clear_tick(void);
 void lock_uart(unsigned *lock);
 void unlock_uart(unsigned *lock);
 
 static unsigned uart_lock;
 /* Only the owning hart writes its slot; 0 means running, 1 means success. */
 static volatile unsigned completed[2];
-/* Hart 0 submits an ID only when idle/done; hart 1 replaces it on exit. */
-static volatile unsigned job_state;
-/* Hardware hart 1 can run either slot; syscalls use the active backing RAM. */
+/* Hart 0 marks a slot active; hart 1 publishes completion before reuse. */
+static volatile unsigned job_state[3];
+static unsigned saved[3];
+static unsigned contexts[3 * TF_SAVED];
 static unsigned worker_slot;
 
 static int console_image(void)
@@ -54,9 +64,26 @@ static int console_image(void)
     return user_countdown[0] != 0;
 }
 
-static int job_active(unsigned state)
+static int valid_job(unsigned id)
 {
-    return state == JOB_WORKER || state == JOB_COUNTDOWN;
+    return id == JOB_WORKER || id == JOB_COUNTDOWN;
+}
+
+static void arm_tick(void)
+{
+    unsigned hi;
+    unsigned lo;
+    unsigned next;
+
+    WORKER_CMP_HIGH = 0xffffffffu;
+    clear_tick();
+    do {
+        hi = MTIME_HIGH;
+        lo = MTIME_LOW;
+    } while (hi != MTIME_HIGH);
+    next = lo + SLICE_TICKS;
+    WORKER_CMP_LOW = next;
+    WORKER_CMP_HIGH = hi + (next < lo);
 }
 
 static unsigned pte(unsigned pa, unsigned flags)
@@ -119,19 +146,40 @@ static void switch_space(unsigned slot)
 void worker_loop(unsigned stack_top)
 {
     unsigned id;
+    unsigned other = JOB_WORKER;
+    unsigned i;
+    unsigned *context;
     const unsigned *image;
 
-    do {
-        id = job_state;
-    } while (!job_active(id));
-    if (id == JOB_WORKER)
-        image = user_worker;
-    else
-        image = user_countdown;
+    if (worker_slot == JOB_WORKER)
+        other = JOB_COUNTDOWN;
+    for (;;) {
+        if (job_state[other] == JOB_ACTIVE) {
+            id = other;
+            break;
+        }
+        if (job_state[3u - other] == JOB_ACTIVE) {
+            id = 3u - other;
+            break;
+        }
+    }
     worker_slot = id;
-    reset_user(id, image);
+    context = contexts + id * TF_SAVED;
+    if (!saved[id]) {
+        if (id == JOB_WORKER)
+            image = user_worker;
+        else
+            image = user_countdown;
+        reset_user(id, image);
+        for (i = 0; i < TF_SAVED; ++i)
+            context[i] = 0;
+        context[TF_HART] = 1;
+        context[2] = USER_TOP;
+        context[TF_PC] = USER_BASE;
+    }
     switch_space(id);
-    enter_user(USER_BASE, USER_TOP, stack_top, 1);
+    arm_tick();
+    resume_worker(stack_top, context);
 }
 
 void supervisor_main(unsigned hart, unsigned stack_top)
@@ -186,7 +234,8 @@ static void finish(unsigned hart, unsigned status)
     completed[hart] = 1u;
     if (hart == 0) {
         if (console_image()) {
-            while (job_active(job_state)) {}
+            while (job_state[JOB_WORKER] == JOB_ACTIVE ||
+                   job_state[JOB_COUNTDOWN] == JOB_ACTIVE) {}
         } else {
             while (completed[1] == 0) {}
         }
@@ -201,12 +250,27 @@ static void finish(unsigned hart, unsigned status)
 
 static int submit_job(unsigned id)
 {
-    if (!job_active(id))
+    if (!valid_job(id))
         return -1;
-    if (job_active(job_state))
+    if (job_state[id] == JOB_ACTIVE)
         return JOB_BUSY;
-    job_state = id;
+    job_state[id] = JOB_ACTIVE;
     return 0;
+}
+
+static void reschedule(unsigned *frame)
+{
+    unsigned i;
+    unsigned *context;
+
+    if (job_state[3u - worker_slot] == JOB_ACTIVE) {
+        context = contexts + worker_slot * TF_SAVED;
+        for (i = 0; i < TF_SAVED; ++i)
+            context[i] = frame[i];
+        saved[worker_slot] = 1;
+        restart_worker((unsigned)(frame + TF_WORDS));
+    }
+    arm_tick();
 }
 
 void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
@@ -214,12 +278,21 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
     unsigned hart = frame[TF_HART];
     unsigned syscall = frame[TF_A7];
 
+    if (cause == 8u)
+        frame[TF_PC] += 4;
     if (hart == 1 && from_supervisor == 0 && console_image()) {
+        if (cause == TICK_CAUSE) {
+            clear_tick();
+            reschedule(frame);
+            return;
+        }
         if (cause != 8u) {
-            job_state = JOB_FAULT | (cause & 0xffu);
+            saved[worker_slot] = 0;
+            job_state[worker_slot] = JOB_FAULT | (cause & 0xffu);
             restart_worker((unsigned)(frame + TF_WORDS));
         } else if (syscall == SYS_EXIT) {
-            job_state = JOB_DONE | (frame[TF_A0] & 0xffu);
+            saved[worker_slot] = 0;
+            job_state[worker_slot] = JOB_DONE | (frame[TF_A0] & 0xffu);
             restart_worker((unsigned)(frame + TF_WORDS));
         }
     }
@@ -233,14 +306,16 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         finish(hart, frame[TF_A0]);
     else if (syscall == SYS_GETHART)
         frame[TF_A0] = hart;
-    else if (syscall == SYS_YIELD)
+    else if (syscall == SYS_YIELD) {
         frame[TF_A0] = 0;
-    else if (syscall == SYS_READCHAR && hart == 0 && (UART_STATUS & 2u) != 0)
+        if (hart == 1 && console_image())
+            reschedule(frame);
+    } else if (syscall == SYS_READCHAR && hart == 0 && (UART_STATUS & 2u) != 0)
         frame[TF_A0] = UART_DATA & 0xffu;
     else if (hart == 0 && syscall == SYS_RUN_JOB && console_image())
         frame[TF_A0] = (unsigned)submit_job(frame[TF_A0]);
-    else if (hart == 0 && syscall == SYS_JOB_STATUS && console_image())
-        frame[TF_A0] = job_state;
+    else if (hart == 0 && syscall == SYS_JOB_STATUS && console_image() && valid_job(frame[TF_A0]))
+        frame[TF_A0] = job_state[frame[TF_A0]];
     else
         frame[TF_A0] = (unsigned)-1;
 }

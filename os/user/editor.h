@@ -1,5 +1,5 @@
-#ifndef ROCO_EDITOR_H
-#define ROCO_EDITOR_H
+#ifndef EDITOR_H
+#define EDITOR_H
 
 void print(const char *s);
 int same(const char *a, const char *b);

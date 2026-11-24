@@ -4,7 +4,7 @@
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
-    # On ROCO, a SATP write invalidates the local TLBs. Do not broadcast
+    # On roco, a SATP write invalidates the local TLBs. Do not broadcast
     # a redundant SFENCE.VMA while the other hart is executing.
     csrw satp, a0
     ret

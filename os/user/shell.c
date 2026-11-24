@@ -165,7 +165,7 @@ int main(void)
 
     if (gethart() != 0)
         return 1;
-    print("ROCO user shell; type help.\nroco> ");
+    print("roco_os user shell; type help.\nroco_os> ");
     for (;;) {
         ch = readchar();
         if (ch < 0)
@@ -192,7 +192,7 @@ int main(void)
             if (editing)
                 print("edit> ");
             else
-                print("roco> ");
+                print("roco_os> ");
         } else if (!overflow) {
             if (ch == 8 || ch == 127) {
                 if (n > 0)

@@ -51,14 +51,14 @@ def main():
         sys.exit("SoC boot test failed")
     if args.console:
         expected = (
-            "ROCO user shell; type help.\n"
-            "roco> Commands: help, hart, echo [text], run <worker|countdown> [0|1] &, jobs, wait, edit, script, exit\n"
-            "roco> UART input\n"
-            "roco> Unknown command; try help.\n"
-            "roco> Line too long.\n"
-            "roco> No job yet.\n"
-            "roco> No such program.\n"
-            "roco> Usage: run <worker|countdown> [0|1] &\n"
+            "roco_os user shell; type help.\n"
+            "roco_os> Commands: help, hart, echo [text], run <worker|countdown> [0|1] &, jobs, wait, edit, script, exit\n"
+            "roco_os> UART input\n"
+            "roco_os> Unknown command; try help.\n"
+            "roco_os> Line too long.\n"
+            "roco_os> No job yet.\n"
+            "roco_os> No such program.\n"
+            "roco_os> Usage: run <worker|countdown> [0|1] &\n"
         )
         if expected not in run.stdout:
             sys.exit("Unexpected shell transcript")

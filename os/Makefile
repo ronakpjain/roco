@@ -1,8 +1,8 @@
-ROCO_DIR ?= ../cc
+roco_dir ?= ../cc
 SOC_DIR ?= ../soc
-ROCO_CC ?= $(ROCO_DIR)/build/roco_cc
-ROCO_AS ?= $(ROCO_DIR)/build/roco_as
-ROCO_LD ?= $(ROCO_DIR)/build/roco_ld
+roco_cc ?= $(roco_dir)/build/roco_cc
+roco_as ?= $(roco_dir)/build/roco_as
+roco_ld ?= $(roco_dir)/build/roco_ld
 PYTHON ?= python3
 
 BUILD := build
@@ -15,77 +15,77 @@ BOOT_SIM := $(SOC_DIR)/build/vl_tb_soc_boot/Vtb_soc_boot
 
 .PHONY: all clean test console
 .SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o
-all: $(BUILD)/roco-os.elf $(BUILD)/roco-os.packet.hex
+all: $(BUILD)/roco_os.elf $(BUILD)/roco_os.packet.hex
 
 $(BUILD):
 	mkdir -p $@
 
-$(BUILD)/%.o: %.S $(ROCO_AS) | $(BUILD)
-	$(ROCO_AS) -o $@ $<
+$(BUILD)/%.o: %.S $(roco_as) | $(BUILD)
+	$(roco_as) -o $@ $<
 
-$(BUILD)/kernel.o: kernel.c user/syscall.h $(ROCO_CC) | $(BUILD)
-	$(ROCO_CC) -c -o $@ ./$<
+$(BUILD)/kernel.o: kernel.c user/syscall.h $(roco_cc) | $(BUILD)
+	$(roco_cc) -c -o $@ ./$<
 
-$(BUILD)/user-%.o: user/%.S $(ROCO_AS) | $(BUILD)
-	$(ROCO_AS) -o $@ $<
+$(BUILD)/user-%.o: user/%.S $(roco_as) | $(BUILD)
+	$(roco_as) -o $@ $<
 
-$(BUILD)/user-%.o: user/%.c user/syscall.h $(ROCO_CC) | $(BUILD)
-	$(ROCO_CC) -c -o $@ $<
+$(BUILD)/user-%.o: user/%.c user/syscall.h $(roco_cc) | $(BUILD)
+	$(roco_cc) -c -o $@ $<
 
-$(BUILD)/user-%.elf: $(USER_RUNTIME) $(BUILD)/user-%.o $(ROCO_LD)
-	$(ROCO_LD) --base 0x00400000 -o $@ $(filter %.o,$^)
+$(BUILD)/user-%.elf: $(USER_RUNTIME) $(BUILD)/user-%.o $(roco_ld)
+	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
 
-$(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-%.o: user/%.c user/editor.h user/syscall.h $(ROCO_CC) | $(BUILD)
-	$(ROCO_CC) -O1 -c -o $@ $<
+$(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-%.o: user/%.c user/editor.h user/syscall.h $(roco_cc) | $(BUILD)
+	$(roco_cc) -O1 -c -o $@ $<
 
-$(BUILD)/user-shell.elf: $(USER_RUNTIME) $(BUILD)/user-shell.o $(BUILD)/user-editor.o $(ROCO_LD)
-	$(ROCO_LD) --base 0x00400000 -o $@ $(filter %.o,$^)
+$(BUILD)/user-shell.elf: $(USER_RUNTIME) $(BUILD)/user-shell.o $(BUILD)/user-editor.o $(roco_ld)
+	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
 
 $(BUILD)/user_images.S: tools/pack_users.py $(USER_HELLO) $(USER_WORKER)
 	$(PYTHON) $< $@ $(filter %.elf,$^)
 
-$(BUILD)/user_images.o: $(BUILD)/user_images.S $(ROCO_AS)
-	$(ROCO_AS) -o $@ $<
+$(BUILD)/user_images.o: $(BUILD)/user_images.S $(roco_as)
+	$(roco_as) -o $@ $<
 
-$(BUILD)/roco-os.bin: $(OS_OBJS) $(ROCO_LD)
-	$(ROCO_LD) -o $(BUILD)/roco-os.elf --binary $@ $(OS_OBJS)
+$(BUILD)/roco_os.bin: $(OS_OBJS) $(roco_ld)
+	$(roco_ld) -o $(BUILD)/roco_os.elf --binary $@ $(OS_OBJS)
 
-$(BUILD)/roco-os.elf: $(BUILD)/roco-os.bin
-	@test -f $@ || $(ROCO_LD) -o $@ $(OS_OBJS)
+$(BUILD)/roco_os.elf: $(BUILD)/roco_os.bin
+	@test -f $@ || $(roco_ld) -o $@ $(OS_OBJS)
 
 $(BUILD)/%.packet.hex: $(BUILD)/%.bin $(SOC_DIR)/scripts/boot.py
 	$(PYTHON) $(SOC_DIR)/scripts/boot.py --bin $< --emit-hex $@
 
-$(BUILD)/user-probe.o: tests/user_probe.S $(ROCO_AS) | $(BUILD)
-	$(ROCO_AS) -o $@ $<
+$(BUILD)/user-probe.o: tests/user_probe.S $(roco_as) | $(BUILD)
+	$(roco_as) -o $@ $<
 
 $(BUILD)/probe_images.S: tools/pack_users.py $(USER_HELLO) $(BUILD)/user-probe.elf
 	$(PYTHON) $< $@ $(filter %.elf,$^)
 
-$(BUILD)/probe_images.o: $(BUILD)/probe_images.S $(ROCO_AS)
-	$(ROCO_AS) -o $@ $<
+$(BUILD)/probe_images.o: $(BUILD)/probe_images.S $(roco_as)
+	$(roco_as) -o $@ $<
 
-$(BUILD)/roco-os-probe.bin: $(KERNEL_OBJS) $(BUILD)/probe_images.o $(ROCO_LD)
-	$(ROCO_LD) -o $(BUILD)/roco-os-probe.elf --binary $@ $(filter %.o,$^)
+$(BUILD)/roco_os-probe.bin: $(KERNEL_OBJS) $(BUILD)/probe_images.o $(roco_ld)
+	$(roco_ld) -o $(BUILD)/roco_os-probe.elf --binary $@ $(filter %.o,$^)
 
 $(BUILD)/console_images.S: tools/pack_users.py $(BUILD)/user-shell.elf $(USER_WORKER) $(BUILD)/user-countdown.elf
 	$(PYTHON) $< $@ $(filter %.elf,$^)
 
-$(BUILD)/console_images.o: $(BUILD)/console_images.S $(ROCO_AS)
-	$(ROCO_AS) -o $@ $<
+$(BUILD)/console_images.o: $(BUILD)/console_images.S $(roco_as)
+	$(roco_as) -o $@ $<
 
-$(BUILD)/roco-os-console.bin: $(KERNEL_OBJS) $(BUILD)/console_images.o $(ROCO_LD)
-	$(ROCO_LD) -o $(BUILD)/roco-os-console.elf --binary $@ $(filter %.o,$^)
+$(BUILD)/roco_os-console.bin: $(KERNEL_OBJS) $(BUILD)/console_images.o $(roco_ld)
+	$(roco_ld) -o $(BUILD)/roco_os-console.elf --binary $@ $(filter %.o,$^)
 
-console: $(BUILD)/roco-os-console.packet.hex
+console: $(BUILD)/roco_os-console.packet.hex
 	$(MAKE) -C $(SOC_DIR) build/vl_tb_soc_boot/Vtb_soc_boot
 	$(BOOT_SIM) +packet=$< +console
 
-test: $(BUILD)/roco-os.packet.hex $(BUILD)/roco-os-probe.packet.hex $(BUILD)/roco-os-console.packet.hex
+test: $(BUILD)/roco_os.packet.hex $(BUILD)/roco_os-probe.packet.hex $(BUILD)/roco_os-console.packet.hex
 	$(MAKE) -C $(SOC_DIR) build/vl_tb_soc_boot/Vtb_soc_boot
-	$(PYTHON) tools/test_boot.py $(BOOT_SIM) $(BUILD)/roco-os.packet.hex
-	$(PYTHON) tools/test_boot.py $(BOOT_SIM) $(BUILD)/roco-os-probe.packet.hex --probe
-	$(PYTHON) tools/test_boot.py $(BOOT_SIM) $(BUILD)/roco-os-console.packet.hex --console
+	$(PYTHON) tools/test_boot.py $(BOOT_SIM) $(BUILD)/roco_os.packet.hex
+	$(PYTHON) tools/test_boot.py $(BOOT_SIM) $(BUILD)/roco_os-probe.packet.hex --probe
+	$(PYTHON) tools/test_boot.py $(BOOT_SIM) $(BUILD)/roco_os-console.packet.hex --console
 
 clean:
 	rm -rf $(BUILD)

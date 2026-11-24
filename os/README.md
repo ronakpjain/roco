@@ -1,4 +1,4 @@
-# ROCO OS
+# roco_os
 
 A small freestanding RV32 operating system for the dual-hart SoC in `../soc`.
 Machine-mode startup prepares memory and releases hart 1. Each hart enters
@@ -35,7 +35,7 @@ handled by the supervisor on hart 1, rather than a successful load.
 make console
 ```
 
-Wait for `roco> `, then try:
+Wait for `roco_os> `, then try:
 
 ```text
 run countdown &
@@ -99,12 +99,12 @@ own time slices.
 
 ## Boot artifacts
 
-`build/roco-os.elf` has kernel symbols, `build/roco-os.bin` is the flat
-board image, and `build/roco-os.packet.hex` is the UART packet for simulation.
+`build/roco_os.elf` has kernel symbols, `build/roco_os.bin` is the flat
+board image, and `build/roco_os.packet.hex` is the UART packet for simulation.
 To upload on hardware with the SoC bootloader waiting for a packet:
 
 ```sh
-python3 ../soc/scripts/boot.py --bin build/roco-os.bin --port /dev/tty.YOUR_DEVICE
+python3 ../soc/scripts/boot.py --bin build/roco_os.bin --port /dev/tty.YOUR_DEVICE
 ```
 
 This upload command requires `pyserial` and returns after the `K`

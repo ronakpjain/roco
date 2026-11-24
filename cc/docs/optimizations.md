@@ -369,7 +369,8 @@ These are Icarus `soc/build/tb_core.vvp` runs with `+measure_execution` and
 startup and memory stalls, so they are not frequency claims.
 
 Cycle count is the primary compiler benchmark; retired instructions are only
-diagnostic. Register allocation can add a few prologue instructions while
+diagnostic. Run `cmake --build build --target cycles` to regenerate the C
+end-to-end table below. Register allocation can add a few prologue instructions while
 removing dependent load latency, so code size and retired count do not track
 runtime.
 

@@ -35,6 +35,7 @@ cmake -S . -B build
 cmake --build build
 ctest --test-dir build --output-on-failure
 cmake --build build --target docs   # docs/html/index.html
+cmake --build build --target cycles # C e2e cycle counts
 ```
 
 On macOS: `brew install googletest doxygen`.

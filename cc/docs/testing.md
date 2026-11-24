@@ -26,6 +26,20 @@ for the supported forms, including the roco vector subset. Rejection tests
 cover unsupported vector configurations, masked operations, 64-bit
 atomics, bad immediates, duplicate labels, and unresolved local symbols.
 
+## Cycle benchmark
+
+Cycle count is the primary compiler performance metric. The `cycles` target
+compiles the C end-to-end programs at `-O0`, `-O1`, and `-O2`, runs each one on
+the real core testbench, checks for `tb_core: PASS`, and prints the measured
+cycles:
+
+```bash
+cmake --build build --target cycles
+```
+
+The target only exists when `ROCO_VVP` and `soc/build/tb_core.vvp` are
+available.
+
 ## CPU integration
 
 The `tests/e2e` program exercises startup, `.bss` clearing, loads,

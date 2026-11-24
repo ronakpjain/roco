@@ -82,6 +82,15 @@ if(ROCO_VVP AND EXISTS "${ROCO_CPU_TESTBENCH}")
             $<TARGET_FILE:roco_cc> $<TARGET_FILE:roco_as> $<TARGET_FILE:roco_ld>
             ${ROCO_VVP} ${ROCO_CPU_TESTBENCH} -O2)
   set_tests_properties(cpu_smoke_c_o2 PROPERTIES LABELS "cpu")
+
+  add_custom_target(cycles
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/bench_cycles.sh
+            ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}
+            $<TARGET_FILE:roco_cc> $<TARGET_FILE:roco_as> $<TARGET_FILE:roco_ld>
+            ${ROCO_VVP} ${ROCO_CPU_TESTBENCH}
+    DEPENDS roco_cc roco_as roco_ld
+    COMMENT "Reporting C end-to-end cycle counts"
+    VERBATIM)
 endif()
 
 option(ROCO_BUILD_DOCS "Generate HTML documentation with Doxygen" ON)

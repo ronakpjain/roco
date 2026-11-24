@@ -11,6 +11,7 @@ module tb_dcache;
   logic [1:0] lu_offset = 0;
   logic [2:0] lu_funct3 = 3'b010;
   logic cm_valid = 1'b0, cm_we = 1'b0, cm_ready;
+  logic cm_amo_read = 1'b0, cm_amo_retry;
   logic [24:2] cm_addr = '0;
   logic [31:0] cm_wdata = '0, cm_rdata, cm_forward_data;
   logic [3:0] cm_be = 4'hf;
@@ -23,13 +24,9 @@ module tb_dcache;
   logic hit_pulse, miss_pulse;
   logic snoop_valid = 1'b0;
   logic [22:0] snoop_addr = '0;
-  logic snoop_exclusive = 1'b0;
-  logic snoop_hit, snoop_dirty;
+  logic snoop_dirty;
   logic snoop_invalidate = 1'b0;
-  logic upgrade_req;
-  logic [22:0] upgrade_addr;
-  logic upgrade_ack = 1'b1;
-  logic miss_exclusive;
+  logic snoop_writeback = 1'b0, snoop_writeback_done;
   logic [22:0] miss_line;
   logic flush_busy;
 
@@ -46,7 +43,8 @@ module tb_dcache;
   logic [22:0] transfer_base = '0;
   int transfer_beat = 0, transfer_last = 0, delay_cycles = 0;
   int writebacks = 0;
-  assign mem_ready = !busy;
+  logic stall_fill = 1'b0;
+  assign mem_ready = !busy && (!stall_fill || mem_we);
   assign mem_wready = busy && write_transfer && (delay_cycles == 0);
 
   always @(posedge clk) begin
@@ -54,7 +52,7 @@ module tb_dcache;
     mem_rlast <= 1'b0;
     if (rst) begin
       busy <= 1'b0;
-    end else if (!busy && mem_req) begin
+    end else if (mem_req && mem_ready) begin
       if (mem_word_addr > 23'd2044 || mem_len != 4'd3) $fatal(1, "bad burst request");
       busy <= 1'b1;
       write_transfer <= mem_we;
@@ -234,6 +232,7 @@ module tb_dcache;
     cm_valid = 1'b0;
     cm_we = 1'b0;
     lu_valid = 1'b0;
+    #1;  // Settle readiness after switching from the store to the held lookup.
     if (!cm_ready || cm_forward_data !== 32'hc00003c2) $fatal(1, "store forwarded across banks");
     ack_read(962);
     lookup(2);
@@ -279,6 +278,61 @@ module tb_dcache;
       end
       ack_read(access == 0 ? 2 : 33);
     end
+    // An invalidate between AMO phases must veto the store and revoke the
+    // operand. The MEM read request alone can refetch, without another EX lookup.
+    lookup(962);
+    cm_addr = 23'd962;
+    cm_amo_read = 1'b1;
+    @(negedge clk);
+    if (cm_amo_retry || cm_rdata !== 32'hc00003c2) $fatal(1, "initial AMO operand");
+    cm_amo_read = 1'b0;
+    cm_valid = 1'b1;
+    cm_we = 1'b1;
+    snoop_addr = 23'd960;
+    snoop_valid = 1'b1;
+    snoop_invalidate = 1'b1;
+    #1;
+    if (cm_ready) $fatal(1, "store accepted on matching invalidate");
+    cm_valid = 1'b0;
+    @(negedge clk);
+    if (!cm_amo_retry) $fatal(1, "invalidate did not revoke AMO operand");
+    snoop_valid = 1'b0;
+    snoop_invalidate = 1'b0;
+    memory[962] = 32'd41;
+    cm_amo_read = 1'b1;
+    #1;
+    wait_ready();
+    if (cm_rdata !== 32'd41) $fatal(1, "AMO replay served stale data");
+    @(negedge clk);
+    if (cm_amo_retry) $fatal(1, "AMO replay did not renew operand");
+    cm_amo_read = 1'b0;
+    cm_valid = 1'b1;
+    cm_wdata = 32'd42;
+    @(negedge clk);
+    cm_valid = 1'b0;
+    cm_we = 1'b0;
+
+    // A peer's writeback must run even with this cache's fill parked at
+    // the hub. It must then resume that exact fill, not lose its demand.
+    stall_fill = 1'b1;
+    lookup(1028);
+    for (int c = 0; c < 20 && !(mem_req && !mem_we); c++) @(negedge clk);
+    if (!mem_req || mem_we || mem_word_addr != 23'd1028) $fatal(1, "fill did not park");
+    snoop_valid = 1'b1;
+    #1;
+    if (!snoop_dirty) $fatal(1, "dirty AMO result not visible to peer");
+    @(negedge clk);
+    snoop_valid = 1'b0;
+    snoop_writeback = 1'b1;
+    for (int c = 0; c < 50 && !snoop_writeback_done; c++) @(negedge clk);
+    if (!snoop_writeback_done || memory[962] !== 32'd42)
+      $fatal(1, "parked fill blocked snoop writeback");
+    if (!mem_req || mem_we || mem_word_addr != 23'd1028) $fatal(1, "parked fill not resumed");
+    snoop_writeback = 1'b0;
+    stall_fill = 1'b0;
+    wait_ready();
+    if (cm_rdata !== 32'hc0000404) $fatal(1, "resumed fill data");
+    ack_read(1028);
     $display("tb_dcache: PASS");
     $finish;
   end

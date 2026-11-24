@@ -4,7 +4,7 @@
 // controller (96 MHz memory clock behind an AXI CDC bridge) + UART +
 // bootloader + memory-mapped timer, LEDs, buttons, cache counters and
 // boot status. AXI4 connects the caches, bootloader, walkers and MMIO
-// ports; an MSI snooping hub keeps the D-caches coherent (see docs/bus.md).
+// ports; a snooping hub serializes exclusive D-cache fills (see docs/bus.md).
 //
 // Hart1 spins in reset until hart0 publishes its entry point at 0x110 and
 // writes the release register at 0x114. A boot restart re-parks hart1.
@@ -166,12 +166,12 @@ module roco_soc #(
   logic [29:0] res0_store_addr, res1_store_addr;
   logic irq_timer1, irq_software0, irq_software1;
   logic core1_rst;
-  // MSI hub: probe/flush/grant state shared by both D-caches.
+  // Probe, invalidate, and targeted writeback signals to each D-cache.
   logic hub_snoop0_valid, hub_snoop1_valid;
   logic [22:0] hub_snoop0_addr, hub_snoop1_addr;
   logic hub_inv0, hub_inv1;
-  logic hub_flush0, hub_flush1;
-  logic hub_ack0, hub_ack1;
+  logic hub_wb0, hub_wb1, hub_wb_done0, hub_wb_done1;
+  logic dc0_amo_retry, dc1_amo_retry;
   logic core0_fence_req, core1_fence_req;
   logic fence_done0, fence_done1;
   logic fence_owner;
@@ -252,11 +252,8 @@ module roco_soc #(
   logic dc0_mem_rlast;
   logic dc0_hit;
   logic dc0_miss;
-  // Snoop/invalidate + upgrade + miss-line sideband for the MSI hub.
-  logic dc0_snoop_hit, dc0_snoop_dirty;
+  logic dc0_snoop_dirty;
   logic dc0_flush_busy, dc1_flush_busy;
-  logic dc0_upgrade_req;
-  logic [22:0] dc0_upgrade_addr;
   logic [22:0] dc0_miss_line;
 
   // ------------------------------------------------- Hart1 cache ports
@@ -291,12 +288,10 @@ module roco_soc #(
   logic dc1_mem_rlast;
   logic dc1_hit;
   logic dc1_miss;
-  logic dc1_snoop_hit, dc1_snoop_dirty;
-  logic dc1_upgrade_req;
-  logic [22:0] dc1_upgrade_addr;
+  logic dc1_snoop_dirty;
   logic [22:0] dc1_miss_line;
 
-  // Master-side D-cache ports behind the MSI hub (to axi_mem_master).
+  // Master-side D-cache ports behind the hub (to axi4_mem_master).
   logic mdc0_req, mdc0_we;
   logic [22:0] mdc0_word_addr;
   logic [3:0] mdc0_len;
@@ -318,9 +313,7 @@ module roco_soc #(
   logic [31:0] mdc1_rdata;
   logic mdc1_rlast;
 
-  // MSI hub: probe/flush/grant state shared by both D-caches. Fills and
-  // victim writebacks pass straight to the AXI masters; only the request
-  // accept of a fill/upgrade is gated while a probe/flush is in flight.
+  // The hub serializes exclusive D-cache fills, not writebacks.
   typedef enum logic [2:0] {
     H_IDLE,
     H_PROBE,
@@ -328,10 +321,10 @@ module roco_soc #(
     H_FLUSH,
     H_GRANT,
     H_FILL,
-    H_UP
+    H_SETTLE
   } hub_state_t;
   hub_state_t hub_state;
-  logic hub_owner, hub_is_up, hub_rr;
+  logic hub_owner, hub_rr;
   logic [22:0] hub_addr;
 
   // ------------------------------------------------------------- Bootloader
@@ -453,35 +446,22 @@ module roco_soc #(
   assign dmem1_rsp_data = dmem1_in_sdram ? dc1_cm_rdata : mmio1_rsp_data;
   assign dmem1_forward_data = dc1_forward_data;
 
-  // ------------------------------------------------- MSI coherence hub
-  // Write-back bus snooping between the two D-caches. Every fill is
-  // exclusive (no E state): the peer copy is invalidated after a dirty
-  // writeback. Victim writebacks need no probe and pass straight through;
-  // only fill/upgrade acceptance stalls while a probe/flush is in flight.
-  // A parked peer (in reset) is skipped so single-hart timing is unchanged.
-  logic need0_fill, need0_up, need0;
-  logic need1_fill, need1_up, need1;
+  // ----------------------------------------------------- Coherence hub
+  // Serialize exclusive fills, including the arbitration cycle. A fill
+  // cannot reach AXI before the peer has relinquished its copy. Clean
+  // lines are still exclusive, so stores never need a separate grant.
+  // Victim and probe writebacks do not acquire the hub. AW reaches the
+  // SDRAM adapter before W, and the adapter drains the write before it can
+  // service a later read. A peer fill cannot overtake an accepted writeback.
+  logic need0_fill, need1_fill, grant0_fill, grant1_fill;
   assign need0_fill = dc0_mem_req && !dc0_mem_we;
-  assign need0_up = dc0_upgrade_req;
-  assign need0 = need0_fill || need0_up;
   assign need1_fill = dc1_mem_req && !dc1_mem_we;
-  assign need1_up = dc1_upgrade_req;
-  assign need1 = need1_fill || need1_up;
-  logic bypass0, bypass1;
-  assign bypass0 = core1_rst;
-  assign bypass1 = core0_rst;
-  logic hub_busy, hub_resolved;
-  assign hub_busy = hub_state != H_IDLE;
-  assign hub_resolved = hub_state == H_GRANT || hub_state == H_FILL || hub_state == H_UP;
-  logic stall0_fill, stall1_fill;
-  assign stall0_fill = !bypass0 && (hub_busy && !(hub_owner == 1'b0 && hub_resolved));
-  assign stall1_fill = !bypass1 && (hub_busy && !(hub_owner == 1'b1 && hub_resolved));
-  // Request-accept gating (fills only; victim writebacks always pass).
-  assign dc0_mem_ready = mdc0_ready && (!need0_fill || !stall0_fill);
-  assign dc1_mem_ready = mdc1_ready && (!need1_fill || !stall1_fill);
-  // Master-side request mux (same gating: only fills ever stall).
-  assign mdc0_req = dc0_mem_req && (!need0_fill || !stall0_fill);
-  assign mdc1_req = dc1_mem_req && (!need1_fill || !stall1_fill);
+  assign grant0_fill = hub_state == H_GRANT && !hub_owner;
+  assign grant1_fill = hub_state == H_GRANT && hub_owner;
+  assign dc0_mem_ready = mdc0_ready && (!need0_fill || grant0_fill);
+  assign dc1_mem_ready = mdc1_ready && (!need1_fill || grant1_fill);
+  assign mdc0_req = dc0_mem_req && (!need0_fill || grant0_fill);
+  assign mdc1_req = dc1_mem_req && (!need1_fill || grant1_fill);
   assign mdc0_we = dc0_mem_we;
   assign mdc0_word_addr = dc0_mem_word_addr;
   assign mdc0_len = dc0_mem_len;
@@ -502,54 +482,37 @@ module roco_soc #(
   assign dc1_mem_rvalid = mdc1_rvalid;
   assign dc1_mem_rdata = mdc1_rdata;
   assign dc1_mem_rlast = mdc1_rlast;
-  // Upgrade acks: immediate when the peer is parked, hub-gated otherwise.
-  assign hub_ack0 = need0_up && (bypass0 || (hub_owner == 1'b0 && hub_resolved && hub_is_up));
-  assign hub_ack1 = need1_up && (bypass1 || (hub_owner == 1'b1 && hub_resolved && hub_is_up));
-  // Snoop probes to the peer (held through SAMPLE so tag RAMs settle).
-  assign hub_snoop1_valid = !bypass0 && hub_owner == 1'b0 &&
-      (hub_state == H_PROBE || hub_state == H_SAMPLE);
-  assign hub_snoop1_addr = hub_addr;
-  assign hub_snoop0_valid = !bypass1 && hub_owner == 1'b1 &&
-      (hub_state == H_PROBE || hub_state == H_SAMPLE);
+  // Sample a clean invalidate and the dirty decision on the same edge.
+  assign hub_snoop0_valid = hub_owner && (hub_state == H_PROBE || hub_state == H_SAMPLE);
+  assign hub_snoop1_valid = !hub_owner && (hub_state == H_PROBE || hub_state == H_SAMPLE);
   assign hub_snoop0_addr = hub_addr;
-  // Fills stay shared (the peer keeps a clean copy); only upgrades
-  // invalidate. The grant is still held through fill completion so a peer
-  // store cannot slip an upgrade between our fill and its install.
-  assign hub_inv1 = !bypass0 && hub_owner == 1'b0 && hub_state == H_SAMPLE && hub_is_up &&
-      dc1_snoop_hit;
-  assign hub_inv0 = !bypass1 && hub_owner == 1'b1 && hub_state == H_SAMPLE && hub_is_up &&
-      dc0_snoop_hit;
-  assign hub_flush1 = !bypass0 && hub_owner == 1'b0 && hub_state == H_FLUSH;
-  assign hub_flush0 = !bypass1 && hub_owner == 1'b1 && hub_state == H_FLUSH;
-  // Owner-side transfer tracking.
-  logic owner_accept, owner_rlast, owner_up_req;
-  assign owner_accept = hub_owner == 1'b0 ? (mdc0_req && mdc0_ready) : (mdc1_req && mdc1_ready);
-  assign owner_rlast = hub_owner == 1'b0 ?
-      (dc0_mem_rvalid && dc0_mem_rlast) : (dc1_mem_rvalid && dc1_mem_rlast);
-  assign owner_up_req = hub_owner == 1'b0 ? dc0_upgrade_req : dc1_upgrade_req;
-  logic peer_dirty, peer_flush_done;
-  assign peer_dirty = hub_owner == 1'b0 ? dc1_snoop_dirty : dc0_snoop_dirty;
-  assign peer_flush_done = hub_owner == 1'b0 ? dcache_flush_done1 : dcache_flush_done0;
+  assign hub_snoop1_addr = hub_addr;
+  assign hub_inv0 = hub_owner && hub_state == H_SAMPLE;
+  assign hub_inv1 = !hub_owner && hub_state == H_SAMPLE;
+  assign hub_wb0 = hub_owner && hub_state == H_FLUSH;
+  assign hub_wb1 = !hub_owner && hub_state == H_FLUSH;
+  logic owner_accept, owner_rlast, peer_dirty, peer_wb_done;
+  assign owner_accept = hub_owner ? (need1_fill && mdc1_ready) : (need0_fill && mdc0_ready);
+  assign owner_rlast = hub_owner ?
+      (dc1_mem_rvalid && dc1_mem_rlast) : (dc0_mem_rvalid && dc0_mem_rlast);
+  assign peer_dirty = hub_owner ? dc0_snoop_dirty : dc1_snoop_dirty;
+  assign peer_wb_done = hub_owner ? hub_wb_done0 : hub_wb_done1;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       hub_state <= H_IDLE;
       hub_owner <= 1'b0;
       hub_addr <= '0;
-      hub_is_up <= 1'b0;
       hub_rr <= 1'b0;
     end else begin
       case (hub_state)
         H_IDLE: begin
-          // A hart whose peer is parked grants immediately (hub stays idle).
-          if ((need0 && !bypass0) || (need1 && !bypass1)) begin
-            if (need0 && !bypass0 && (!need1 || !bypass1 || hub_rr == 1'b0)) begin
+          if (need0_fill || need1_fill) begin
+            if (need0_fill && (!need1_fill || !hub_rr)) begin
               hub_owner <= 1'b0;
-              hub_addr <= need0_up ? dc0_upgrade_addr : dc0_miss_line;
-              hub_is_up <= need0_up;
+              hub_addr <= dc0_miss_line;
             end else begin
               hub_owner <= 1'b1;
-              hub_addr <= need1_up ? dc1_upgrade_addr : dc1_miss_line;
-              hub_is_up <= need1_up;
+              hub_addr <= dc1_miss_line;
             end
             hub_state <= H_PROBE;
           end
@@ -560,25 +523,16 @@ module roco_soc #(
           else hub_state <= H_GRANT;
         end
         H_FLUSH: begin
-          if (peer_flush_done) hub_state <= H_PROBE;
+          if (peer_wb_done) hub_state <= H_PROBE;
         end
-        H_GRANT: begin
-          if (hub_is_up) hub_state <= H_UP;
-          else if (owner_accept) hub_state <= H_FILL;
-        end
-        H_FILL: begin
-          if (owner_rlast) begin
-            hub_rr <= ~hub_rr;
-            hub_state <= H_IDLE;
-          end
-        end
-        // The acked upgrade may already have retired (req is level-held
-        // only while the commit is pending), so release as soon as it drops.
-        H_UP: begin
-          if (!owner_up_req) begin
-            hub_rr <= ~hub_rr;
-            hub_state <= H_IDLE;
-          end
+        H_GRANT: if (owner_accept) hub_state <= H_FILL;
+        H_FILL: if (owner_rlast) hub_state <= H_SETTLE;
+        // Allow the owner's registered RAM read to land before starting
+        // another probe. A waiting AMO can then read in IDLE and store in
+        // PROBE. This is a fixed delay, never a wait on CPU progress.
+        H_SETTLE: begin
+          hub_rr <= !hub_owner;
+          hub_state <= H_IDLE;
         end
         default: hub_state <= H_IDLE;
       endcase
@@ -622,6 +576,7 @@ module roco_soc #(
       .dmem_req(dmem0_req),
       .dmem_valid(dmem0_valid),
       .dmem_amo_read(dmem0_amo_read),
+      .dmem_amo_retry(dmem0_in_sdram && dc0_amo_retry),
 `ifdef ROCO_SOC_RAM_FORMAL
       .f_mem_packet(f_mem_packet),
 `endif
@@ -717,13 +672,15 @@ module roco_soc #(
 `endif
       .clk(clk),
       .rst(cache_rst),
-      .flush(dcache_flush || hub_flush0),
+      .flush(dcache_flush),
       .flush_done(dcache_flush_done0),
       .lu_valid(dmem0_lu_valid && dmem0_lu_in_sdram),
       .lu_addr(dmem0_lu_addr[24:2]),
       .lu_offset(dmem0_lu_offset),
       .lu_funct3(dmem0_lu_funct3),
       .cm_valid(dmem0_req && dmem0_in_sdram),
+      .cm_amo_read(dmem0_amo_read && dmem0_in_sdram),
+      .cm_amo_retry(dc0_amo_retry),
       .cm_we(dmem0_we),
       .cm_addr(dmem0_addr[24:2]),
       .cm_wdata(dmem0_wdata),
@@ -747,13 +704,10 @@ module roco_soc #(
       .miss_pulse(dc0_miss),
       .snoop_valid(hub_snoop0_valid),
       .snoop_addr(hub_snoop0_addr),
-      .snoop_exclusive(1'b1),
-      .snoop_hit(dc0_snoop_hit),
       .snoop_dirty(dc0_snoop_dirty),
       .snoop_invalidate(hub_inv0),
-      .upgrade_req(dc0_upgrade_req),
-      .upgrade_addr(dc0_upgrade_addr),
-      .upgrade_ack(hub_ack0),
+      .snoop_writeback(hub_wb0),
+      .snoop_writeback_done(hub_wb_done0),
       .miss_line(dc0_miss_line),
       .flush_busy(dc0_flush_busy)
   );
@@ -785,6 +739,7 @@ module roco_soc #(
       .dmem_req(dmem1_req),
       .dmem_valid(dmem1_valid),
       .dmem_amo_read(dmem1_amo_read),
+      .dmem_amo_retry(dmem1_in_sdram && dc1_amo_retry),
       .dmem_we(dmem1_we),
       .dmem_addr(dmem1_addr),
       .dmem_wdata(dmem1_wdata),
@@ -843,13 +798,15 @@ module roco_soc #(
   ) u_dcache1 (
       .clk(clk),
       .rst(cache_rst),
-      .flush(dcache_flush || hub_flush1),
+      .flush(dcache_flush),
       .flush_done(dcache_flush_done1),
       .lu_valid(dmem1_lu_valid && dmem1_lu_in_sdram),
       .lu_addr(dmem1_lu_addr[24:2]),
       .lu_offset(dmem1_lu_offset),
       .lu_funct3(dmem1_lu_funct3),
       .cm_valid(dmem1_req && dmem1_in_sdram),
+      .cm_amo_read(dmem1_amo_read && dmem1_in_sdram),
+      .cm_amo_retry(dc1_amo_retry),
       .cm_we(dmem1_we),
       .cm_addr(dmem1_addr[24:2]),
       .cm_wdata(dmem1_wdata),
@@ -873,13 +830,10 @@ module roco_soc #(
       .miss_pulse(dc1_miss),
       .snoop_valid(hub_snoop1_valid),
       .snoop_addr(hub_snoop1_addr),
-      .snoop_exclusive(1'b1),
-      .snoop_hit(dc1_snoop_hit),
       .snoop_dirty(dc1_snoop_dirty),
       .snoop_invalidate(hub_inv1),
-      .upgrade_req(dc1_upgrade_req),
-      .upgrade_addr(dc1_upgrade_addr),
-      .upgrade_ack(hub_ack1),
+      .snoop_writeback(hub_wb1),
+      .snoop_writeback_done(hub_wb_done1),
       .miss_line(dc1_miss_line),
       .flush_busy(dc1_flush_busy)
   );

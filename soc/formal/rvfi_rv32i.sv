@@ -149,6 +149,7 @@ module rvfi_rv32i #(
       .dmem_be(dmem_be),
       .dmem_rsp_data(load_word),
       .dmem_forward_data(32'd0),
+      .dmem_amo_retry(1'b0),
       .ptw_bus_rst(rst),
       .ptw_ar(),
       .ptw_ready(1'b0),

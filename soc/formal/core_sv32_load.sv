@@ -94,6 +94,7 @@ module core_sv32_load (
       .dmem_be(),
       .dmem_rsp_data(loaded),
       .dmem_forward_data(32'd0),
+      .dmem_amo_retry(1'b0),
       .ptw_bus_rst(rst),
       .ptw_ar(ptw_ar),
       .ptw_ready(ptw_ready),

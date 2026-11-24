@@ -120,7 +120,8 @@ module roco_cpu #(
   input logic dmem_busy,
   output logic dmem_req,  // Ready-qualified commit strobe.
   output logic dmem_valid,  // In-order read/write validity, excluding failed SC.
-  output logic dmem_amo_read,  // Atomic read phase for uncached targets.
+  output logic dmem_amo_read,
+  input logic dmem_amo_retry,
 `ifdef ROCO_SOC_RAM_FORMAL
   output logic f_mem_packet,
 `endif
@@ -1491,6 +1492,7 @@ module roco_cpu #(
       .dmem_req(dmem_req),
       .dmem_valid(dmem_valid),
       .dmem_amo_read(dmem_amo_read),
+      .dmem_amo_retry(dmem_amo_retry),
       .dmem_we(dmem_we),
       .dmem_addr(dmem_addr),
       .dmem_wdata(dmem_wdata),

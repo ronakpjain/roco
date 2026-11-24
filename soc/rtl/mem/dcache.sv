@@ -1,10 +1,8 @@
 // Write-back data cache with a lookup-in-EX pipeline.
 //
-// The EX stage presents the address of a load/store. Tag and data RAM
-// reads are registered; tags compare in MEM alongside the returned data,
-// so hits need no cache-induced stall. A miss
-// stalls MEM while the line is written back and refilled. Registered
-// hit/readiness metadata keeps the tag lookup off pipeline hold enables.
+// EX presents the address early enough for a registered data read, so hits
+// do not stall. MEM checks that this read still belongs to a live line and
+// can reissue the read or miss if a peer probe raced the EX lookup.
 //
 // The lookup and commit ports carry word addresses (byte address bits
 // 24:2) of the 32 MB SDRAM window, so tags hold only the address bits
@@ -57,6 +55,8 @@ module dcache #(
   input logic [2:0] lu_funct3,
   /* MEM commit. */
   input logic cm_valid,
+  input logic cm_amo_read,
+  output logic cm_amo_retry,
   input logic cm_we,
   input logic [24:2] cm_addr,
   input logic [31:0] cm_wdata,
@@ -80,24 +80,19 @@ module dcache #(
   /* Performance counters. */
   output logic hit_pulse,
   output logic miss_pulse,
-  /* MSI snoop (bus-side coherence). Single-core ties valid/ack low/high. */
+  /* Exclusive-fill snoop. A dirty probe requests a targeted writeback. */
   input logic snoop_valid,
   input logic [22:0] snoop_addr,
-  input logic snoop_exclusive,
-  output logic snoop_hit,
   output logic snoop_dirty,
   input logic snoop_invalidate,
+  input logic snoop_writeback,
+  output logic snoop_writeback_done,
   /* Lookup stall: the core must hold EX while a flush runs, otherwise a
      lookup issued into the flush window is dropped (no miss is raised) yet
      the pipeline advances on the MMU hit, stranding MEM with stale hitq. */
   output logic flush_busy,
-  /* S->M upgrade: store to a clean (Shared) line must invalidate peers. */
-  output logic upgrade_req,
-  output logic [22:0] upgrade_addr,
-  input logic upgrade_ack,
-  /* Line base of the in-flight miss for the coherence hub's probe. All
-     hub fills are exclusive (MSI without E): the peer is invalidated
-     after a dirty writeback, so read-sharing migrates instead of copying. */
+  /* Line base of the in-flight miss for the coherence hub's probe. Clean
+     and dirty lines are both exclusive; a store never needs an upgrade. */
   output logic [22:0] miss_line
 );
 
@@ -131,9 +126,7 @@ module dcache #(
   logic valid_ram[0:NUM_LINES-1];
   logic dirty_ram[0:NUM_LINES-1];
   logic [MEM_TAG_BITS-1:0] tag_ram[0:NUM_LINES-1];
-  // Keep the lookup copy separate from the eviction/flush port. Compare
-  // tags in EX and register the hit bit so MEM readiness starts at one
-  // flop rather than a wide comparator feeding every pipeline hold.
+  // Keep the early EX lookup copy separate from the MEM/eviction ports.
   (* ram_style = "distributed" *) logic [MEM_TAG_BITS-1:0] lookup_tag_ram[0:NUM_LINES-1];
 
   logic [7:0] lane0[0:DEPTH-1];
@@ -183,8 +176,9 @@ module dcache #(
   logic [MEM_TAG_BITS-1:0] miss_tag;
   logic [IDX_BITS-1:0] flush_idx;
   logic [OFF_BITS-1:0] beat;
-  logic flush_active;
-  assign flush_busy = flush_active;
+  logic flush_active, probe_writeback_active, resume_fill;
+  logic full_flush_entry, probe_writeback_entry;
+  assign flush_busy = flush_active || probe_writeback_active;
 
   logic [MEM_WORD_BITS-1:0] victim_word;
   logic [MEM_WORD_BITS-1:0] flush_word;
@@ -194,8 +188,8 @@ module dcache #(
   assign victim_word = {tag_ram[miss_idx], miss_idx, {(OFF_BITS) {1'b0}}};
   assign flush_word = {tag_ram[flush_idx], flush_idx, {(OFF_BITS) {1'b0}}};
 
-  // Resolve the tag lookup alongside the data read, without adding a
-  // cache-hit cycle. Hold its registered response until MEM commits.
+  // Resolve the EX lookup alongside the data read so a cold miss can
+  // start before the MEM request arrives.
   logic lookup_hit_q;
   always_ff @(posedge clk) begin
     if ((state == S_FILL) && mem_rvalid && mem_rlast) begin
@@ -205,214 +199,92 @@ module dcache #(
   assign hit_pulse = lookup_valid_q && (state == S_IDLE) && lookup_hit_q;
   assign miss_pulse = lookup_valid_q && (state == S_IDLE) && !lookup_hit_q;
 
-  // MSI snoop: probe the authoritative tag/valid/dirty RAMs. A dirty hit
-  // must be written back by the coherence hub before invalidation, so a
-  // snoop invalidate only drops clean lines here; dirty lines stay valid
-  // and report snoop_dirty until the hub drains them.
+  // A clean hit can be invalidated at probe time. A dirty hit retains
+  // ownership until its data is sent on the writeback path.
   logic [IDX_BITS-1:0] snoop_idx;
   logic [MEM_TAG_BITS-1:0] snoop_tag;
   assign snoop_idx = snoop_addr[OFF_BITS+IDX_BITS-1:OFF_BITS];
   assign snoop_tag = snoop_addr[22:OFF_BITS+IDX_BITS];
-  assign snoop_hit = snoop_valid && valid_ram[snoop_idx] && (tag_ram[snoop_idx] == snoop_tag);
-  assign snoop_dirty = snoop_hit && dirty_ram[snoop_idx];
-  // Commit-time hit without the tag RAM re-read. tag_ram and
-  // lookup_tag_ram change only on our own fills (which imply a lookup
-  // Commit-time hit without the tag RAM re-read. tag_ram and
-  // lookup_tag_ram change only on our own fills (which imply a lookup
-  // miss) and valid_ram clears only on a peer snoop invalidate of a
-  // clean line, so a held lookup hit stays a hit unless the line died
-  // after we looked it up.
-  //
-  // The snapshot records the committing op's own lookup result (hit + full
-  // address) the first cycle it is presented. A full-address match is
-  // exact across evictions and aliases, so no tag re-read is needed; a
-  // mismatch can only cost a refill, never a false hit. killed_q shadows
-  // every valid_ram clear (snoop invalidate; reset) with a sticky bit per
-  // index, cleared by our fill. Invariant: killed_q[i] -> !valid_ram[i].
-  //
-  // New-op detection keys on the presented address (commits may stream
-  // back-to-back with cm_valid never dropping), and the snapshot is only
-  // as fresh as the in-order, level-held commit protocol the cache
-  // already assumes (see prev_store_be): a younger lookup can only
-  // overwrite the EX-side registers once per op, so at the commit's first
-  // cycle they still hold its own lookup. Anything else mismatches the
-  // full address and safely misses. No lu_* signal enters the commit cone,
-  // so no combinational ready loop is possible.
-  logic cm_hit_now;
-  logic lu_hit_live;
+  logic snoop_match, snoop_drop;
+  assign snoop_match = valid_ram[snoop_idx] && tag_ram[snoop_idx] == snoop_tag;
+  assign snoop_dirty = snoop_valid && snoop_match && dirty_ram[snoop_idx];
+  assign snoop_drop = snoop_valid && snoop_invalidate && snoop_match && !snoop_dirty;
+  // Both MEM phases name their address. A registered data read is usable
+  // only if it belongs to that word and its line still has the right tag.
+  // Use this same test for EX hits, replays, and recovery after a fill.
+  logic lu_hit_live, demand, target_live, target_probed, read_valid_q;
+  logic [24:2] target_addr, read_addr, read_addr_q;
+  logic [IDX_BITS-1:0] target_idx;
   assign lu_hit_live = (state == S_IDLE) && valid_ram[lu_addr[IDX_HI:IDX_LO]] &&
                        (lookup_tag_ram[lu_addr[IDX_HI:IDX_LO]] == lu_addr[24:IDX_HI+1]);
-  logic mem_hit_q;
-  logic [24:2] mem_addr_q;
-  logic [24:2] cm_addr_q;
-  logic cm_valid_q;
-  logic cm_new;
-  assign cm_new = cm_valid && (!cm_valid_q || (cm_addr != cm_addr_q));
-  logic fill_done;
-  assign fill_done = (state == S_FILL) && mem_rvalid && mem_rlast;
-  logic fill_void_mem;
-  assign fill_void_mem = fill_done && (miss_idx == mem_addr_q[IDX_HI:IDX_LO]);
+  assign demand = cm_valid || cm_amo_read;
+  assign target_addr = demand ? cm_addr : lu_addr_q;
+  assign target_idx = target_addr[IDX_HI:IDX_LO];
+  assign target_probed = snoop_valid && target_addr[24:OFF_BITS+2] == snoop_addr[22:OFF_BITS];
+  assign target_live = valid_ram[target_idx] &&
+                       tag_ram[target_idx] == target_addr[24:IDX_HI+1] &&
+                       !(snoop_drop && target_probed);
+  assign recovery_ready = pending_miss && read_valid_q;
+  assign cm_ready = state == S_IDLE && !flush_busy && !full_flush_entry && !probe_writeback_entry &&
+                    (demand || lookup_hit_q || recovery_ready) && target_live &&
+                    read_valid_q && read_addr_q == target_addr && !(cm_amo_read && target_probed);
+
+  // Do not pin the line against probes. If ownership is revoked while the
+  // core holds an AMO operand, send it back to the read phase, not to a
+  // refill followed by a store computed from the old operand.
+  logic amo_operand_valid;
+  logic [22:0] amo_operand_line;
+  assign cm_amo_retry = !amo_operand_valid;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
-      mem_hit_q <= 1'b0;
-      mem_addr_q <= '0;
-      cm_addr_q <= '0;
-      cm_valid_q <= 1'b0;
-    end else begin
-      cm_valid_q <= cm_valid;
-      if (cm_valid) cm_addr_q <= cm_addr;
-      if (fill_void_mem) begin
-        mem_hit_q <= 1'b0;
-      end else if (cm_new) begin
-        mem_hit_q <= lookup_hit_q;
-        mem_addr_q <= lu_addr_q;
-      end
+      amo_operand_valid <= 1'b0;
+      amo_operand_line <= '0;
+    end else if (cm_amo_read && cm_ready) begin
+      amo_operand_valid <= 1'b1;
+      amo_operand_line <= cm_addr & LINE_MASK;
+    end else if ((cm_valid && cm_ready) || full_flush_entry ||
+                 ((snoop_drop || probe_writeback_entry) &&
+                  amo_operand_line[22:OFF_BITS] == snoop_addr[22:OFF_BITS]) ||
+                 (state == S_FILL_REQ && mem_req && mem_ready)) begin
+      amo_operand_valid <= 1'b0;
     end
   end
-  logic killed_q[0:NUM_LINES-1];
-  // A peer snoop that drops a line must also drop the microarchitectural
-  // state shadowing it: a registered hit for a dead line, a pending
-  // miss about to serve one, or a retiring store about to dirty it would
-  // otherwise commit stale data or leave a dirty-invalid line the hub
-  // believes is gone. The guard mirrors the valid_ram clear exactly, so
-  // the clears fire precisely when the line dies. Safe direction only:
-  // a coincidental same-cycle lookup loses its result and refetches.
-  // A fill that lands evicts whatever was there: any registered hit for
-  // that index now refers to the old line and must be voided, or a later
-  // commit would consume the new line's data as the old line's. The
-  // voiding is safe-only (a voided hit refetches); recovery still serves
-  // the just-filled line through its own path.
-  logic snoop_kill_pending, snoop_kill_cm;
-  assign snoop_kill_pending = snoop_valid && snoop_invalidate && pending_miss &&
-                              (snoop_idx == miss_idx) && valid_ram[snoop_idx] &&
-                              (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx] &&
-                              (state == S_IDLE);
-  assign snoop_kill_cm = snoop_valid && snoop_invalidate && cm_valid &&
-                          (snoop_idx == cm_addr[IDX_HI:IDX_LO]) && valid_ram[snoop_idx] &&
-                          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx];
-  logic src_hit;
-  logic [24:2] src_addr;
-  assign src_hit = cm_new ? lookup_hit_q : mem_hit_q;
-  assign src_addr = cm_new ? lu_addr_q : mem_addr_q;
-  // The live kill drops readiness the same cycle the line dies, so the
-  // commit re-misses instead of retiring into a dead line (which would
-  // silently lose a vetoed store). snoop_valid comes from the hub's
-  // registered outputs, so this adds no combinational ready loop.
-  assign cm_hit_now = src_hit && (cm_addr == src_addr) &&
-                       !killed_q[cm_addr[IDX_HI:IDX_LO]] && !snoop_kill_cm;
-  logic hit_eff;
-  assign hit_eff = lookup_hit_q && (!cm_valid || cm_hit_now);
-  // S->M upgrade: a store hit on a clean line is Shared and must
-  // invalidate the peer before going Modified. Gate commit on hub ack.
-  logic upgrade_needed;
-  assign upgrade_needed = (state == S_IDLE) && cm_valid && cm_we && hit_eff &&
-                          !dirty_ram[cm_addr[IDX_HI:IDX_LO]] && !flush_active;
-  assign upgrade_req = upgrade_needed;
-  assign upgrade_addr = cm_addr;
-  // Recovery serves a completed fill while pending; it may only serve
-  // while the recovered line is still alive. The kill shadow revokes it
-  // when a snoop lands after the fill -- or the commit would retire into
-  // a dead line (silently losing a vetoed store). Gated on the miss line
-  // rather than the commit, since recovery asserts before the commit
-  // arrives; once a commit is present it must be for the recovered line
-  // (anything else takes the normal hit/miss path instead).
-  logic recovery_ok;
-  assign recovery_ok = recovery_ready && !killed_q[miss_idx] &&
-                       (!cm_valid || ((cm_addr[24:IDX_HI+1] == miss_tag) &&
-                                      (cm_addr[IDX_HI:IDX_LO] == miss_idx)));
-  assign cm_ready = (pending_miss ? (recovery_ok && !snoop_kill_pending) : hit_eff) &&
-      (!upgrade_needed || upgrade_ack) && !flush_active;
 `ifdef ROCO_SOC_FENCE_FORMAL
   assign f_idle = state == S_IDLE;
   assign f_lookup_pending = lookup_valid_q;
 `endif
   assign miss_line = miss_line_word;
-  // Lost-upgrade race: our commit target vanished under a peer snoop
-  // between lookup and commit. The S_IDLE capture below already holds our
-  // line (the pipeline holds EX while MEM waits, so lu_addr_q is ours);
-  // just raise a miss and let the fill path hold cm until recovery.
-  logic race_miss;
-  assign race_miss = (state == S_IDLE) && !pending_miss && cm_valid && !cm_hit_now;
-  // A flush starting on the same cycle abandons a just-detected miss: the
-  // stalled core re-issues the lookup after the flush drains.
-  logic flush_entry;
-  assign flush_entry = (state == S_IDLE) && flush && !flush_active;
-  // A snoop revokes the line; a miss starts a new fetch epoch for it.
-  // The snoop wins ties: a kill landing with a new miss means the fetch
-  // postdates the invalidation and must not validate blindly.
-  always_ff @(posedge clk or posedge rst) begin
-    if (rst) begin
-      for (int k = 0; k < NUM_LINES; k = k + 1) killed_q[k] <= 1'b0;
-    end else if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
-                 (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
-      killed_q[snoop_idx] <= 1'b1;
-    end else if ((miss_pulse || race_miss) && (state == S_IDLE)) begin
-      killed_q[miss_idx] <= 1'b0;
-    end
-  end
+  logic start_miss;
+  assign start_miss = state == S_IDLE && !flush_busy && !full_flush_entry &&
+                      !probe_writeback_entry && (demand ? !target_live : miss_pulse);
+  assign probe_writeback_entry = (state == S_IDLE || state == S_FILL_REQ) &&
+      snoop_writeback && !snoop_writeback_done && snoop_match && dirty_ram[snoop_idx] &&
+      !flush_busy;
+  assign full_flush_entry = state == S_IDLE && flush && !flush_busy && !probe_writeback_entry;
+
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       lookup_hit_q <= 1'b0;
       lookup_valid_q <= 1'b0;
       pending_miss <= 1'b0;
-      recovery_ready <= 1'b0;
+      read_valid_q <= 1'b0;
+      read_addr_q <= '0;
     end else begin
-      lookup_valid_q <= lu_valid && (state == S_IDLE);
-      // Keep each response until MEM commits it. The commit strobe is
-      // level-held through stalls, so only clear on the retire cycle
-      // (cm_ready) exactly as the old single-cycle pulse did; clearing on
-      // a still-waiting commit would drop the hit before it is consumed.
-      // Do not clear the held hit here on a snoop or a fill. It is the
-      // only thing that can satisfy register-readiness during an atomic's
-      // operand-read phase, where the core presents no commit strobe:
-      // dmem_ready for a cached target reduces to cm_ready, which without
-      // cm_valid reduces to lookup_hit_q. Clearing it strands that phase
-      // forever (no further lookup is ever issued). Correctness is enforced
-      // at the commit instead, by cm_hit_now, which vetoes a dead line
-      // through killed_q and forces the re-miss.
-      if (lu_valid) begin
-        lookup_hit_q <= lu_hit_live;
-      end else if (cm_valid && cm_ready) begin
-        lookup_hit_q <= 1'b0;
-      end
-      // One registered RAM read after refill makes the missed word ready.
-      if (pending_miss && (state == S_IDLE) && !recovery_ready) begin
-        recovery_ready <= 1'b1;
-      end
-      if (pending_miss && recovery_ready && cm_valid) begin
-        pending_miss <= 1'b0;
-        recovery_ready <= 1'b0;
-      end
-      // A following miss may start on the preceding request's commit edge.
-      // A snoop kill of the pending line discards the recovery with it:
-      // the invalidation raced the fill, so the commit must re-miss and
-      // refetch rather than consume possibly-stale data.
-      if (flush_entry) begin
-        pending_miss <= 1'b0;
-        recovery_ready <= 1'b0;
-      end else if (miss_pulse || race_miss) begin
-        pending_miss <= 1'b1;
-        recovery_ready <= 1'b0;
-      end else if (snoop_kill_pending) begin
-        pending_miss <= 1'b0;
-        recovery_ready <= 1'b0;
-      end else if (fill_done && killed_q[miss_idx] && pending_miss) begin
-        // A kill landed mid-fill, so the completion above did not validate.
-        // Drop the pending miss so the waiting commit re-misses and
-        // refetches post-snoop data instead of stalling forever.
-        pending_miss <= 1'b0;
-        recovery_ready <= 1'b0;
-      end
+      lookup_valid_q <= lu_valid && state == S_IDLE;
+      if (lu_valid) lookup_hit_q <= lu_hit_live;
+      else if (cm_valid && cm_ready) lookup_hit_q <= 1'b0;
+      if (start_miss) pending_miss <= 1'b1;
+      else if (cm_valid && cm_ready) pending_miss <= 1'b0;
+      read_valid_q <= state == S_IDLE && !start_miss && !full_flush_entry && !probe_writeback_entry;
+      read_addr_q <= read_addr;
     end
   end
 
+  // EX can read the next word on the current commit edge. When EX is held,
+  // replay the actual MEM word, not whatever address EX last looked up.
+  assign read_addr = lu_valid ? lu_addr : target_addr;
   always_comb begin
-    ram_raddr = {lu_addr[IDX_HI:IDX_LO], lu_addr[OFF_BITS+1:2]};
-    // A lookup owns the response until commit. EX may already present
-    // another packet while MEM is paused, without issuing a new lookup.
-    if (!lu_valid || (pending_miss && !recovery_ready)) begin
-      ram_raddr = {lu_addr_q[IDX_HI:IDX_LO], lu_addr_q[OFF_BITS+1:2]};
-    end
+    ram_raddr = read_addr[IDX_HI:2];
     if ((state == S_WB_RD) || (state == S_WB_WR)) begin
       ram_raddr = {miss_idx, beat};
     end else if ((state == S_FLUSH_RD) || (state == S_FLUSH_WR)) begin
@@ -433,9 +305,7 @@ module dcache #(
     endcase
   endfunction
   // The forwarding mirror is never used for writeback or flush reads.
-  // Only the live lookup and saved miss address belong on its read path.
-  assign forward_raddr = (!lu_valid || (pending_miss && !recovery_ready)) ?
-                         lu_addr_q[IDX_HI:2] : lu_addr[IDX_HI:2];
+  assign forward_raddr = read_addr[IDX_HI:2];
 `ifdef ROCO_DCACHE_MEMORY_FORMAL
   `include "dcache_memory_checks.svh"
 `endif
@@ -482,8 +352,8 @@ module dcache #(
   for (genvar b = 0; b < 4; b = b + 1) begin : g_forward_mask
     assign forward_mask[8*b+:8] = {8{cm_be[b]}};
   end
-  assign forward_offset = (!lu_valid || (pending_miss && !recovery_ready)) ? lookup_offset_q : lu_offset;
-  assign forward_funct3 = (!lu_valid || (pending_miss && !recovery_ready)) ? lookup_funct3_q : lu_funct3;
+  assign forward_offset = lu_valid ? lu_offset : lookup_offset_q;
+  assign forward_funct3 = lu_valid ? lu_funct3 : lookup_funct3_q;
   always_ff @(posedge clk) begin
     ram_data <= {lane3[ram_raddr], lane2[ram_raddr], lane1[ram_raddr], lane0[ram_raddr]};
     // Register alignment and store matching independently. Formatting the
@@ -547,7 +417,8 @@ module dcache #(
                            ((forward_raw & ~forward_mask_q) |
                             (forward_store_data_q & forward_mask_q)) : forward_raw;
 
-  assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ) || (state == S_FLUSH_REQ);
+  assign mem_req = (state == S_WB_REQ) || (state == S_FILL_REQ && !probe_writeback_entry) ||
+                   (state == S_FLUSH_REQ);
   assign mem_we = (state == S_WB_REQ) || (state == S_FLUSH_REQ);
   assign mem_word_addr = (state == S_WB_REQ) ? victim_word :
                          (state == S_FLUSH_REQ) ? flush_word : miss_line_word;
@@ -569,6 +440,9 @@ module dcache #(
       beat <= '0;
       flush_active <= 1'b0;
       flush_done <= 1'b0;
+      probe_writeback_active <= 1'b0;
+      snoop_writeback_done <= 1'b0;
+      resume_fill <= 1'b0;
       for (i = 0; i < NUM_LINES; i = i + 1) begin
         valid_ram[i] <= 1'b0;
         dirty_ram[i] <= 1'b0;
@@ -583,45 +457,28 @@ module dcache #(
         lu_addr_q <= lu_addr;
       end
 
-      // MSI snoop invalidate: drop clean lines immediately. Dirty hits
-      // are retained so the hub can flush them first (see snoop_dirty).
-      // valid_ram alone gates lookups, so the lookup-tag mirror needs no
-      // update here (it refreshes on the next fill to this index).
-      if (snoop_invalidate && snoop_valid && valid_ram[snoop_idx] &&
-          (tag_ram[snoop_idx] == snoop_tag) && !dirty_ram[snoop_idx]) begin
-        valid_ram[snoop_idx] <= 1'b0;
-      end
+      if (snoop_drop) valid_ram[snoop_idx] <= 1'b0;
+      if (!snoop_writeback) snoop_writeback_done <= 1'b0;
+      else if (!snoop_match || !dirty_ram[snoop_idx]) snoop_writeback_done <= 1'b1;
 
-      // Save the store payload alongside the address comparison. The commit
-      // strobe is level-held through stalls, so qualify with cm_ready: only a
-      // retire-cycle (ready) commit may set dirty state. Otherwise a store
-      // that is still waiting for its fill would dirty an invalid line and
-      // the eviction would write back unfilled (zero) data over SDRAM.
-      // A snoop kill of the committing line vetoes the retire: the line
-      // is dead, so the hub believes it is gone -- dirtying it would leave
-      // a dirty-invalid entry whose later writeback would clobber the
-      // peer's data. The commit re-misses instead.
-      prev_store_be <= ((state == S_IDLE) && cm_valid && cm_ready && cm_we && lu_valid &&
-                        !snoop_kill_cm) ? cm_be :
-          4'b0000;
-      if ((state == S_IDLE) && cm_valid && cm_ready && cm_we && !snoop_kill_cm &&
-          (!upgrade_needed || upgrade_ack)) begin
+      // Readiness already includes liveness and same-cycle invalidation.
+      // Only the store that writes the RAM is allowed to mark it dirty.
+      prev_store_be <= forward_store ? cm_be : 4'b0000;
+      if (cm_valid && cm_ready && cm_we) begin
         prev_store_data <= cm_wdata;
         dirty_ram[cm_addr[IDX_HI:IDX_LO]] <= 1'b1;
       end
 
       case (state)
         S_IDLE: begin
-          // Only the state transition depends on the tag comparison.
-          // The captured address is used after entering S_START.
-          miss_idx <= lu_addr_q[IDX_HI:IDX_LO];
-          miss_tag <= lu_addr_q[24:IDX_HI+1];
-          miss_line_word <= lu_addr_q & LINE_MASK;
-          if (flush && !flush_active) begin
+          if (full_flush_entry) begin
             flush_active <= 1'b1;
             flush_idx <= '0;
             state <= S_FLUSH;
-          end else if (miss_pulse || race_miss) begin
+          end else if (start_miss) begin
+            miss_idx <= target_idx;
+            miss_tag <= target_addr[24:IDX_HI+1];
+            miss_line_word <= target_addr & LINE_MASK;
             state <= S_START;
           end
         end
@@ -653,7 +510,8 @@ module dcache #(
           end
         end
         S_FILL_REQ: begin
-          if (mem_ready) begin
+          if (mem_req && mem_ready) begin
+            valid_ram[miss_idx] <= 1'b0;
             beat <= '0;
             state <= S_FILL;
           end
@@ -661,13 +519,8 @@ module dcache #(
         S_FILL: begin
           if (mem_rvalid) begin
             if (mem_rlast) begin
-              // A kill that landed mid-fill voids the mixed-vintage beats:
-              // leave the line invalid so the waiter re-misses instead of
-              // consuming possibly stale data.
-              if (!killed_q[miss_idx]) begin
-                valid_ram[miss_idx] <= 1'b1;
-                dirty_ram[miss_idx] <= 1'b0;
-              end
+              valid_ram[miss_idx] <= 1'b1;
+              dirty_ram[miss_idx] <= 1'b0;
               state <= S_IDLE;
             end else begin
               beat <= beat + 1'b1;
@@ -697,7 +550,13 @@ module dcache #(
           if (mem_wready) begin
             if (beat == LAST_BEAT) begin
               dirty_ram[flush_idx] <= 1'b0;
-              if (flush_idx == IDX_BITS'(NUM_LINES - 1)) begin
+              if (probe_writeback_active) begin
+                valid_ram[flush_idx] <= 1'b0;
+                probe_writeback_active <= 1'b0;
+                snoop_writeback_done <= 1'b1;
+                if (resume_fill) state <= S_FILL_REQ;
+                else state <= S_IDLE;
+              end else if (flush_idx == IDX_BITS'(NUM_LINES - 1)) begin
                 flush_done <= 1'b1;
                 state <= S_IDLE;
               end else begin
@@ -714,8 +573,47 @@ module dcache #(
           state <= S_IDLE;
         end
       endcase
+
+      // The peer may need a dirty line even while our own fill waits for
+      // its grant. Drain that line without consuming or abandoning our miss.
+      if (probe_writeback_entry) begin
+        probe_writeback_active <= 1'b1;
+        resume_fill <= state == S_FILL_REQ;
+        flush_idx <= snoop_idx;
+        state <= S_FLUSH_REQ;
+      end
     end
   end
+
+`ifdef ROCO_DCACHE_SNOOP_FORMAL
+  // Structural safety with arbitrary snoops and bus stalls. No backing
+  // data model is needed to prove these metadata invariants.
+  (* anyconst *) logic [IDX_BITS-1:0] f_snoop_index;
+  initial assume (rst);
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      assert (!dirty_ram[f_snoop_index] || valid_ram[f_snoop_index]);
+      if (cm_ready && target_idx == f_snoop_index) begin
+        assert (valid_ram[f_snoop_index]);
+        assert (tag_ram[f_snoop_index] == target_addr[24:IDX_HI+1]);
+        assert (!(snoop_drop && snoop_idx == f_snoop_index));
+      end
+      if (amo_operand_valid && amo_operand_line[OFF_BITS+:IDX_BITS] == f_snoop_index) begin
+        assert (valid_ram[f_snoop_index]);
+        assert (tag_ram[f_snoop_index] == amo_operand_line[22:OFF_BITS+IDX_BITS]);
+      end
+      if (state == S_FILL) assert (!amo_operand_valid);
+      if (probe_writeback_active) begin
+        assert (state == S_FLUSH_REQ || state == S_FLUSH_RD || state == S_FLUSH_WR);
+        if (amo_operand_valid && amo_operand_line[OFF_BITS+:IDX_BITS] == f_snoop_index)
+          assert (flush_idx != f_snoop_index);
+      end
+      if ((state == S_FILL_REQ || (probe_writeback_active && resume_fill)) &&
+          miss_idx == f_snoop_index)
+        assert (!dirty_ram[f_snoop_index]);
+    end
+  end
+`endif
 
 `ifdef ROCO_SOC_RAM_FORMAL
   always_ff @(posedge clk) begin
@@ -730,7 +628,8 @@ module dcache #(
   (* anyconst *) logic [IDX_BITS-1:0] f_flush_index;
   always_ff @(posedge clk) begin
     if (!rst) begin
-      if (state == S_FLUSH || state == S_FLUSH_REQ || state == S_FLUSH_RD || state == S_FLUSH_WR) begin
+      if (!probe_writeback_active && (state == S_FLUSH || state == S_FLUSH_REQ ||
+                                     state == S_FLUSH_RD || state == S_FLUSH_WR)) begin
         assert (flush && flush_active && !flush_done);
         if (f_flush_index < flush_idx) assert (!dirty_ram[f_flush_index]);
       end

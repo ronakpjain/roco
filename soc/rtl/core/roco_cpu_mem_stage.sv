@@ -69,9 +69,9 @@ module roco_cpu_mem_stage (
   /* Data memory: request held until rsp_valid. */
   output logic dmem_req,
   output logic dmem_valid,
-  /* Atomic read phase: an uncached target needs a real read transaction
-     here, while a cached target already answered the EX lookup. */
+  /* Atomic operand read and revocation from the cached target. */
   output logic dmem_amo_read,
+  input logic dmem_amo_retry,
   output logic dmem_we,
   output logic [31:0] dmem_addr,
   output logic [31:0] dmem_wdata,
@@ -104,17 +104,18 @@ module roco_cpu_mem_stage (
   logic [31:0] amo_old_q, amo_sum;
   logic amo_staged, amo_ready, amo_prepare;
   assign amo_staged = exmem_is_amo;
-  assign amo_prepare = exmem_valid && amo_staged && !amo_ready;
+  assign amo_prepare = exmem_valid && amo_staged && (!amo_ready || dmem_amo_retry);
   // Register the EBR output before arithmetic. The following cycle can
   // calculate and commit directly, avoiding a separate result-only cycle.
   always_ff @(posedge clk) begin
-    if (!amo_ready) amo_old_q <= dmem_rsp_data;
+    if (dmem_amo_read && dmem_ready) amo_old_q <= dmem_rsp_data;
   end
   always_ff @(posedge clk or posedge rst) begin
     if (rst) amo_ready <= 1'b0;
     else if (!halt && !fence_req) begin
       if (!exmem_valid || !amo_staged) amo_ready <= 1'b0;
-      else if (dmem_ready) amo_ready <= !amo_ready;
+      else if (dmem_ready) amo_ready <= amo_prepare;
+      else if (dmem_amo_retry) amo_ready <= 1'b0;
     end
   end
   roco_cpu_addsub u_amo_add (
@@ -210,7 +211,9 @@ module roco_cpu_mem_stage (
     if (rst) sc_match_q <= 1'b0;
     else if (lookup_valid) sc_match_q <= res_valid && (res_addr == lookup_addr);
   end
-  assign sc_ok = sc_match_q;
+  // The early address match stays valid, but a peer can revoke the
+  // reservation while MEM waits to reacquire the line.
+  assign sc_ok = sc_match_q && res_valid;
   assign sc_result = {31'd0, !sc_ok};
   assign dmem_we = exmem_is_store || exmem_is_amo || (exmem_is_sc && sc_ok) || exmem_is_vstore;
   assign dmem_wdata = exmem_is_amo ? amo_data : exmem_store_data;
@@ -223,14 +226,13 @@ module roco_cpu_mem_stage (
   // a bus transaction: an MMIO read can itself have side effects.
   assign dmem_valid = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare &&
                       !(exmem_is_sc && !sc_ok);
-  // The atomic's old value comes from the cache lookup for a cached target.
-  // Any other target must read first, so name that phase for the bus side.
+  // Both the cache and MMIO need an explicit operand-read request. A cache
+  // retry reissues this request and suppresses the stale store until ready.
   assign dmem_amo_read = !halt && !fence_req && amo_prepare;
   // Hold the request through readiness stalls (like imem_req holding to
-  // rsp_valid) so the cache hub sees a stable commit strobe. Only the
-  // atomic operand-read phase stays invisible until the old value lands.
-  // dmem_valid still pulses exactly-once per commit; MMIO exactly-once and
-  // the failed-SC no-transaction rules are unchanged.
+  // rsp_valid) so the cache sees a stable commit strobe. The
+  // atomic operand-read phase uses a separate request until its old word
+  // lands. MMIO exactly-once and failed-SC no-transaction rules are unchanged.
   assign dmem_req = !halt && exmem_valid && !fence_req && is_memory_op && !amo_prepare;
   assign mem_wait = !halt && exmem_valid && is_memory_op && (!dmem_ready || amo_prepare);
   assign commit_valid = !halt && exmem_valid && !fence_req && !mem_wait;

@@ -1095,6 +1095,7 @@ the tracked word.
 ```sh
 bash formal/run.sh dcache-memory prove
 bash formal/run.sh dcache-memory cover
+bash formal/run.sh dcache-snoop prove
 ```
 
 K-induction proves the actual D-cache at the default SoC geometry (128 lines,
@@ -1116,10 +1117,13 @@ stall indefinitely and supplies exactly a line's worth of ordered responses
 if it completes a read, with coherent data only at the tracked word. Each
 reset starts a fresh memory epoch. Cover mode uses four lines to reach dirty
 eviction, changed data surviving flush, and same-cycle store/load forwarding.
-This standalone job isolates the cache contract. `soc-dcache-memory`
-discharges the connected CPU and backing-port constraints, including boot
-replacement; architectural instruction-fetch coherence across FENCE.I still
-requires composing both caches with the CPU's instruction model.
+The memory job models a single cache with no coherent peer. The separate
+`dcache-snoop` job leaves snoops and bus stalls unconstrained and checks
+local metadata safety: a ready response has a live exact tag, dirty implies
+valid, and an accepted AMO operand cannot outlive its cache line. The
+cross-hart protocol itself is exercised by `test_smp_amorace` and
+`test_smp_hammer`. `soc-dcache-memory` checks the connected CPU and
+backing-port constraints, including boot replacement.
 
 ### Remaining whole-core proof obligations
 

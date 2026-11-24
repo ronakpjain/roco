@@ -73,6 +73,7 @@ module core_csr_trap (
       .dmem_be(),
       .dmem_rsp_data(scratch),
       .dmem_forward_data(32'd0),
+      .dmem_amo_retry(1'b0),
       .ptw_bus_rst(rst),
       .ptw_ar(),
       .ptw_ready(1'b0),

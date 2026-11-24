@@ -36,26 +36,29 @@ and response completion.
 An atomic to an uncached address uses that port twice. The MEM stage publishes
 `dmem_amo_read` for its operand-capture phase, which the SoC turns into a
 single-beat read (with the write strobe masked); the following phase sends the
-one write with the computed data. A cached atomic never touches this port,
-because the EX cache lookup already answered it.
+one write with the computed data. A cached atomic sends its operand-read
+request to the D-cache instead.
 
 ## SMP coherence
 
-The two D-caches run an MSI bus-snooping protocol through a hub in `roco_soc`,
-without an Exclusive-clean state: every fill is shared and every store or
-atomic upgrade invalidates the peer (after writing back a dirty peer copy
-through a full-cache flush). Fills and victim writebacks pass straight to the
-AXI masters; only fill/upgrade acceptance stalls while a probe or flush is in
-flight. A hart whose peer is parked in reset skips probing, so single-hart
-timing is unchanged.
+Every D-cache fill is exclusive: a valid line is either clean-exclusive or
+modified. The hub in `roco_soc` grants a single fill only after probing the
+other cache. A clean peer copy is invalidated; a dirty peer copy is written
+back and invalidated. That targeted writeback can interrupt a parked fill
+without dropping it. Writebacks never need a hub grant, and the SDRAM adapter
+finishes an accepted write before servicing the next read.
+
+Both phases of a cached AMO name their MEM address. The D-cache accepts the
+operand only from a live matching line, and loss of that line before the
+store forces another operand read. Probes never wait for the AMO to commit.
 
 `FENCE.I`/`SFENCE.VMA` from either hart flushes both D-caches, invalidates both
 I-caches and both TLBs (remote shootdown), then releases only the requesting
 hart. Load-reserved/store-conditional reservations are per-hart and cleared by
 a committed store from either hart, so cross-hart `LR`/`SC` pairs order
-correctly. The programming model: share writable data with AMO/LR/SC (which
-drive invalidation through the hub) or uncached MMIO; plain stores become
-visible through the writeback but do not invalidate the peer's clean copy.
+correctly. Ordinary cached accesses use the same coherence protocol; use
+atomics and fences for synchronization and ordering, not to make stale cache
+copies visible.
 
 `make test_bus` runs standalone bus regressions. `make test_soc`, `make test_vm`,
 and `make test_boot` exercise the wired fabric, MMU walker, and UART boot path.

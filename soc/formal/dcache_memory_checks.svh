@@ -16,6 +16,8 @@ end
 `else
 `define DCACHE_ENV_CHECK assume
 initial assume (rst);
+// This harness models one cache and no coherent peer.
+always_comb assume (!snoop_valid && !snoop_writeback && !cm_amo_read);
 (* anyconst *) logic [24:2] f_watch_addr;
 (* anyconst *) logic [31:0] f_initial;
 wire f_abandoned = 1'b0;
@@ -107,11 +109,8 @@ always_ff @(posedge clk) begin
       f_pending <= 1'b1;
       {f_cpu_addr, f_cpu_offset, f_cpu_funct3} <= {lu_addr, lu_offset, lu_funct3};
     end else if (cm_valid) f_pending <= 1'b0;
-    // The architectural copy advances exactly when the DUT retires the
-    // store: ready alone is not enough, since a same-cycle snoop kill
-    // vetoes the write and forces a re-miss instead.
-    if (cm_valid && cm_we && cm_addr == f_watch_addr && cm_ready && !snoop_kill_cm &&
-        (!upgrade_needed || upgrade_ack)) begin
+    // The architectural copy advances exactly when the DUT retires the store.
+    if (cm_valid && cm_we && cm_addr == f_watch_addr && cm_ready) begin
       f_arch_word <= f_merge(f_arch_word, cm_wdata, cm_be);
     end
 
@@ -192,9 +191,14 @@ always_ff @(posedge clk) begin
       assert (f_mem_write == (f_evicting || f_flushing));
       assert (f_mem_base == (f_evicting ? victim_word : f_flushing ? flush_word : miss_line_word));
     end
+`ifndef ROCO_SOC_DCACHE_MEMORY_FORMAL
+    assert (!probe_writeback_active);
+`endif
+    if (read_valid_q) assert (state == S_IDLE);
     if (f_pending) begin
       assert ({lu_addr_q, lookup_offset_q, lookup_funct3_q} ==
               {f_cpu_addr, f_cpu_offset, f_cpu_funct3});
+      if (read_valid_q && !f_abandoned) assert (read_addr_q == f_cpu_addr);
     end
     if (lookup_valid_q) assert (f_pending && !pending_miss && state == S_IDLE);
     if (f_miss_active) begin

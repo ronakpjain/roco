@@ -6,9 +6,9 @@
 # counter and a shared array.
 #
 # Phase 1 (hammer): each hart runs N iterations of LCG-randomized
-# loads/stores/AMOs over a shared array bigger than neither cache but
-# with alias pairs that force evictions, plus one AMOADD to a shared
-# counter per iteration. A fence.i every 32 iterations pushes dirty lines
+# loads/stores/AMOs over two shared regions that alias in the D-cache,
+# plus one +1 AMOADD to a shared counter per iteration. A fence.i every
+# 32 iterations pushes dirty lines
 # to SDRAM so writebacks interleave with peer snoops.
 # Phase 2 (join): hart1 publishes its iteration count; hart0 waits, then
 # checks the shared counter equals exactly 2*N (every AMO applied once:
@@ -190,9 +190,9 @@ fail:
 # hammer: s0 = array base, s1 = iterations, s2 = LCG state.
 # Each iteration does one LCG step, picks load/store/AMO by low bits and
 # a word index, issues it, and fences every 32 iterations. Clobbers
-# t0-t4. Returns with s2 updated.
+# t0-t5. Returns with s2 updated.
 hammer:
-  li t4, 0
+  li t5, 0
 ham_loop:
   # LCG: r = r * 1103515245 + 12345.
   li t0, 1103515245
@@ -204,14 +204,16 @@ ham_loop:
   andi t1, t1, 255
   andi t0, s2, 3
   slli t1, t1, 2
+  # Bit 16 selects the second region, one 4 KiB D-cache span away.
+  srli t2, s2, 4
+  li t3, 4096
+  and t2, t2, t3
+  add t1, t1, t2
   add t1, t1, s0
   beqz t0, ham_load
   li t3, 1
   beq t0, t3, ham_store
-  # AMOADD +1 to the shared counter (op 2 and 3 both AMO for pressure).
-  la t3, counter
-  li t4, 0
-  amoadd.w t4, s2, (t3)
+  amoadd.w zero, s2, (t1)
   j ham_next
 ham_load:
   lw t3, 0(t1)
@@ -219,8 +221,11 @@ ham_load:
 ham_store:
   sw s2, 0(t1)
 ham_next:
-  addi t4, t4, 1
-  andi t0, t4, 31
+  la t3, counter
+  li t4, 1
+  amoadd.w zero, t4, (t3)
+  addi t5, t5, 1
+  andi t0, t5, 31
   bnez t0, ham_cont
   fence.i
 ham_cont:
@@ -237,4 +242,4 @@ flag_h1:
 counter:
   .word 0
 shared:
-  .zero 1024
+  .zero 5120

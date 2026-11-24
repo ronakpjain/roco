@@ -375,11 +375,12 @@ case "$job" in
       formal/soc_mmio_memory.sv)
     defines=''
     ;;
-  dcache-memory)
+  dcache-memory|dcache-snoop)
     top=dcache
     depth=64
     sources=(rtl/mem/dcache.sv)
     defines='-DROCO_DCACHE_MEMORY_FORMAL'
+    if [[ "$job" == dcache-snoop ]]; then defines='-DROCO_DCACHE_SNOOP_FORMAL'; fi
     parameters="chparam -set LINE_WORDS 8 -set NUM_LINES 128 $top;"
     if [[ "$mode" == cover ]]; then
       parameters="chparam -set LINE_WORDS 8 -set NUM_LINES 4 $top;"
@@ -447,7 +448,7 @@ case "$job" in
     sources=(rtl/bus/axi4_xbar.sv rtl/bus/axi4_register_slice.sv formal/axi_xbar_contract.sv)
     defines=''
     ;;
-  *) echo 'Usage: bash formal/run.sh {soc-system|soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio|soc-gpr|soc-gpr-forward|soc-a|soc-v|soc-m|soc-pc|soc-trap|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
+  *) echo 'Usage: bash formal/run.sh {soc-system|soc-isa-memory|soc-retire-memory|soc-fetch-memory|soc-fence-memory|soc-dcache-memory|soc-sdram-memory|soc-dcache-client|soc-ram|soc-fence|dcache-memory|dcache-snoop|sdram-pins|axi-mem-master|sdram-adapter|sdram-link|sdram-memory|soc-control|soc-mmio|soc-gpr|soc-gpr-forward|soc-a|soc-v|soc-m|soc-pc|soc-trap|soc-mmio-memory|core|core-accounting|core-vector-mem-stream|core-m-stream|core-memory|core-memory-port|core-atomic|core-atomic-stream|core-irq|core-gpr|core-gpr-writeback|core-gpr-storage|core-no-divide|core-forward|core-isa|core-isa-stall|core-multiply|core-divide-interlock|core-divide-cutpoint|core-csr-trap|csr-trap|core-sv32-load|core-vector-copy|mul-prod|mul-recombine|divider|atomic-mem|scalar-regs|vector-regs|vector-execute|sv32|icache|if-cache|bridge|xbar} [bmc|bmc-fast|cover|prove]' >&2; exit 2 ;;
 esac
 
 out="${FORMAL_BUILD_DIR:-build/formal}/$top"
@@ -455,6 +456,8 @@ if [[ "$job" =~ ^soc-(mmio|gpr|gpr-forward|a|v|m|pc|trap)$ ]]; then
   out="${FORMAL_BUILD_DIR:-build/formal}/roco_soc_${job#soc-}"
 elif [[ "$top" == rvfi_rv32i && "$job" == core-* ]]; then
   out="${out}_${job#core-}"
+elif [[ "$job" == dcache-snoop ]]; then
+  out="${out}_snoop"
 elif [[ "$job" == core-divide-cutpoint ]]; then
   out="${out}_cutpoint"
 elif [[ "$job" == sdram-link || "$job" == sdram-memory ]]; then

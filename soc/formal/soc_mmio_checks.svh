@@ -1,12 +1,20 @@
 // Observe the real SoC's CPU, fabric, APB and peripheral boundaries.
 // soc-control supplies the initial-reset assumption; pin inputs are free.
-logic f_mmio_sampled;
+logic f_mmio_sampled, f_buttons_answered;
 logic f_mmio_access, f_mmio_read, f_mmio_write, f_mmio_led_write;
 assign f_mmio_access = psel && penable && pready;
 assign f_mmio_read = f_mmio_access && !pwrite;
 assign f_mmio_write = f_mmio_access && pwrite;
 assign f_mmio_led_write = f_mmio_write && paddr[15:0] == 16'h0010 && pstrb[0];
 initial f_mmio_sampled = 1'b0;
+
+// The scripted cover program has one hart and one pending MMIO read.
+// Retain the APB result across the registered AXI return path.
+always_ff @(posedge clk) begin
+  if (rst) f_buttons_answered <= 1'b0;
+  else if (f_mmio_read) f_buttons_answered <= paddr[15:0] == 16'h0014 && buttons == 2'd3;
+  else if (mmio0_read_done) f_buttons_answered <= 1'b0;
+end
 
 always_ff @(posedge clk) begin
   f_mmio_sampled <= 1'b1;
@@ -72,9 +80,7 @@ always_ff @(posedge clk) begin
         else if (!$past(periph_bready)) assert ($stable(periph_b));
     end
 
-    cover (mmio0_read_done && mmio0_rsp_data == 32'd3 && $past(
-        f_mmio_read && paddr[15:0] == 16'h0014 && buttons == 2'd3
-    ));
+    cover (mmio0_read_done && mmio0_rsp_data == 32'd3 && f_buttons_answered);
     cover ($past(f_mmio_led_write) && leds == 4'd3);
     cover (!$past(halted) && halted && exit_code != 0);
   end

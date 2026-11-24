@@ -59,6 +59,9 @@ module axi4_mem_master (
   assign ready = state == Idle && (we ? aw_ready : ar_ready);
   assign wready = state == Write && w_ready;
   assign r_ready = state == Read;
+  logic unused_response_fields;
+  assign unused_response_fields = ^{r.id, b.id, b.resp};
+
   assign rvalid = state == Read && r.valid;
   assign rdata = r.resp == `AXI4_RESP_OKAY ? r.data : 32'd0;
   assign rlast = r.last;

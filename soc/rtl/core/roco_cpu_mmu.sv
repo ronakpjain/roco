@@ -73,6 +73,9 @@ module roco_cpu_mmu #(
   // bus response, so cancellation still wins over installation/faults.
   logic [31:0] pte_data_q;
   logic pte_valid_q;
+  logic [3:0] unused_ptw_r_id;
+  assign unused_ptw_r_id = ptw_r.id;
+
   always_ff @(posedge clk) pte_data_q <= ptw_r.resp == `AXI4_RESP_OKAY ? ptw_r.data : 32'd0;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) pte_valid_q <= 1'b0;

@@ -141,6 +141,8 @@ module roco_soc #(
   logic dmem1_amo_read;
   logic dmem1_we;
   logic [31:0] dmem1_addr;
+  logic [3:0] unused_dmem_byte_offsets;
+  assign unused_dmem_byte_offsets = {dmem0_addr[1:0], dmem1_addr[1:0]};
   logic [31:0] dmem1_wdata;
   logic [3:0] dmem1_be;
   logic [31:0] dmem1_rsp_data;
@@ -382,7 +384,7 @@ module roco_soc #(
   logic [3:0] c_wbe;
   logic c_rvalid;
   logic [31:0] c_rdata;
-  logic c_rlast;
+  logic unused_c_rlast;
   logic sdram_init_done;
 
   assign imem0_in_sdram = (imem0_addr[31:25] == 7'd8);
@@ -905,6 +907,8 @@ module roco_soc #(
       unused_mmio0_rlast;
   logic psel, penable, pwrite, pready;
   logic [31:0] paddr, pwdata;
+  logic [15:0] unused_paddr_upper;
+  assign unused_paddr_upper = paddr[31:16];
   logic [3:0] pstrb;
   logic [2:0] unused_pprot;
 
@@ -1389,7 +1393,7 @@ module roco_soc #(
       .wbe(c_wbe),
       .rvalid(c_rvalid),
       .rdata(c_rdata),
-      .rlast(c_rlast),
+      .rlast(unused_c_rlast),
       .init_done(sdram_init_done),
       .sd_a(sdram_a),
       .sd_ba(sdram_ba),

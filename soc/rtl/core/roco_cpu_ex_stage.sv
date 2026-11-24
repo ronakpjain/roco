@@ -125,8 +125,8 @@ module roco_cpu_ex_stage #(
   input logic fence_hold,
   input logic idex_pred_taken,
   input logic idex_pred_target_match,
-  input logic [31:0] idex_pred_jalr_base,
-  input logic [31:0] idex_pred_jalr_carry,
+  input logic [30:0] idex_pred_jalr_base,
+  input logic [30:0] idex_pred_jalr_carry,
   input logic idex_pred_jalr_aligned,
   /* Final MEM result and registered WB forwarding. */
   input logic [31:0] mem_data,
@@ -1381,13 +1381,16 @@ module roco_cpu_ex_stage #(
 
 `ifndef SYNTHESIS
   logic [31:0] expected_trap_cause_q, expected_trap_tval_q;
-  always @(posedge clk) begin
-    if (!rst && trap_capture && ex_trap) begin
+  always @(posedge clk or posedge rst) begin
+    if (rst) begin
+      expected_trap_cause_q <= '0;
+      expected_trap_tval_q <= '0;
+    end else if (trap_capture && ex_trap) begin
       expected_trap_cause_q <= ex_trap_cause;
       expected_trap_tval_q <= ex_trap_tval;
     end
   end
-  always @(negedge clk) begin
+  always @(negedge clk or posedge rst) begin
     if (!rst && trap_pending && !trap_is_irq_q)
       assert (csr_trap_cause === expected_trap_cause_q && csr_entry_tval === expected_trap_tval_q)
       else $fatal(1, "retimed trap payload differs from synchronous exception");

@@ -60,7 +60,7 @@ module roco_cpu_divider (
   logic [33:0] div_triple;
   logic [31:0] div_orig_a;
   logic [31:0] div_quot;
-  logic [32:0] div_rem;
+  logic [31:0] div_rem;
   logic [31:0] div_result_q;
   logic div_is_rem;
   logic div_sign;
@@ -69,8 +69,10 @@ module roco_cpu_divider (
 
   logic [33:0] digit_dividend;
   logic [34:0] digit_diff1, digit_diff2, digit_diff3;
+  logic unused_digit_high_bits;
+  assign unused_digit_high_bits = ^{digit_diff1[33:32], digit_diff2[33:32], digit_diff3[33:32]};
   logic [1:0] quotient_digit;
-  logic [32:0] remainder_next;
+  logic [31:0] remainder_next;
   logic [31:0] quotient_next;
   logic [31:0] div_quot_final;
   logic [31:0] div_rem_final;
@@ -98,16 +100,16 @@ module roco_cpu_divider (
   assign digit_diff3 = {1'b0, digit_dividend} - {1'b0, div_triple};
   always_comb begin
     quotient_digit = 2'b00;
-    remainder_next = {1'b0, digit_dividend[31:0]};
+    remainder_next = digit_dividend[31:0];
     if (!digit_diff3[34]) begin
       quotient_digit = 2'b11;
-      remainder_next = digit_diff3[32:0];
+      remainder_next = digit_diff3[31:0];
     end else if (!digit_diff2[34]) begin
       quotient_digit = 2'b10;
-      remainder_next = digit_diff2[32:0];
+      remainder_next = digit_diff2[31:0];
     end else if (!digit_diff1[34]) begin
       quotient_digit = 2'b01;
-      remainder_next = digit_diff1[32:0];
+      remainder_next = digit_diff1[31:0];
     end
   end
   assign quotient_next = {div_quot[29:0], quotient_digit};

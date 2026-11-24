@@ -71,8 +71,8 @@ module roco_cpu_id_stage (
   output logic idex_ifault,
   output logic idex_pred_taken,
   output logic idex_pred_target_match,
-  output logic [31:0] idex_pred_jalr_base,
-  output logic [31:0] idex_pred_jalr_carry,
+  output logic [30:0] idex_pred_jalr_base,
+  output logic [30:0] idex_pred_jalr_carry,
   output logic idex_pred_jalr_aligned,
   output logic [31:0] idex_rs1_val,
   output logic [31:0] idex_rs2_val,
@@ -120,12 +120,13 @@ module roco_cpu_id_stage (
 );
 
   logic [31:0] dec_imm;
-  logic [31:0] pred_jalr_base, pred_jalr_carry;
+  logic [30:0] pred_jalr_base, pred_jalr_carry;
+  logic unused_base_msb, unused_carry_msb;
   roco_cpu_sub_pair u_predicted_base (
       .a({1'b0, if_pred_target[31:1]}),
       .b({1'b0, dec_imm[31:1]}),
-      .difference(pred_jalr_base),
-      .predecessor(pred_jalr_carry)
+      .difference({unused_base_msb, pred_jalr_base}),
+      .predecessor({unused_carry_msb, pred_jalr_carry})
   );
   logic [2:0] dec_funct3;
   logic dec_alu_b_imm;
@@ -323,8 +324,8 @@ module roco_cpu_id_stage (
       // target PC+imm, so matching the trained immediate verifies it.
       // Indirect predictions retain full source/target validation below.
       idex_pred_target_match <= if_pred_direct && (dec_imm[20:0] == if_pred_imm);
-      idex_pred_jalr_base <= {1'b0, pred_jalr_base[30:0]};
-      idex_pred_jalr_carry <= {1'b0, pred_jalr_carry[30:0]};
+      idex_pred_jalr_base <= pred_jalr_base;
+      idex_pred_jalr_carry <= pred_jalr_carry;
       idex_pred_jalr_aligned <= !if_pred_target[0];
       // The current MEM producer will be WB when this instruction reaches
       // EX. Resolve that source before ID/EX instead of adding a WB mux

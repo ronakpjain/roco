@@ -62,13 +62,21 @@ module axi4_sdram_adapter (
   axi4_r_t r_payload;
   axi4_b_t b_payload;
 
-  function automatic logic supported(input logic [31:0] addr, input logic [7:0] len,
-                                     input logic [2:0] size, input logic [1:0] burst);
-    logic [8:0] last_col;
-    last_col = {1'b0, addr[9:2]} + {1'b0, len};
-    supported = addr[31:25] == 7'd8 && addr[1:0] == 0 && size == 3'd2 &&
-                burst == `AXI4_BURST_INCR && len < 8'd16 && !last_col[8];
+  // Protection metadata and WLAST do not drive the adapter; AWLEN sets the beat count.
+  logic unused_axi_fields;
+  assign unused_axi_fields = ^{ar.prot, aw.prot, w.last};
+
+  function automatic logic supported(input logic [6:0] region, input logic [9:0] row_offset,
+                                     input logic [7:0] len, input logic [2:0] size,
+                                     input logic [1:0] burst);
+    supported = region == 7'd8 && row_offset[1:0] == 0 && size == 3'd2 &&
+                burst == `AXI4_BURST_INCR && len < 8'd16 &&
+                ({1'b0, row_offset[9:2]} + {1'b0, len} < 9'd256);
   endfunction
+
+  logic ar_supported, aw_supported;
+  assign ar_supported = supported(ar.addr[31:25], ar.addr[9:0], ar.len, ar.size, ar.burst);
+  assign aw_supported = supported(aw.addr[31:25], aw.addr[9:0], aw.len, aw.size, aw.burst);
 
   assign ar_ready = state == Idle && (!aw.valid || !prefer_write);
   assign aw_ready = state == Idle && (!ar.valid || prefer_write);
@@ -142,8 +150,8 @@ module axi4_sdram_adapter (
             id_q <= ar.id;
             len_q <= ar.len;
             addr_q <= ar.addr[24:2];
-            error_q <= !supported(ar.addr, ar.len, ar.size, ar.burst);
-            if (supported(ar.addr, ar.len, ar.size, ar.burst)) state <= Issue;
+            error_q <= !ar_supported;
+            if (ar_supported) state <= Issue;
             else state <= Read;
           end else if (aw.valid && aw_ready) begin
             prefer_write <= 1'b0;
@@ -151,8 +159,8 @@ module axi4_sdram_adapter (
             id_q <= aw.id;
             len_q <= aw.len;
             addr_q <= aw.addr[24:2];
-            error_q <= !supported(aw.addr, aw.len, aw.size, aw.burst);
-            if (supported(aw.addr, aw.len, aw.size, aw.burst)) state <= Issue;
+            error_q <= !aw_supported;
+            if (aw_supported) state <= Issue;
             else state <= Write;
           end
         end

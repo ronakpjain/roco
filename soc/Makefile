@@ -72,9 +72,8 @@ format_check:
 syntax:
 	$(VERIBLE_SYNTAX) --error_limit=20 $(ALL_SV) $(RTL_SVH)
 
-# Keep advisory style/width warnings nonfatal, but reject structural defects.
-LINT_FLAGS := --lint-only --Wall -Wno-fatal -Werror-PINMISSING -Werror-PINNOCONNECT \
-	-Werror-UNDRIVEN -Werror-MULTIDRIVEN -Werror-LATCH -Werror-UNOPTFLAT
+# Treat all enabled lint warnings as errors; also check unconnected pins.
+LINT_FLAGS := --lint-only --Wall -Werror-PINNOCONNECT
 
 VL_FLAGS := --binary --timing -j 4 -Wno-fatal -I$(RTL_DIR)/common
 

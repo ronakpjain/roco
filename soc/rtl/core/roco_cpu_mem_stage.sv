@@ -343,7 +343,7 @@ module roco_cpu_mem_stage (
 `endif
 
 `ifndef SYNTHESIS
-  always @(posedge clk) begin
+  always @(posedge clk or posedge rst) begin
     if (!rst && lookup_valid && lookup_sc &&
         (trap_taken || (commit_now && (exmem_is_lr || exmem_is_sc || store_now))))
       $fatal(1, "SC lookup raced an older reservation update");
@@ -352,4 +352,7 @@ module roco_cpu_mem_stage (
       $fatal(1, "SC lookup lost its reservation/address association");
   end
 `endif
+  // Legacy forwarding inputs; MEM now consumes the committed response path.
+  logic unused_forwarding;
+  assign unused_forwarding = ^{exmem_forward_cache, exmem_forward_wbval, dmem_forward_data};
 endmodule

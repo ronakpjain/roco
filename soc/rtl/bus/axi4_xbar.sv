@@ -131,7 +131,6 @@ module axi4_xbar (
 `endif
   input axi4_r_t s1_r
 );
-  localparam int NUM_MASTERS = 9;
   localparam logic [3:0] NO_OWNER = 4'd9;
   typedef enum logic [1:0] {
     Idle,
@@ -252,6 +251,10 @@ module axi4_xbar (
     assign ar = mar[m];
     axi4_aw_t aw;
     assign aw = maw[m];
+    // Routing uses only VALID and the decoded address region.
+    logic unused_decode_fields;
+    assign unused_decode_fields = ^{ar.id, ar.addr[24:0], ar.len, ar.size, ar.burst, ar.prot,
+                                    aw.id, aw.addr[24:0], aw.len, aw.size, aw.burst, aw.prot};
     logic ar_sdram;
     assign ar_sdram = ar.addr[31:25] == 7'd8;
     logic aw_sdram;
@@ -328,6 +331,8 @@ module axi4_xbar (
     assign r = sr[s];
     axi4_b_t b;
     assign b = sb[s];
+    logic unused_response_fields;
+    assign unused_response_fields = ^{r.id, r.data, r.resp, b.id, b.resp};
     // Slave-side slices register the 9:1 owner muxes (AR/AW/W); R/B are
     // sliced per master in g_return to keep beat->owner pairing.
     axi4_register_slice #(
@@ -400,7 +405,7 @@ module axi4_xbar (
             wr[s] <= Address;
           end
           Address:
-          if (aw_out_v && saw_ready[s]) begin
+          if (aw_out_v[s] && saw_ready[s]) begin
             rw[s] <= next_master(wo[s]);
             wr[s] <= Data;
           end

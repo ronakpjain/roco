@@ -170,8 +170,8 @@ module roco_cpu #(
   logic [20:0] pred_imm;
   logic idex_pred_taken;
   logic idex_pred_target_match;
-  logic [31:0] idex_pred_jalr_base;
-  logic [31:0] idex_pred_jalr_carry;
+  logic [30:0] idex_pred_jalr_base;
+  logic [30:0] idex_pred_jalr_carry;
   logic idex_pred_jalr_aligned;
   logic btb_update;
   logic btb_is_branch;
@@ -281,7 +281,8 @@ module roco_cpu #(
   logic d_fault_q;
   logic [3:0] d_fault_cause_q;
   logic [3:0] mmu_d_fault_cause;
-  logic [31:0] mmu_d_paddr;
+  logic [31:12] mmu_d_ppn;
+  logic [11:0] unused_mmu_d_offset;
   logic ex_lu_hit;
   logic [1:0] priv_data;
 
@@ -405,7 +406,8 @@ module roco_cpu #(
   // retains its request until consuming the token, including each vector
   // element, so no wide address comparison belongs on frontend hold.
   logic translated_valid_q, lookup_translate_q;
-  logic [31:0] translated_paddr_q, lookup_paddr;
+  logic [31:12] translated_paddr_q;
+  logic [31:0] lookup_paddr;
   // Address preparation already supplies a register boundary in bare/M
   // mode. Capture the translation mode with that preparation and only
   // require a token when Sv32 permissions/PPN selection are active.
@@ -414,7 +416,7 @@ module roco_cpu #(
     else lookup_translate_q <= satp[31] && (priv_data != 2'b11);
   end
   always_ff @(posedge clk) begin
-    if (!translated_valid_q) translated_paddr_q <= mmu_d_paddr;
+    if (!translated_valid_q) translated_paddr_q <= mmu_d_ppn;
   end
   always_ff @(posedge clk or posedge rst) begin
     if (rst) translated_valid_q <= 1'b0;
@@ -428,7 +430,7 @@ module roco_cpu #(
   // Sv32 translates the page number, not the page offset. Take the
   // offset directly from the prepared EX address in both modes.
   assign lookup_paddr = {
-    lookup_translate_q ? translated_paddr_q[31:12] : ex_lu_vaddr[31:12], ex_lu_vaddr[11:0]
+    lookup_translate_q ? translated_paddr_q : ex_lu_vaddr[31:12], ex_lu_vaddr[11:0]
   };
   assign dmem_lu_valid = ex_lu_valid && ex_lu_hit;
   assign dmem_lu_addr = lookup_paddr[31:2];
@@ -1333,7 +1335,7 @@ module roco_cpu #(
       .d_hit(mmu_d_hit),
       .d_fault(mmu_d_fault),
       .d_fault_cause(mmu_d_fault_cause),
-      .d_paddr(mmu_d_paddr),
+      .d_paddr({mmu_d_ppn, unused_mmu_d_offset}),
       .ptw_ar(ptw_ar),
       .p_ready(ptw_ready),
       .ptw_r(ptw_r),
@@ -1557,7 +1559,7 @@ module roco_cpu #(
   always_ff @(posedge clk) begin
     if (!translated_valid_q) translated_vaddr_check <= ex_lu_vaddr;
   end
-  always @(negedge clk) begin
+  always @(negedge clk or posedge rst) begin
     if (!rst && lookup_translate_q && translated_valid_q && ex_lu_valid)
       assert (ex_lu_vaddr === translated_vaddr_check)
       else $fatal(1, "EX changed its request before consuming translation");
@@ -1565,7 +1567,7 @@ module roco_cpu #(
 `endif
 
 `ifndef SYNTHESIS
-  always @(posedge clk) begin
+  always @(posedge clk or posedge rst) begin
     if (!rst && pred_taken && pred_direct &&
         (pred_target != fetch_pc + {{11{pred_imm[20]}}, pred_imm}))
       $fatal(1, "direct BTB immediate does not describe its target");

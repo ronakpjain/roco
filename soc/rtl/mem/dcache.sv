@@ -203,6 +203,8 @@ module dcache #(
   // ownership until its data is sent on the writeback path.
   logic [IDX_BITS-1:0] snoop_idx;
   logic [MEM_TAG_BITS-1:0] snoop_tag;
+  logic [OFF_BITS-1:0] unused_snoop_offset;
+  assign unused_snoop_offset = snoop_addr[OFF_BITS-1:0];
   assign snoop_idx = snoop_addr[OFF_BITS+IDX_BITS-1:OFF_BITS];
   assign snoop_tag = snoop_addr[22:OFF_BITS+IDX_BITS];
   logic snoop_match, snoop_drop;
@@ -244,7 +246,7 @@ module dcache #(
   // core holds an AMO operand, send it back to the read phase, not to a
   // refill followed by a store computed from the old operand.
   logic amo_operand_valid;
-  logic [22:0] amo_operand_line;
+  logic [22:OFF_BITS] amo_operand_line;
   assign cm_amo_retry = !amo_operand_valid;
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -252,7 +254,7 @@ module dcache #(
       amo_operand_line <= '0;
     end else if (cm_amo_read && cm_ready) begin
       amo_operand_valid <= 1'b1;
-      amo_operand_line <= cm_addr & LINE_MASK;
+      amo_operand_line <= cm_addr[24:OFF_BITS+2];
     end else if ((cm_valid && cm_ready) || full_flush_entry ||
                  ((snoop_drop || probe_writeback_entry) &&
                   amo_operand_line[22:OFF_BITS] == snoop_addr[22:OFF_BITS]) ||
@@ -330,12 +332,15 @@ module dcache #(
     (* ram_style = "distributed" *) logic [7:0] bank_lane2[0:BANK_DEPTH-1];
     (* ram_style = "distributed" *) logic [7:0] bank_lane3[0:BANK_DEPTH-1];
     logic [31:0] word_data;
-    logic [BANK_ADDR_BITS-1:0] read_addr;
+    logic [BANK_ADDR_BITS-1:0] bank_read_addr;
     logic [BANK_ADDR_BITS-1:0] write_addr;
-    assign read_addr = forward_raddr[BANK_ADDR_BITS-1:0];
+    assign bank_read_addr = forward_raddr[BANK_ADDR_BITS-1:0];
     assign write_addr = ram_waddr[BANK_ADDR_BITS-1:0];
     assign word_data = {
-      bank_lane3[read_addr], bank_lane2[read_addr], bank_lane1[read_addr], bank_lane0[read_addr]
+      bank_lane3[bank_read_addr],
+      bank_lane2[bank_read_addr],
+      bank_lane1[bank_read_addr],
+      bank_lane0[bank_read_addr]
     };
 `ifdef ROCO_DCACHE_MEMORY_FORMAL
     assign f_forward_cell[bank] = {

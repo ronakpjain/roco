@@ -469,10 +469,10 @@ DIAMOND_WORK ?= roco-diamond
 diamond-bitstream: $(RTL_SV) | build
 	tar -czf - rtl constraints diamond | ssh $(DIAMOND_HOST) 'rm -rf $(DIAMOND_WORK)/soc && mkdir -p $(DIAMOND_WORK)/soc && tar -xzf - -C $(DIAMOND_WORK)/soc'
 	ssh $(DIAMOND_HOST) '$(DIAMOND_WORK)/soc/diamond/run.sh'
-	scp $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond.bit $(BUILD_DIR)/roco_diamond.bit
-	scp $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond.twr $(BUILD_DIR)/roco_diamond.twr
-	scp $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond.mrp $(BUILD_DIR)/roco_diamond.mrp
-	@echo "Diamond artifacts in $(BUILD_DIR)/roco_diamond.{bit,twr,mrp}"
+	@for suffix in .bit .twr _par.twr .mrp .ncd .prf; do \
+		scp -p $(DIAMOND_HOST):$(DIAMOND_WORK)/out/roco_diamond$$suffix $(BUILD_DIR)/ || exit 1; \
+	done
+	@echo "Diamond artifacts in $(BUILD_DIR)/roco_diamond*"
 
 clean:
 	rm -rf $(BUILD_DIR)

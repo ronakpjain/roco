@@ -63,16 +63,17 @@ editing the Dockerfile.
 ## Per-run flow (from this repo)
 
 ```sh
-make diamond-bitstream        # rsync sources -> Hercules, batch build, fetch .bit + .twr
+make diamond-bitstream        # sync sources, build on Hercules, and fetch artifacts
 ```
 
 What it does:
 
-1. `rsync`s `rtl/`, `constraints/`, `diamond/` to `hercules:roco-diamond/soc/`.
+1. Copies `rtl/`, `constraints/`, and `diamond/` to `hercules:roco-diamond/soc/`.
 2. Runs `soc/diamond/run.sh` over SSH: `docker run --rm` with the pinned
    `--mac-address`, bind-mounting sources (read-only), `license/`
    (read-only, as `LM_LICENSE_FILE`), and `out/` (artifacts).
-3. Fetches `out/roco_diamond.{bit,twr,mrp}` back into `build/`.
+3. After timing passes, fetches the bitstream, reports, routed design,
+   and preferences into `build/`.
 
 Inside the container, `diamondc` runs `soc/diamond/roco.tcl`: new
 `roco_soc` project for `LFE5U-85F-6BG381C`, Synplify synthesis of the same
@@ -84,9 +85,11 @@ complains about any directive we will fork a `constraints/roco_diamond.lpf`.
 ## Reading the result
 
 - `build/roco_diamond.bit` — configuration bitstream.
-- `build/roco_diamond.twr` — TRACE timing report; compare its
-  `clk_core` achieved Fmax against `build/roco_timing.json`.
+- `build/roco_diamond.twr` — authoritative TRACE report.
+- `build/roco_diamond_par.twr` — PAR timing report for comparison.
 - `build/roco_diamond.mrp` — map report (utilization sanity check).
+- `build/roco_diamond.ncd` and `build/roco_diamond.prf` — routed design
+  and preferences used to reproduce the authoritative TRACE report.
 
 ## Notes and known iteration points
 

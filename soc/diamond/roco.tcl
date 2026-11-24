@@ -57,27 +57,12 @@ run_step Map prj_run Map -impl $impl
 run_step PAR prj_run PAR -impl $impl
 run_step Export prj_run Export -impl $impl -task Bitgen
 
-# Exported bitstream/report names vary by Diamond version; resolve with
-# globs and normalize for the Makefile. `list` (not braces) so the
-# project/impl names actually substitute.
-foreach {pat dst} [list \
-    "impl1/${proj}_${impl}.bit" out/roco_diamond.bit \
-    "impl1/*.bit"             out/roco_diamond.bit \
-    "impl1/${proj}_${impl}.twr" out/roco_diamond_par.twr \
-    "impl1/*.twr"             out/roco_diamond_par.twr \
-    "impl1/${proj}_${impl}.mrp" out/roco_diamond.mrp \
-    "impl1/*.mrp"             out/roco_diamond.mrp \
-    "impl1/${proj}_${impl}.ncd" out/roco_diamond.ncd \
-    "impl1/*.ncd"             out/roco_diamond.ncd \
-    "impl1/${proj}_${impl}.prf" out/roco_diamond.prf \
-    "impl1/*.prf"             out/roco_diamond.prf] {
-    set hits [glob -nocomplain $pat]
-    if {[llength $hits] > 0} {
-        file copy -force [lindex $hits 0] $dst
-        puts "wrote $dst from [lindex $hits 0]"
-    } else {
-        puts "WARNING: expected artifact missing: $pat"
-    }
+# Ship the routed NCD used for TRACE, never the similarly named map NCD.
+foreach {ext suffix} {bit .bit twr _par.twr mrp .mrp ncd .ncd prf .prf} {
+    set src "$impl/${proj}_${impl}.$ext"
+    set dst "out/roco_diamond$suffix"
+    file copy -force $src $dst
+    puts "wrote $dst from $src"
 }
 
 # Authoritative timing report. PAR's own TRACE runs against

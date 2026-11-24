@@ -4,7 +4,7 @@
 // the packet file (produced by scripts/boot.py --emit-hex) is shifted
 // into the UART pin at the configured baud rate. The bootloader must
 // reply 'K', release the CPU, and the loaded program must halt through
-// the tohost register.
+// the tohost register. +console bridges host stdin to UART RX after boot.
 
 `timescale 1ns / 1ps
 
@@ -51,6 +51,8 @@ module tb_soc_boot #(
   integer guard;
   int unsigned cycles;
   int unsigned max_cycles;
+  bit console_on;
+  import "DPI-C" function int uart_console_input();
   string packet_file, reload_file;
   integer images_accepted = 0, restarts = 0;
   logic previous_boot_done = 0;
@@ -177,14 +179,16 @@ module tb_soc_boot #(
   endtask
 
   initial begin
+    console_on = $test$plusargs("console");
     if (!$value$plusargs("packet=%s", packet_file)) begin
       $fatal(1, "tb_soc_boot: no +packet file");
     end
     load_packet(packet_file);
     if (!$value$plusargs("reload=%s", reload_file)) reload_file = "";
+    if (console_on && reload_file != "") $fatal(1, "+console and +reload cannot be combined");
     $display("tb_soc_boot: %0d packet bytes", packet_len);
     if (!$value$plusargs("max_cycles=%d", max_cycles)) begin
-      max_cycles = 6_000_000;
+      max_cycles = console_on ? 0 : 6_000_000;
     end
     cycles = 0;
     buttons = 2'b11;
@@ -237,10 +241,22 @@ module tb_soc_boot #(
       if (images_accepted != 2) $fatal(1, "replacement image was not accepted");
     end
 
+    if (console_on) begin
+      int value;
+      forever begin
+        // Backpressure piped input so it cannot overrun the guest RX FIFO.
+        repeat (DIV * 10) @(negedge clk);
+        if (!halted && !u_soc.u_uart.rx_full) begin
+          value = uart_console_input();
+          if (value >= 0) send_byte(value[7:0]);
+        end
+      end
+    end
   end
 
   // UART monitor on the transmit pin.
   initial begin
+    bit first_byte = 1;
     forever begin
       @(negedge uart_tx);
       repeat (DIV + DIV / 2) @(posedge clk);
@@ -248,13 +264,16 @@ module tb_soc_boot #(
         rx_byte[bit_idx] = uart_tx;
         repeat (DIV) @(posedge clk);
       end
-      $write("%c", rx_byte);
-      $fflush();
+      if (!console_on || !first_byte || rx_byte != "K") begin
+        $write("%c", rx_byte);
+        $fflush();
+      end
+      first_byte = 0;
     end
   end
 
   always @(posedge clk) begin
-    if (!rst && !halted) begin
+    if (!rst && !halted && max_cycles != 0) begin
       cycles <= cycles + 1;
       if (cycles > max_cycles) begin
         $fatal(1, "tb_soc_boot: TIMEOUT after %0d cycles", max_cycles);

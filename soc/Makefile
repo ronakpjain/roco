@@ -368,8 +368,8 @@ test_isa_soc: $(BUILD_DIR)/tb_soc.vvp
 	$(PYTHON) scripts/run_isa_tests.py --sim soc --riscv-prefix $(RISCV)- --suite rv32ua
 
 BOOT_SIM := $(BUILD_DIR)/vl_tb_soc_boot/Vtb_soc_boot
-$(BOOT_SIM): $(SIM_RTL) $(RTL_SVH) sim/tb_soc_boot.sv sim/sdram_model.sv | build
-	$(VERILATOR) $(VL_FLAGS) --top-module tb_soc_boot -Mdir $(BUILD_DIR)/vl_tb_soc_boot $(filter %.sv,$^)
+$(BOOT_SIM): $(SIM_RTL) $(RTL_SVH) sim/tb_soc_boot.sv sim/sdram_model.sv sim/uart_console.cpp | build
+	$(VERILATOR) $(VL_FLAGS) --top-module tb_soc_boot -Mdir $(BUILD_DIR)/vl_tb_soc_boot $(filter %.sv,$^) $(abspath $(filter %.cpp,$^))
 
 $(BUILD_DIR)/tb_uart_boot_restart.vvp: rtl/periph/uart_boot.sv sim/tb_uart_boot_restart.sv | build
 	$(IVERILOG) -g2012 -s tb_uart_boot_restart -o $@ $^

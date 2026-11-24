@@ -59,20 +59,22 @@ class Codegen {
     std::string reg;
   };
 
-  void push_a0() {
+  void push_register(const std::string& source) {
     if (temp_stack_.size() < 7) {
       const std::string reg = "t" + std::to_string(temp_stack_.size());
-      emit("  mv " + reg + ", a0");
+      emit("  mv " + reg + ", " + source);
       temp_stack_.push_back({true, reg});
       return;
     }
     emit("  addi s1, s1, -4");
-    emit("  sw a0, 0(s1)");
+    emit("  sw " + source + ", 0(s1)");
     temp_stack_.push_back({false, std::string()});
     if (temp_stack_.size() > 256) {
       throw Error("expression is too deeply nested for the compiler frame");
     }
   }
+
+  void push_a0() { push_register("a0"); }
 
   void pop_to(const std::string& reg) {
     const TempValue value = temp_stack_.back();
@@ -227,6 +229,14 @@ class Codegen {
     return slot < 0 ? std::string() : LocalRegisterPlan::register_name(slot);
   }
 
+  std::string simple_register_local(const Expr& expression) const {
+    if (expression.kind != ExprKind::Var || expression.local == nullptr ||
+        expression.local->type->kind == TypeKind::Array) {
+      return {};
+    }
+    return local_register_name(expression.local);
+  }
+
   bool optimizing(OptimizationLevel level) const {
     return options_.optimization >= level;
   }
@@ -314,15 +324,46 @@ class Codegen {
     const bool is_unsigned =
         left_type->is_unsigned || right_type->is_unsigned ||
         is_pointer(left_type) || is_pointer(right_type);
+    const std::string left_register = simple_register_local(*expression.lhs);
+    const std::string right_register =
+        simple_register_local(*expression.rhs);
     std::int64_t constant = 0;
     if (constant_int(*expression.rhs, constant)) {
-      generate_expression(*expression.lhs, function);
       std::string right_reg = "zero";
-      if (constant != 0) {
-        right_reg = "a1";
-        emit("  li a1, " + std::to_string(constant));
+      if (!left_register.empty()) {
+        if (constant != 0) {
+          right_reg = "a1";
+          emit("  li a1, " + std::to_string(constant));
+        }
+        emit_compare_branch_impl(expression.binary, when_true, left_register,
+                                 right_reg, is_unsigned, target);
+      } else {
+        generate_expression(*expression.lhs, function);
+        if (constant != 0) {
+          right_reg = "a1";
+          emit("  li a1, " + std::to_string(constant));
+        }
+        emit_compare_branch_impl(expression.binary, when_true, "a0",
+                                 right_reg, is_unsigned, target);
       }
-      emit_compare_branch_impl(expression.binary, when_true, "a0", right_reg,
+      return;
+    }
+    if (!left_register.empty() && !right_register.empty()) {
+      emit_compare_branch_impl(expression.binary, when_true, left_register,
+                               right_register, is_unsigned, target);
+      return;
+    }
+    if (!right_register.empty()) {
+      generate_expression(*expression.lhs, function);
+      emit_compare_branch_impl(expression.binary, when_true, "a0",
+                               right_register, is_unsigned, target);
+      return;
+    }
+    if (!left_register.empty()) {
+      push_register(left_register);
+      generate_expression(*expression.rhs, function);
+      pop_to("a1");
+      emit_compare_branch_impl(expression.binary, when_true, "a1", "a0",
                                is_unsigned, target);
       return;
     }
@@ -372,6 +413,13 @@ class Codegen {
         emit_comparison_condition(expression, function, target, when_true);
         return;
       }
+    }
+    const std::string condition_register =
+        simple_register_local(expression);
+    if (!condition_register.empty()) {
+      emit(std::string(when_true ? "  bnez " : "  beqz ") +
+           condition_register + ", " + target);
+      return;
     }
     generate_expression(expression, function);
     emit(std::string(when_true ? "  bnez a0, " : "  beqz a0, ") + target);
@@ -670,23 +718,29 @@ class Codegen {
         generate_expression(*expression.lhs, function, need_value);
         return;
       case UnaryOp::Negate:
-        generate_expression(*expression.lhs, function, need_value);
-        if (need_value || !optimizing(OptimizationLevel::O1)) {
-          emit("  neg a0, a0");
-        }
-        return;
       case UnaryOp::Not:
+      case UnaryOp::BitNot: {
+        const bool use_value =
+            need_value || !optimizing(OptimizationLevel::O1);
+        const std::string reg = simple_register_local(*expression.lhs);
+        if (use_value && !reg.empty()) {
+          const std::string operation =
+              expression.unary == UnaryOp::Negate
+                  ? "neg a0, "
+                  : expression.unary == UnaryOp::Not ? "seqz a0, "
+                                                    : "not a0, ";
+          emit("  " + operation + reg);
+          return;
+        }
         generate_expression(*expression.lhs, function, need_value);
-        if (need_value || !optimizing(OptimizationLevel::O1)) {
-          emit("  seqz a0, a0");
+        if (use_value) {
+          emit(expression.unary == UnaryOp::Negate
+                   ? "  neg a0, a0"
+                   : expression.unary == UnaryOp::Not ? "  seqz a0, a0"
+                                                      : "  not a0, a0");
         }
         return;
-      case UnaryOp::BitNot:
-        generate_expression(*expression.lhs, function, need_value);
-        if (need_value || !optimizing(OptimizationLevel::O1)) {
-          emit("  not a0, a0");
-        }
-        return;
+      }
       case UnaryOp::Dereference:
         generate_expression(*expression.lhs, function);
         load(expression.type);
@@ -708,17 +762,39 @@ class Codegen {
     if (expression.lhs->kind == ExprKind::Var &&
         expression.lhs->local != nullptr &&
         expression.lhs->local->type->kind != TypeKind::Array) {
-      const bool in_register =
-          local_register_slot(expression.lhs->local) >= 0;
-      load_local(*expression.lhs->local, expression.lhs->type, "a0");
       const bool increment = expression.unary == UnaryOp::PreIncrement ||
                              expression.unary == UnaryOp::PostIncrement;
       const bool post = expression.unary == UnaryOp::PostIncrement ||
                         expression.unary == UnaryOp::PostDecrement;
+      const std::int64_t delta = increment ? 1 : -1;
+      const std::string reg = local_register_name(expression.lhs->local);
+      if (!reg.empty()) {
+        const std::int64_t step =
+            is_pointer(expression.type)
+                ? static_cast<std::int64_t>(expression.type->base->size) *
+                      delta
+                : delta;
+        const std::string amount = std::to_string(step);
+        if (!need_value) {
+          emit("  addi " + reg + ", " + reg + ", " + amount);
+          convert_register(expression.lhs->type, reg);
+          return;
+        }
+        if (post) {
+          emit("  mv a0, " + reg);
+          emit("  addi " + reg + ", " + reg + ", " + amount);
+          convert_register(expression.lhs->type, reg);
+          return;
+        }
+        emit("  addi a0, " + reg + ", " + amount);
+        convert_value(expression.lhs->type);
+        emit("  mv " + reg + ", a0");
+        return;
+      }
+      load_from(expression.lhs->type, "s0", expression.lhs->local->offset);
       if (post && need_value) {
         emit("  mv a2, a0");
       }
-      const std::int64_t delta = increment ? 1 : -1;
       if (is_pointer(expression.type)) {
         const std::int64_t step =
             static_cast<std::int64_t>(expression.type->base->size) * delta;
@@ -726,25 +802,17 @@ class Codegen {
       } else {
         emit("  addi a0, a0, " + std::to_string(delta));
       }
-      if (in_register) {
-        convert_value(expression.lhs->type);
-        emit("  mv " + local_register_name(expression.lhs->local) +
-             ", a0");
-      } else {
-        store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
-      }
+      store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
       if (optimizing(OptimizationLevel::O1)) {
         if (need_value) {
           if (post) {
             emit("  mv a0, a2");
-          } else if (!in_register) {
+          } else {
             convert_value(expression.lhs->type);
           }
         }
       } else {
-        if (!in_register) {
-          convert_value(expression.lhs->type);
-        }
+        convert_value(expression.lhs->type);
         if (post) {
           emit("  mv a0, a2");
         }
@@ -865,6 +933,18 @@ class Codegen {
         is_unsigned = expression.lhs->type->is_unsigned;
       }
       if (local_compound) {
+        const std::string lhs_register =
+            local_register_name(expression.lhs->local);
+        if (!lhs_register.empty() &&
+            immediate_is_direct(expression.binary, immediate)) {
+          emit_immediate(expression.binary, immediate, expression.lhs->type,
+                         expression.rhs->type, lhs_register, lhs_register);
+          convert_register(expression.lhs->type, lhs_register);
+          if (need_value) {
+            emit("  mv a0, " + lhs_register);
+          }
+          return;
+        }
         load_local(*expression.lhs->local, expression.lhs->type, "a0");
         if (emit_immediate(expression.binary, immediate,
                            expression.lhs->type, expression.rhs->type)) {
@@ -908,19 +988,44 @@ class Codegen {
       return;
     }
     if (local_compound) {
-      generate_expression(*expression.rhs, function);
-      if (is_pointer(expression.lhs->type) &&
-          is_integer(expression.rhs->type)) {
-        emit_scale_a0(expression.lhs->type->base->size);
-      }
-      emit("  mv a2, a0");
-      load_local(*expression.lhs->local, expression.lhs->type, "a1");
-      emit("  mv a0, a2");
       bool is_unsigned = expression.lhs->type->is_unsigned ||
                          expression.rhs->type->is_unsigned;
       if (expression.binary == BinaryOp::Shr) {
         is_unsigned = expression.lhs->type->is_unsigned;
       }
+      const std::string lhs_register =
+          local_register_name(expression.lhs->local);
+      const std::string rhs_register =
+          simple_register_local(*expression.rhs);
+      const bool scale_rhs =
+          is_pointer(expression.lhs->type) &&
+          is_integer(expression.rhs->type) &&
+          expression.lhs->type->base->size > 1;
+      if (!lhs_register.empty()) {
+        if (!rhs_register.empty() && !scale_rhs) {
+          apply_binary_impl(expression.binary, lhs_register, rhs_register,
+                            is_unsigned, lhs_register);
+        } else {
+          generate_expression(*expression.rhs, function);
+          if (scale_rhs) {
+            emit_scale_a0(expression.lhs->type->base->size);
+          }
+          apply_binary_impl(expression.binary, lhs_register, "a0",
+                            is_unsigned, lhs_register);
+        }
+        convert_register(expression.lhs->type, lhs_register);
+        if (need_value) {
+          emit("  mv a0, " + lhs_register);
+        }
+        return;
+      }
+      generate_expression(*expression.rhs, function);
+      if (scale_rhs) {
+        emit_scale_a0(expression.lhs->type->base->size);
+      }
+      emit("  mv a2, a0");
+      load_local(*expression.lhs->local, expression.lhs->type, "a1");
+      emit("  mv a0, a2");
       apply_binary(expression.binary, expression.lhs->type,
                    expression.rhs->type, is_unsigned);
       finish_local_store(*expression.lhs->local, expression.lhs->type,
@@ -1490,11 +1595,54 @@ class Codegen {
     return false;
   }
 
+  static bool immediate_is_direct(BinaryOp operation, std::int64_t value) {
+    switch (operation) {
+      case BinaryOp::Add:
+        return value != 0 && fits_signed_12(value);
+      case BinaryOp::Sub:
+        return value != 0 && fits_signed_12(value) &&
+               fits_signed_12(-value);
+      case BinaryOp::BitAnd:
+      case BinaryOp::BitOr:
+      case BinaryOp::BitXor:
+      case BinaryOp::Eq:
+      case BinaryOp::Ne:
+      case BinaryOp::Lt:
+      case BinaryOp::Ge:
+        return fits_signed_12(value);
+      case BinaryOp::Le:
+      case BinaryOp::Gt:
+        return fits_signed_12(value) && fits_signed_12(value + 1);
+      case BinaryOp::Shl:
+      case BinaryOp::Shr:
+        return value >= 0 && value <= 31;
+      default:
+        return false;
+    }
+  }
+
   bool emit_immediate(BinaryOp operation, std::int64_t value,
-                      const TypePtr& left_type, const TypePtr& right_type) {
+                      const TypePtr& left_type, const TypePtr& right_type,
+                      const std::string& source = "a0",
+                      const std::string& destination = "a0") {
     const bool is_unsigned = left_type->is_unsigned ||
                              right_type->is_unsigned ||
                              is_pointer(left_type) || is_pointer(right_type);
+    std::string destination_reg = destination;
+    std::string source_reg = source;
+    const bool constant_select =
+        operation == BinaryOp::Mul || operation == BinaryOp::Div ||
+        operation == BinaryOp::Mod;
+    if (constant_select) {
+      if (source_reg != "a0") {
+        emit("  mv a0, " + source_reg);
+        source_reg = "a0";
+      }
+      if (destination_reg != "a0") {
+        throw Error(
+            "internal error: constant immediate destination must be a0");
+      }
+    }
     if (optimizing(OptimizationLevel::O2) &&
         (operation == BinaryOp::Mul || operation == BinaryOp::Div ||
          operation == BinaryOp::Mod)) {
@@ -1523,62 +1671,74 @@ class Codegen {
     }
     switch (operation) {
       case BinaryOp::Add:
-        if (value != 0) emit("  addi a0, a0, " + std::to_string(value));
+        if (value != 0) {
+          emit("  addi " + destination_reg + ", " + source_reg + ", " +
+               std::to_string(value));
+        }
         return true;
       case BinaryOp::Sub:
         if (!fits_signed_12(-value)) return false;
-        if (value != 0) emit("  addi a0, a0, " + std::to_string(-value));
+        if (value != 0) {
+          emit("  addi " + destination_reg + ", " + source_reg + ", " +
+               std::to_string(-value));
+        }
         return true;
       case BinaryOp::BitAnd:
-        emit("  andi a0, a0, " + std::to_string(value));
+        emit("  andi " + destination_reg + ", " + source_reg + ", " +
+             std::to_string(value));
         return true;
       case BinaryOp::BitOr:
-        emit("  ori a0, a0, " + std::to_string(value));
+        emit("  ori " + destination_reg + ", " + source_reg + ", " +
+             std::to_string(value));
         return true;
       case BinaryOp::BitXor:
-        emit("  xori a0, a0, " + std::to_string(value));
+        emit("  xori " + destination_reg + ", " + source_reg + ", " +
+             std::to_string(value));
         return true;
       case BinaryOp::Shl:
         if (value < 0 || value > 31) return false;
-        emit("  slli a0, a0, " + std::to_string(value));
+        emit("  slli " + destination_reg + ", " + source_reg + ", " +
+             std::to_string(value));
         return true;
       case BinaryOp::Shr:
         if (value < 0 || value > 31) return false;
-        emit(std::string(left_type->is_unsigned ? "  srli a0, a0, "
-                                                : "  srai a0, a0, ") +
+        emit(std::string(left_type->is_unsigned ? "  srli " : "  srai ") +
+             destination_reg + ", " + source_reg + ", " +
              std::to_string(value));
         return true;
       case BinaryOp::Eq:
-        emit("  xori a0, a0, " + std::to_string(value));
-        emit("  seqz a0, a0");
+        emit("  xori " + destination_reg + ", " + source_reg + ", " +
+             std::to_string(value));
+        emit("  seqz " + destination_reg + ", " + destination_reg);
         return true;
       case BinaryOp::Ne:
-        emit("  xori a0, a0, " + std::to_string(value));
-        emit("  snez a0, a0");
+        emit("  xori " + destination_reg + ", " + source_reg + ", " +
+             std::to_string(value));
+        emit("  snez " + destination_reg + ", " + destination_reg);
         return true;
       case BinaryOp::Lt:
-        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
-                                     : "  slti a0, a0, ") +
+        emit(std::string(is_unsigned ? "  sltiu " : "  slti ") +
+             destination_reg + ", " + source_reg + ", " +
              std::to_string(value));
         return true;
       case BinaryOp::Ge:
-        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
-                                     : "  slti a0, a0, ") +
+        emit(std::string(is_unsigned ? "  sltiu " : "  slti ") +
+             destination_reg + ", " + source_reg + ", " +
              std::to_string(value));
-        emit("  xori a0, a0, 1");
+        emit("  xori " + destination_reg + ", " + destination_reg + ", 1");
         return true;
       case BinaryOp::Le:
         if (!fits_signed_12(value + 1)) return false;
-        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
-                                     : "  slti a0, a0, ") +
+        emit(std::string(is_unsigned ? "  sltiu " : "  slti ") +
+             destination_reg + ", " + source_reg + ", " +
              std::to_string(value + 1));
         return true;
       case BinaryOp::Gt:
         if (!fits_signed_12(value + 1)) return false;
-        emit(std::string(is_unsigned ? "  sltiu a0, a0, "
-                                     : "  slti a0, a0, ") +
+        emit(std::string(is_unsigned ? "  sltiu " : "  slti ") +
+             destination_reg + ", " + source_reg + ", " +
              std::to_string(value + 1));
-        emit("  xori a0, a0, 1");
+        emit("  xori " + destination_reg + ", " + destination_reg + ", 1");
         return true;
       default:
         return false;
@@ -1775,10 +1935,33 @@ class Codegen {
         (expression.binary == BinaryOp::Add ||
          expression.binary == BinaryOp::Sub) &&
         is_pointer(left_type);
+    bool is_unsigned = left_type->is_unsigned || right_type->is_unsigned;
+    if (is_pointer(left_type) || is_pointer(right_type)) {
+      is_unsigned = true;
+    }
+    if (expression.binary == BinaryOp::Shr) {
+      is_unsigned = left_type->is_unsigned;
+    }
+    const std::string left_register = simple_register_local(*expression.lhs);
+    const std::string right_register =
+        simple_register_local(*expression.rhs);
+    const bool pointer_difference =
+        expression.binary == BinaryOp::Sub && is_pointer(left_type) &&
+        is_pointer(right_type);
+    const bool scale_right =
+        pointer_arith && is_integer(right_type) &&
+        left_type->base->size > 1;
+
     std::int64_t immediate = 0;
     if (constant_int(*expression.rhs, immediate)) {
       if (pointer_arith && is_integer(right_type)) {
         immediate *= static_cast<std::int64_t>(left_type->base->size);
+      }
+      if (!left_register.empty() &&
+          immediate_is_direct(expression.binary, immediate)) {
+        emit_immediate(expression.binary, immediate, left_type, right_type,
+                       left_register);
+        return;
       }
       generate_expression(*expression.lhs, function);
       if (emit_immediate(expression.binary, immediate, left_type,
@@ -1789,86 +1972,107 @@ class Codegen {
       emit("  li a0, " + std::to_string(immediate));
       pop_to("a1");
     } else {
-      generate_expression(*expression.lhs, function);
-      push_a0();
+      if (!left_register.empty() && !right_register.empty() &&
+          !scale_right) {
+        apply_binary_impl(expression.binary, left_register, right_register,
+                          is_unsigned, "a0");
+        if (pointer_difference) {
+          emit_pointer_difference_scale(left_type->base->size);
+        }
+        return;
+      }
+      if (!right_register.empty() && !scale_right) {
+        generate_expression(*expression.lhs, function);
+        emit("  mv a1, a0");
+        apply_binary_impl(expression.binary, "a1", right_register,
+                          is_unsigned, "a0");
+        if (pointer_difference) {
+          emit_pointer_difference_scale(left_type->base->size);
+        }
+        return;
+      }
+      if (!left_register.empty()) {
+        push_register(left_register);
+      } else {
+        generate_expression(*expression.lhs, function);
+        push_a0();
+      }
       generate_expression(*expression.rhs, function);
-      if (pointer_arith && is_integer(right_type)) {
+      if (scale_right) {
         emit_scale_a0(left_type->base->size);
       }
       pop_to("a1");
     }
-    if (expression.binary == BinaryOp::Sub && is_pointer(left_type) &&
-        is_pointer(right_type)) {
+    if (pointer_difference) {
       emit("  sub a0, a1, a0");
       emit_pointer_difference_scale(left_type->base->size);
       return;
     }
-    bool is_unsigned = left_type->is_unsigned || right_type->is_unsigned;
-    if (is_pointer(left_type) || is_pointer(right_type)) {
-      is_unsigned = true;
-    }
-    if (expression.binary == BinaryOp::Shr) {
-      is_unsigned = left_type->is_unsigned;
-    }
     apply_binary(expression.binary, left_type, right_type, is_unsigned);
   }
 
-  void apply_binary(BinaryOp operation, const TypePtr& left_type,
-                    const TypePtr& right_type, bool is_unsigned) {
-    (void)left_type;
-    (void)right_type;
+  void apply_binary_impl(BinaryOp operation, const std::string& left,
+                         const std::string& right, bool is_unsigned,
+                         const std::string& destination) {
     switch (operation) {
       case BinaryOp::Add:
-        emit("  add a0, a1, a0");
+        emit("  add " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::Sub:
-        emit("  sub a0, a1, a0");
+        emit("  sub " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::Mul:
-        emit("  mul a0, a1, a0");
+        emit("  mul " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::Div:
-        emit(is_unsigned ? "  divu a0, a1, a0" : "  div a0, a1, a0");
+        emit((is_unsigned ? "  divu " : "  div ") + destination + ", " +
+             left + ", " + right);
         return;
       case BinaryOp::Mod:
-        emit(is_unsigned ? "  remu a0, a1, a0" : "  rem a0, a1, a0");
+        emit((is_unsigned ? "  remu " : "  rem ") + destination + ", " +
+             left + ", " + right);
         return;
       case BinaryOp::Shl:
-        emit("  sll a0, a1, a0");
+        emit("  sll " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::Shr:
-        emit(is_unsigned ? "  srl a0, a1, a0" : "  sra a0, a1, a0");
+        emit((is_unsigned ? "  srl " : "  sra ") + destination + ", " +
+             left + ", " + right);
         return;
       case BinaryOp::Lt:
-        emit(is_unsigned ? "  sltu a0, a1, a0" : "  slt a0, a1, a0");
+        emit((is_unsigned ? "  sltu " : "  slt ") + destination + ", " +
+             left + ", " + right);
         return;
       case BinaryOp::Le:
-        emit(is_unsigned ? "  sltu a0, a0, a1" : "  slt a0, a0, a1");
-        emit("  xori a0, a0, 1");
+        emit((is_unsigned ? "  sltu " : "  slt ") + destination + ", " +
+             right + ", " + left);
+        emit("  xori " + destination + ", " + destination + ", 1");
         return;
       case BinaryOp::Gt:
-        emit(is_unsigned ? "  sltu a0, a0, a1" : "  slt a0, a0, a1");
+        emit((is_unsigned ? "  sltu " : "  slt ") + destination + ", " +
+             right + ", " + left);
         return;
       case BinaryOp::Ge:
-        emit(is_unsigned ? "  sltu a0, a1, a0" : "  slt a0, a1, a0");
-        emit("  xori a0, a0, 1");
+        emit((is_unsigned ? "  sltu " : "  slt ") + destination + ", " +
+             left + ", " + right);
+        emit("  xori " + destination + ", " + destination + ", 1");
         return;
       case BinaryOp::Eq:
-        emit("  sub a0, a1, a0");
-        emit("  seqz a0, a0");
+        emit("  sub " + destination + ", " + left + ", " + right);
+        emit("  seqz " + destination + ", " + destination);
         return;
       case BinaryOp::Ne:
-        emit("  sub a0, a1, a0");
-        emit("  snez a0, a0");
+        emit("  sub " + destination + ", " + left + ", " + right);
+        emit("  snez " + destination + ", " + destination);
         return;
       case BinaryOp::BitAnd:
-        emit("  and a0, a1, a0");
+        emit("  and " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::BitOr:
-        emit("  or a0, a1, a0");
+        emit("  or " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::BitXor:
-        emit("  xor a0, a1, a0");
+        emit("  xor " + destination + ", " + left + ", " + right);
         return;
       case BinaryOp::LogAnd:
       case BinaryOp::LogOr:
@@ -1876,6 +2080,13 @@ class Codegen {
         break;
     }
     throw Error("internal error: invalid binary operator");
+  }
+
+  void apply_binary(BinaryOp operation, const TypePtr& left_type,
+                    const TypePtr& right_type, bool is_unsigned) {
+    (void)left_type;
+    (void)right_type;
+    apply_binary_impl(operation, "a1", "a0", is_unsigned, "a0");
   }
 
   void generate_call(const Expr& expression, const Function& function) {

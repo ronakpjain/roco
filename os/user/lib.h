@@ -26,4 +26,8 @@ int write_all(int fd, const void *buffer, unsigned length);
 int read_byte(int fd);
 int read_line(int fd, char *buffer, int capacity);
 
+void *malloc(unsigned n);
+void free(void *p);
+void *calloc(unsigned elements, unsigned size);
+
 #endif

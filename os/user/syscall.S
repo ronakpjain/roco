@@ -343,3 +343,15 @@ sys_uptime:
   ret
 .size uptime, . - uptime
 .size sys_uptime, . - sys_uptime
+
+.globl sbrk
+.globl sys_sbrk
+.type sbrk, @function
+.type sys_sbrk, @function
+sbrk:
+sys_sbrk:
+  li a7, 27             # SYS_SBRK
+  ecall
+  ret
+.size sbrk, . - sbrk
+.size sys_sbrk, . - sys_sbrk

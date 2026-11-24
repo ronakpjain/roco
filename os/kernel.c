@@ -89,6 +89,7 @@ static unsigned proc_cwd[MAX_PROCS];
 static unsigned proc_ino[MAX_PROCS];
 static unsigned sleep_start[MAX_PROCS];
 static unsigned sleep_ticks[MAX_PROCS];
+static unsigned proc_brk[MAX_PROCS];
 
 static int console_image(void)
 {
@@ -245,6 +246,7 @@ static void fd_reset(unsigned slot)
     fd_kind[slot][2] = FD_CONSOLE;
     fd_flags[slot][2] = FS_O_WRONLY;
     proc_cwd[slot] = 0;
+    proc_brk[slot] = USER_HEAP_BASE;
 }
 
 void kernel_init(void)
@@ -566,6 +568,25 @@ static int sys_seek(unsigned hart, unsigned fd, int offset, unsigned whence)
     return next;
 }
 
+static int sys_sbrk(unsigned hart, int increment)
+{
+    unsigned slot = current_slot(hart);
+    unsigned old = proc_brk[slot];
+    unsigned next = old + (unsigned)increment;
+
+    if (increment > 0) {
+        if (increment > (int)(USER_HEAP_BASE + USER_HEAP_BYTES - old))
+            return -1;
+    } else if (increment < 0) {
+        if ((unsigned)(-increment) > old - USER_HEAP_BASE)
+            return -1;
+    }
+    if (next < USER_HEAP_BASE || next > USER_HEAP_BASE + USER_HEAP_BYTES)
+        return -1;
+    proc_brk[slot] = next;
+    return (int)old;
+}
+
 static int sys_stat_path(unsigned hart, unsigned path_va, unsigned info_va)
 {
     unsigned slot = current_slot(hart);
@@ -769,6 +790,7 @@ static void exec_self(unsigned hart, unsigned slot, const char *path,
         return;
     }
     proc_ino[slot] = (unsigned)ino;
+    proc_brk[slot] = USER_HEAP_BASE;
     context = contexts + slot * TF_SAVED;
     for (i = 0; i < TF_SAVED; ++i)
         context[i] = 0;
@@ -896,6 +918,8 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         }
     } else if (syscall == SYS_UPTIME)
         frame[TF_A0] = MTIME_LOW;
+    else if (syscall == SYS_SBRK)
+        frame[TF_A0] = (unsigned)sys_sbrk(hart, (int)frame[TF_A0]);
     else if (syscall == SYS_KILL && console_image() && hart == 0 && current[0] == 0)
         frame[TF_A0] = (unsigned)sys_kill(hart, frame[TF_A0]);
     else if (hart == 0 && current[0] == 0 && syscall == SYS_JOB_STATUS && console_image() && valid_job(frame[TF_A0]))

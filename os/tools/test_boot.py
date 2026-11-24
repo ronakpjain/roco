@@ -37,6 +37,7 @@ def main():
             "run chain &\nwait\ncat /tmp/chained.txt\njobs\n"
             "run spin &\nps\nkill 2\njobs\nwait\n"
             "sleep 200000\nuptime\n"
+            "run alloc &\nwait\ncat /tmp/alloc.ok\n"
             "edit /home/user/notes.txt\n.list\nappended line\n.save\n.quit\ncat /home/user/notes.txt\n"
             "edit\n.clear\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
             ".set 1 print script works\n.list\n.quit\nscript\n"
@@ -108,6 +109,8 @@ def main():
             "pid 2 spin: active on hart 1.\n",
             "countdown: completed successfully.\n",
             "ticks ",
+            "Started on hart 1.\n",
+            "alloc ok\nroco_os> ",
             "appended line\n",
             "1 print script works\n2 set 40\n3 add 2\n4 show\n5 repeat 2 hi\n",
             "script works\n42\nhi\nhi\n", "script works\n42\nScript error on line 5.\n", "Bye.\n",

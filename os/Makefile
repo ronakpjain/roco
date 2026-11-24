@@ -16,11 +16,11 @@ BOOT_SIM := $(SOC_DIR)/build/vl_tb_soc_boot/Vtb_soc_boot
 ROOTFS_TXT := $(addprefix rootfs/,base.manifest motd.txt readme.txt notes.txt hello.script)
 ROOTFS_DEFAULT := $(addprefix $(BUILD)/,user-hello.elf user-worker.elf)
 ROOTFS_PROBE := $(addprefix $(BUILD)/,user-hello.elf user-probe.elf)
-ROOTFS_CONSOLE := $(addprefix $(BUILD)/,user-shell.elf user-worker.elf user-countdown.elf user-primes.elf user-chain.elf user-spin.elf)
+ROOTFS_CONSOLE := $(addprefix $(BUILD)/,user-shell.elf user-worker.elf user-countdown.elf user-primes.elf user-chain.elf user-spin.elf user-alloc.elf)
 ROOTFS_ELFS := $(sort $(ROOTFS_DEFAULT) $(ROOTFS_PROBE) $(ROOTFS_CONSOLE))
 
 .PHONY: all clean test console
-.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o $(BUILD)/user-primes.o $(BUILD)/user-chain.o $(BUILD)/user-spin.o
+.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o $(BUILD)/user-primes.o $(BUILD)/user-chain.o $(BUILD)/user-spin.o $(BUILD)/user-alloc.o
 all: $(BUILD)/roco_os.elf $(BUILD)/roco_os.packet.hex
 
 $(BUILD):

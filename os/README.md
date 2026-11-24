@@ -183,7 +183,10 @@ starts the new program from its entry point with a fresh stack.
 `/bin/spin` yields forever until the shell kills it.
 
 `sleep <ticks>` parks the calling task for at least that many `mtime`
-ticks; `uptime` prints the low 32 bits of `mtime`. `ps` lists every
+ticks; `uptime` prints the low 32 bits of `mtime`. `sbrk` moves the
+program break inside the 8 KiB heap, and the user runtime builds
+`malloc`, `free`, and `calloc` on top of it; `/bin/alloc` exercises the
+allocator and records `/tmp/alloc.ok`. `ps` lists every
 process id with its state, and `kill <pid>` stops a job (or clears a
 finished one) at any time:
 

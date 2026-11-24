@@ -196,6 +196,92 @@ int read_byte(int fd)
     }
 }
 
+/*
+ * First-fit allocator on top of sbrk. Each block starts with two words:
+ * total size in bytes (header included) and the next free block, or 0.
+ * Payload follows the header. Freed blocks are pushed back to the front
+ * of the list and split when the remainder still fits a tiny block.
+ */
+static unsigned free_head;
+static unsigned heap_base;
+
+static unsigned align4(unsigned n)
+{
+    return (n + 3u) & ~3u;
+}
+
+void *malloc(unsigned n)
+{
+    unsigned need = align4(n) + 8u;
+    unsigned *prev = &free_head;
+    unsigned cur = free_head;
+
+    if (heap_base == 0) {
+        heap_base = (unsigned)sbrk(0);
+        if ((int)heap_base == -1)
+            return (void *)0;
+    }
+    while (cur != 0) {
+        unsigned *block = (unsigned *)cur;
+        unsigned size = block[0];
+        if (size >= need) {
+            unsigned left = size - need;
+            if (left >= 12u) {
+                unsigned *rest = (unsigned *)(cur + need);
+                rest[0] = left;
+                rest[1] = block[1];
+                block[0] = need;
+                *prev = (unsigned)rest;
+            } else {
+                *prev = block[1];
+            }
+            return (void *)(cur + 8u);
+        }
+        prev = &block[1];
+        cur = block[1];
+    }
+    {
+        unsigned *block = (unsigned *)sbrk((int)need);
+        if ((int)block == -1)
+            return (void *)0;
+        block[0] = need;
+        block[1] = 0;
+        return (void *)((unsigned)block + 8u);
+    }
+}
+
+void free(void *p)
+{
+    unsigned cur;
+    unsigned *block;
+
+    if (p == (void *)0)
+        return;
+    cur = (unsigned)p - 8u;
+    if (cur < heap_base + 8u || (cur & 3u) != 0)
+        return;
+    block = (unsigned *)cur;
+    block[1] = free_head;
+    free_head = cur;
+}
+
+void *calloc(unsigned elements, unsigned size)
+{
+    unsigned total;
+    unsigned char *p;
+    unsigned i;
+
+    if (elements != 0 && size > 0xffffffffu / elements)
+        return (void *)0;
+    total = elements * size;
+    p = (unsigned char *)malloc(total);
+    if (p == (void *)0)
+        return (void *)0;
+    for (i = 0; i < total; ++i)
+        p[i] = 0;
+    return (void *)p;
+}
+
 int read_line(int fd, char *buffer, int capacity)
 {
     int n = 0;

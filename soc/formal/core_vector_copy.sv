@@ -125,8 +125,8 @@ module core_vector_copy (
       elements <= 0;
       retirements <= 0;
     end else begin
-      if (dmem_req) begin
-        assert (dmem_valid && dmem_ready);
+      assert (dmem_req == dmem_valid);
+      if (dmem_req && dmem_ready) begin
         assert (elements < 4);
         assert (dmem_addr == expected_addr && dmem_we == elements[1]);
         assert (rvfi_valid == elements[0]);  // Only the last element retires.

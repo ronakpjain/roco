@@ -45,10 +45,9 @@
 #define FD_CONSOLE 1
 #define FD_FILE 2
 
+#define EXEC_MAGIC 0x4f434f52u
+
 extern unsigned page_tables[6144];
-extern const unsigned user_hello[3074];
-extern const unsigned user_worker[3074];
-extern const unsigned user_countdown[3074];
 extern const unsigned rootfs_count;
 extern const unsigned rootfs_entries[256];
 extern const char rootfs_names[8192];
@@ -61,6 +60,7 @@ void resume_worker(unsigned stack_top, unsigned *context);
 void clear_tick(void);
 void spin_lock(unsigned *lock);
 void spin_unlock(unsigned *lock);
+void flush_icache(void);
 
 /* Only the owning hart writes its slot; 0 means running, 1 means success. */
 static volatile unsigned completed[2];
@@ -86,10 +86,11 @@ static unsigned fd_obj[MAX_PROCS][MAX_FDS];
 static unsigned fd_off[MAX_PROCS][MAX_FDS];
 static unsigned fd_flags[MAX_PROCS][MAX_FDS];
 static unsigned proc_cwd[MAX_PROCS];
+static unsigned proc_ino[MAX_PROCS];
 
 static int console_image(void)
 {
-    return user_countdown[0] != 0;
+    return fs_lookup_path(0, "/bin/shell") >= 0;
 }
 
 static int valid_job(unsigned id)
@@ -149,15 +150,35 @@ static int console_readchar(void)
     return value;
 }
 
-static void reset_user(unsigned slot, const unsigned *image)
+/* Load an mkfs executable into a slot's backing RAM: zero the whole
+   64 KiB slab, then copy text and data words after the header. */
+static int load_program(unsigned slot, int ino)
 {
+    unsigned header[4];
+    unsigned text_words;
+    unsigned data_words;
     unsigned *ram = (unsigned *)(USER_RAM + slot * USER_STRIDE);
     unsigned i;
 
-    for (i = DATA_OFFSET / 4u; i < (USER_TOP - USER_BASE) / 4u; ++i)
+    if (ino < 0 || fs_type(ino) != FS_TYPE_FILE)
+        return -1;
+    if (fs_read(ino, 0, header, 16) != 16 || header[0] != EXEC_MAGIC)
+        return -1;
+    text_words = header[1];
+    data_words = header[2];
+    if (text_words > USER_TEXT_BYTES / 4u || data_words > USER_DATA_BYTES / 4u)
+        return -1;
+    for (i = 0; i < USER_SLOT_BYTES / 4u; ++i)
         ram[i] = 0;
-    for (i = 0; i < image[1]; ++i)
-        ram[DATA_OFFSET / 4u + i] = image[2u + image[0] + i];
+    if (text_words != 0 &&
+        fs_read(ino, 16, ram, text_words * 4u) != (int)(text_words * 4u))
+        return -1;
+    if (data_words != 0 &&
+        fs_read(ino, 16 + text_words * 4u, (char *)ram + DATA_OFFSET,
+                data_words * 4u) != (int)(data_words * 4u))
+        return -1;
+    flush_icache();
+    return 0;
 }
 
 static void setup_space(unsigned slot)
@@ -188,17 +209,18 @@ static void setup_space(unsigned slot)
     root[0x80000000u >> 22] = pte(0x80000000u, PTE_RW | PTE_A | PTE_D);
 }
 
-static void setup_user(unsigned slot, const unsigned *image)
+static int setup_user(unsigned slot, const char *first, const char *fallback)
 {
-    unsigned *ram = (unsigned *)(USER_RAM + slot * USER_STRIDE);
-    unsigned i;
-
+    int ino = fs_lookup_path(0, first);
+    if (ino < 0)
+        ino = fs_lookup_path(0, fallback);
+    if (ino < 0)
+        return -1;
     setup_space(slot);
-    for (i = 0; i < USER_TEXT_BYTES / 4u; ++i)
-        ram[i] = 0;
-    for (i = 0; i < image[0]; ++i)
-        ram[i] = image[2u + i];
-    reset_user(slot, image);
+    if (load_program(slot, ino) != 0)
+        return -1;
+    proc_ino[slot] = (unsigned)ino;
+    return 0;
 }
 
 static void fd_reset(unsigned slot)
@@ -236,12 +258,20 @@ void kernel_init(void)
     for (slot = 0; slot < MAX_PROCS; ++slot)
         fd_reset(slot);
     put_byte('C');
-    setup_user(0, user_hello);
+    /* The manifest decides the image: a shell means console, a probe
+       means the fault test, otherwise the fixed hello/worker pair. */
+    if (setup_user(0, "/bin/shell", "/bin/hello") != 0 ||
+        setup_user(1, "/bin/probe", "/bin/worker") != 0) {
+        TOHOST = 0xbad00200u;
+        for (;;) {}
+    }
     put_byte('D');
-    setup_user(1, user_worker);
+    if (fs_lookup_path(0, "/bin/countdown") >= 0 &&
+        setup_user(2, "/bin/countdown", "/bin/countdown") != 0) {
+        TOHOST = 0xbad00201u;
+        for (;;) {}
+    }
     put_byte('E');
-    if (console_image())
-        setup_user(2, user_countdown);
 }
 
 static void switch_space(unsigned slot)
@@ -274,7 +304,6 @@ void worker_loop(unsigned stack_top, unsigned hart)
     unsigned id;
     unsigned i;
     unsigned *context;
-    const unsigned *image;
 
     do {
         id = next_slot(hart);
@@ -282,11 +311,11 @@ void worker_loop(unsigned stack_top, unsigned hart)
     current[hart] = id;
     context = contexts + id * TF_SAVED;
     if (!saved[id]) {
-        if (id == JOB_WORKER)
-            image = user_worker;
-        else
-            image = user_countdown;
-        reset_user(id, image);
+        if (load_program(id, (int)proc_ino[id]) != 0) {
+            job_state[id] = JOB_FAULT;
+            saved[id] = 0;
+            restart_worker(stack_top, hart);
+        }
         fd_reset(id);
         for (i = 0; i < TF_SAVED; ++i)
             context[i] = 0;
@@ -663,12 +692,62 @@ static void finish(unsigned hart, unsigned status)
 
 static int submit_job(unsigned id, unsigned hart)
 {
+    int ino;
+
     if (!valid_job(id) || hart > 1)
         return -1;
     if (runnable(id, 0) || runnable(id, 1))
         return JOB_BUSY;
+    ino = fs_lookup_path(0, id == JOB_WORKER ? "/bin/worker" : "/bin/countdown");
+    if (ino < 0)
+        return -1;
+    proc_ino[id] = (unsigned)ino;
+    saved[id] = 0;
     job_state[id] = JOB_ACTIVE + hart;
     return 0;
+}
+
+static int spawn_job(unsigned hart, const char *path)
+{
+    int ino = fs_lookup_path(0, path);
+    unsigned slot;
+
+    if (ino < 0 || fs_type(ino) != FS_TYPE_FILE)
+        return -1;
+    for (slot = 1; slot < MAX_PROCS; ++slot) {
+        if (runnable(slot, 0) || runnable(slot, 1))
+            continue;
+        proc_ino[slot] = (unsigned)ino;
+        saved[slot] = 0;
+        job_state[slot] = JOB_ACTIVE + hart;
+        return (int)slot;
+    }
+    return JOB_BUSY;
+}
+
+/* Replace the calling program with the executable at path. Files and the
+   working directory survive; registers and the stack do not. */
+static void exec_self(unsigned hart, unsigned slot, const char *path,
+                       unsigned *frame)
+{
+    int ino = fs_lookup_path(0, path);
+    unsigned *context;
+    unsigned i;
+
+    if (ino < 0 || fs_type(ino) != FS_TYPE_FILE || load_program(slot, ino) != 0) {
+        frame[TF_A0] = (unsigned)-1;
+        return;
+    }
+    proc_ino[slot] = (unsigned)ino;
+    context = contexts + slot * TF_SAVED;
+    for (i = 0; i < TF_SAVED; ++i)
+        context[i] = 0;
+    context[TF_HART] = hart;
+    context[2] = USER_TOP;
+    context[TF_PC] = USER_BASE;
+    switch_space(slot);
+    arm_tick(hart);
+    resume_worker((unsigned)(frame + TF_WORDS), context);
 }
 
 static void reschedule(unsigned *frame)
@@ -764,6 +843,21 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         frame[TF_A0] = (unsigned)console_readchar();
     else if (hart == 0 && current[0] == 0 && syscall == SYS_RUN_JOB && console_image())
         frame[TF_A0] = (unsigned)submit_job(frame[TF_A0], frame[TF_A1]);
+    else if (hart == 0 && current[0] == 0 && syscall == SYS_SPAWN && console_image()) {
+        char path[FS_MAX_PATH];
+        if (user_str(slot, frame[TF_A0], path, FS_MAX_PATH) < 0)
+            frame[TF_A0] = (unsigned)-1;
+        else if (frame[TF_A1] > 1)
+            frame[TF_A0] = (unsigned)-1;
+        else
+            frame[TF_A0] = (unsigned)spawn_job(frame[TF_A1], path);
+    } else if (syscall == SYS_EXEC && console_image()) {
+        char path[FS_MAX_PATH];
+        if (user_str(slot, frame[TF_A0], path, FS_MAX_PATH) < 0)
+            frame[TF_A0] = (unsigned)-1;
+        else
+            exec_self(hart, slot, path, frame);
+    }
     else if (hart == 0 && current[0] == 0 && syscall == SYS_JOB_STATUS && console_image() && valid_job(frame[TF_A0]))
         frame[TF_A0] = job_state[frame[TF_A0]];
     else

@@ -283,3 +283,27 @@ sys_getppid:
   ret
 .size getppid, . - getppid
 .size sys_getppid, . - sys_getppid
+
+.globl exec
+.globl sys_exec
+.type exec, @function
+.type sys_exec, @function
+exec:
+sys_exec:
+  li a7, 22             # SYS_EXEC
+  ecall
+  ret
+.size exec, . - exec
+.size sys_exec, . - sys_exec
+
+.globl spawn
+.globl sys_spawn
+.type spawn, @function
+.type sys_spawn, @function
+spawn:
+sys_spawn:
+  li a7, 23             # SYS_SPAWN
+  ecall
+  ret
+.size spawn, . - spawn
+.size sys_spawn, . - sys_spawn

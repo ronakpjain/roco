@@ -1,0 +1,5 @@
+# Default image: two fixed programs, no shell.
+include base.manifest
+
+exe /bin/hello user-hello.elf
+exe /bin/worker user-worker.elf

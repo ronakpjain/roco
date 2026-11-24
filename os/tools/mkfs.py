@@ -75,7 +75,7 @@ def pack_exec(path):
     return header + bytes(text) + bytes(data)
 
 
-def parse_manifest(path, entries, seen_manifests):
+def parse_manifest(path, entries, seen_manifests, search_dirs):
     path = path.resolve()
     if path in seen_manifests:
         raise ValueError(f"recursive manifest include: {path}")
@@ -90,7 +90,8 @@ def parse_manifest(path, entries, seen_manifests):
         if kind == "include":
             if len(parts) != 2:
                 raise ValueError(f"{path}:{number}: include needs one path")
-            parse_manifest(base / parts[1], entries, seen_manifests)
+            parse_manifest(base / parts[1], entries, seen_manifests,
+                             search_dirs)
             continue
         if len(parts) < 2:
             raise ValueError(f"{path}:{number}: missing path")
@@ -111,11 +112,22 @@ def parse_manifest(path, entries, seen_manifests):
         elif kind in ("txt", "exe"):
             if len(parts) != 3:
                 raise ValueError(f"{path}:{number}: {kind} needs a host file")
-            source = base / parts[2]
+            source = find_host_file(parts[2], base, search_dirs)
             payload = pack_exec(source) if kind == "exe" else source.read_bytes()
         else:
             raise ValueError(f"{path}:{number}: unknown manifest entry {kind!r}")
         entries.append((target, TYPE_DIR if kind == "dir" else TYPE_FILE, payload))
+
+
+def find_host_file(name, base, search_dirs):
+    candidate = Path(name)
+    if candidate.is_absolute():
+        return candidate
+    for directory in [base] + search_dirs:
+        found = directory / name
+        if found.is_file():
+            return found
+    return base / name
 
 
 def normalize(entries):
@@ -168,10 +180,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("-o", "--output", type=Path, required=True)
+    parser.add_argument("-I", "--search-dir", type=Path, action="append",
+                        default=[], help="extra host-file search directory")
     args = parser.parse_args()
     entries = []
     try:
-        parse_manifest(args.manifest, entries, set())
+        parse_manifest(args.manifest, entries, set(), args.search_dir)
         entries = normalize(entries)
         emit(entries, args.output)
     except (ValueError, OSError) as exc:

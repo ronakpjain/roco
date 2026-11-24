@@ -90,10 +90,8 @@ bss_done:
 
   # ---------------------------------------------------------------- hart 1
 boot_hart1:
-  la t0, user_countdown
-  lw t0, 0(t0)
-  beqz t0, enter_supervisor
-  # The compare register resets to zero, so disarm it before enabling MTIE.
+  # Always disarm the compare register (it resets to zero) before enabling
+  # MTIE. Images without scheduling leave it disarmed and never rearm it.
   li t0, 0x80000060
   bnez s0, timer_init
   li t0, 0x80000020

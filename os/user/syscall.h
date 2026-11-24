@@ -56,6 +56,8 @@
 #define SYS_GETCWD 19
 #define SYS_GETPID 20
 #define SYS_GETPPID 21
+#define SYS_EXEC 22
+#define SYS_SPAWN 23
 #define SYS_RUN_JOB 30
 #define SYS_JOB_STATUS 31
 
@@ -140,6 +142,8 @@ int chdir(const char *path);
 int getcwd(char *buffer, int capacity);
 int getpid(void);
 int getppid(void);
+int exec(const char *path);
+int spawn(const char *path, int hart);
 
 /* Generic up-to-three-argument form, useful for exercising unknown calls. */
 int syscall(int number, int arg0, int arg1);
@@ -168,5 +172,7 @@ int sys_chdir(const char *path);
 int sys_getcwd(char *buffer, int capacity);
 int sys_getpid(void);
 int sys_getppid(void);
+int sys_exec(const char *path);
+int sys_spawn(const char *path, int hart);
 
 #endif

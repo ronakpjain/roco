@@ -143,6 +143,8 @@ User programs use these calls:
 | 19 | `getcwd(buffer, cap)` | `0`, or `-1` |
 | 20 | `getpid()` | Process id |
 | 21 | `getppid()` | Parent process id (`0`) |
+| 22 | `exec(path)` | Replaces the program, or `-1` |
+| 23 | `spawn(path, hart)` | Job slot (1 or 2), `JOB_BUSY`, or `-1` |
 
 `open` flags are `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREAT`, `O_TRUNC`,
 and `O_APPEND`; `seek` origins are `SEEK_SET`, `SEEK_CUR`, and `SEEK_END`.
@@ -152,6 +154,32 @@ free blocks, then total and free inodes. Every process has its own
 descriptors and working directory; descriptors 0, 1, and 2 start as
 console input, console output, and console output.
 
+
+## Programs and processes
+
+User programs live in the filesystem, not in the kernel image. Each image
+manifest lists them as `exe` entries: the default image ships
+`/bin/hello` and `/bin/worker`, the probe image swaps in `/bin/probe`,
+and the console image ships a shell plus `worker`, `countdown`, `primes`,
+and `chain`. The kernel loads a program's text and data from its file into
+the slot's backing RAM at boot and whenever the slot is reused.
+
+The shell runs anything under `/bin`, either by its bare name or by path:
+
+```text
+roco_os> run primes &
+roco_os> run /bin/chain &
+```
+
+`run` returns immediately and reports the job slot; `jobs` and `wait`
+work as before, showing the spawned program's name. At most two background
+jobs fit; a third reports no free slot until one finishes. A job that
+`exec()`s another path keeps its slot, files, and working directory but
+starts the new program from its entry point with a fresh stack.
+
+`/bin/primes` prints primes up to 100 and records them in
+`/tmp/primes.txt`, since background jobs cannot write to the console.
+`/bin/chain` writes `/tmp/chained.txt` and then execs `/bin/worker`.
 
 ## Boot artifacts
 
@@ -168,11 +196,12 @@ acknowledgment. User output follows on the same 115200-baud UART.
 
 ## User programs
 
-The default programs are `user/hello.c` (hart 0) and `user/worker.c` (hart 1).
-Replace either program's `int main(void)` and rebuild to run other code.
+The default image runs `user/hello.c` (hart 0) and `user/worker.c`
+(hart 1); the console image runs the `user/shell.c` shell on hart 0 with
+`worker`, `countdown`, `primes`, and `chain` available under `/bin`.
 Each program is linked at `0x00400000`; each hart sees its own physical
-backing pages at the same virtual addresses. The packer rejects programs
-that do not fit the following layout:
+backing pages at the same virtual addresses. The filesystem packer rejects
+programs that do not fit the following layout:
 
 | Virtual range | User permissions | Contents |
 | --- | --- | --- |
@@ -199,17 +228,21 @@ kernel stacks grow down from `0x100ff000` and `0x100fd000`.
 
 | Number | Call | Result |
 | --- | --- | --- |
-| 1 | `write(fd, buf, len)` | Bytes written, `-2` on a nonblocking descriptor with no space, or `-1` |
-| 2 | `exit(status)` | Never returns; returning from `main` does the same thing |
-| 3 | `gethart()` | `0` or `1` |
+| 1 | `write(fd, buf, len)` | Bytes written, or `-1` for a bad descriptor or buffer |
+| 2 | `read(fd, buf, len)` | Bytes read, `0` at end of file, `SYS_AGAIN` if no console input is ready |
+| 3 | `exit(status)` | Never returns; returning from `main` does the same thing |
 | 4 | `yield()` | `0`; a console task gives up the rest of its time slice if another task is runnable |
-| 5 | `readchar()` | Next UART byte for the hart 0 shell (or the default hart 0 program); `-1` if unavailable |
-| 6 | `syscall(SYS_RUN_JOB, id, hart)` | Shell only: submits a job, returns `0`, `JOB_BUSY`, or `-1` |
-| 7 | `syscall(SYS_JOB_STATUS, id, 0)` | Shell only: returns idle, `JOB_ACTIVE + hart`, or completion status |
+| 5 | `gethart()` | `0` or `1` |
+| 6 | `readchar()` | Next UART byte for the hart 0 shell (or the default hart 0 program); `-1` if unavailable |
+| 22 | `exec(path)` | Replaces the program, or `-1` (keeps running the old one) |
+| 23 | `spawn(path, hart)` | Job slot, `JOB_BUSY`, or `-1` |
+| 30 | `syscall(SYS_RUN_JOB, id, hart)` | Shell only: submits a job, returns `0`, `JOB_BUSY`, or `-1` |
+| 31 | `syscall(SYS_JOB_STATUS, id, 0)` | Shell only: returns idle, `JOB_ACTIVE + hart`, or completion status |
 
-Unknown calls return `-1`. In the default image the system stops when both
-programs exit successfully, or immediately on a nonzero exit or an
-unhandled trap. In the console image a nonzero job exit or a delegated
-user-mode fault is reported as job status rather than stopping the shell.
-The scheduler saves RV32 integer registers and the program counter; vector
-jobs are not supported. There is no filesystem or runtime executable loading.
+The file calls are documented under Filesystem below. Unknown calls
+return `-1`. In the default image the system stops when both programs
+exit successfully, or immediately on a nonzero exit or an unhandled trap.
+In the console image a nonzero job exit or a delegated user-mode fault is
+reported as job status rather than stopping the shell. The scheduler saves
+RV32 integer registers and the program counter; vector jobs are not
+supported.

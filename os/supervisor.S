@@ -1,6 +1,6 @@
 .section .text
 .globl enable_paging, enter_user, restart_worker, resume_worker, clear_tick
-.globl s_trap_vector, spin_lock, spin_unlock
+.globl s_trap_vector, spin_lock, spin_unlock, flush_icache
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
@@ -177,6 +177,13 @@ spin_lock:
 
 spin_unlock:
     amoswap.w.rl zero, zero, (a0)
+    ret
+
+# Make freshly loaded user text visible to instruction fetch: write back
+# the D-cache and invalidate the I-cache. Boot already fences once after
+# kernel_init; runtime reloads in worker_loop and exec need it per load.
+flush_icache:
+    fence.i
     ret
 
 .section .bss

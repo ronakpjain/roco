@@ -150,57 +150,96 @@ static void show_space(void)
     print(" free\n");
 }
 
+static char job_name[3][32];
+
+static void started_on(int hart)
+{
+    if (hart == 0)
+        print("Started on hart 0.\n");
+    else
+        print("Started on hart 1.\n");
+}
+
 static void run_job(char *args)
 {
-    char *end = args;
-    int id;
+    char prog[32];
+    char path[96];
+    int n = 0;
+    int id = 0;
     int result;
     int hart = 1;
 
-    while (*end != 0 && *end != ' ' && *end != '\t')
-        ++end;
-    if (*end != 0) {
-        *end = 0;
-        ++end;
-        while (*end == ' ' || *end == '\t')
-            ++end;
+    while (*args != 0 && *args != ' ' && *args != '\t') {
+        if (n + 1 < 32)
+            prog[n++] = *args;
+        ++args;
     }
-    if ((*end == '0' || *end == '1') && (end[1] == ' ' || end[1] == '\t')) {
-        hart = *end - '0';
-        ++end;
-        while (*end == ' ' || *end == '\t')
-            ++end;
+    prog[n] = 0;
+    while (*args == ' ' || *args == '\t')
+        ++args;
+    if ((*args == '0' || *args == '1') &&
+        (args[1] == ' ' || args[1] == '\t' || args[1] == '&')) {
+        hart = *args - '0';
+        ++args;
+        while (*args == ' ' || *args == '\t')
+            ++args;
     }
-    if (*end != '&') {
-        print("Usage: run <worker|countdown> [0|1] &\n");
+    if (*args != '&') {
+        print("Usage: run <worker|countdown|path> [0|1] &\n");
         return;
     }
-    ++end;
-    while (*end == ' ' || *end == '\t')
-        ++end;
-    if (*end != 0) {
-        print("Usage: run <worker|countdown> [0|1] &\n");
+    ++args;
+    while (*args == ' ' || *args == '\t')
+        ++args;
+    if (*args != 0) {
+        print("Usage: run <worker|countdown|path> [0|1] &\n");
         return;
     }
-    if (strcmp(args, "worker") == 0)
+    if (strcmp(prog, "worker") == 0)
         id = JOB_WORKER;
-    else if (strcmp(args, "countdown") == 0)
+    else if (strcmp(prog, "countdown") == 0)
         id = JOB_COUNTDOWN;
-    else {
-        print("No such program.\n");
+    if (id != 0) {
+        result = syscall(SYS_RUN_JOB, id, hart);
+        if (result == 0) {
+            strcpy(job_name[id], prog);
+            started_on(hart);
+        } else if (result == JOB_BUSY)
+            print("That program is already active.\n");
+        else
+            print("Could not start job.\n");
         return;
     }
-    result = syscall(SYS_RUN_JOB, id, hart);
-    if (result == 0) {
-        if (hart == 0)
-            print("Started on hart 0.\n");
-        else
-            print("Started on hart 1.\n");
+    if (prog[0] == '/')
+        strcpy(path, prog);
+    else {
+        strcpy(path, "/bin/");
+        strcat(path, prog);
     }
-    else if (result == JOB_BUSY)
-        print("That program is already active.\n");
+    {
+        int info[4];
+        if (stat(path, info) != 0 || info[STAT_TYPE] != FS_FILE) {
+            print("No such program.\n");
+            return;
+        }
+    }
+    result = syscall(SYS_SPAWN, (int)path, hart);
+    if (result == JOB_WORKER || result == JOB_COUNTDOWN) {
+        strcpy(job_name[result], prog);
+        started_on(hart);
+    } else if (result == JOB_BUSY)
+        print("No free job slot; wait for a job to finish.\n");
     else
         print("Could not start job.\n");
+}
+
+static const char *slot_name(int slot)
+{
+    if (job_name[slot][0] != 0)
+        return job_name[slot];
+    if (slot == JOB_WORKER)
+        return "worker";
+    return "countdown";
 }
 
 static void job_line(const char *name, int state)
@@ -214,8 +253,11 @@ static void job_line(const char *name, int state)
         print(": active on hart 1.\n");
     else if (state == JOB_DONE)
         print(": completed successfully.\n");
-    else if (state >= JOB_FAULT)
-        print(": stopped by a user-mode fault.\n");
+    else if (state >= JOB_FAULT) {
+        print(": stopped by a user-mode fault (cause ");
+        print_num(state - JOB_FAULT);
+        print(").\n");
+    }
     else
         print(": failed.\n");
 }
@@ -232,8 +274,8 @@ static void show_job(int wait)
 
     if (worker == JOB_IDLE && countdown == JOB_IDLE)
         print("No job yet.\n");
-    job_line("worker", worker);
-    job_line("countdown", countdown);
+    job_line(slot_name(JOB_WORKER), worker);
+    job_line(slot_name(JOB_COUNTDOWN), countdown);
 }
 
 static int command(char *line, int *editing)
@@ -255,7 +297,8 @@ static int command(char *line, int *editing)
     }
 
     if (strcmp(line, "help") == 0)
-        print("Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n");
+        print("Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n"
+        "run takes worker, countdown, or a /bin program path.\n");
     else if (strcmp(line, "hart") == 0) {
         if (gethart() == 0)
             print("hart 0\n");

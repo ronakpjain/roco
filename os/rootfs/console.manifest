@@ -1,0 +1,8 @@
+# Console image: shell plus background jobs and demos.
+include base.manifest
+
+exe /bin/shell user-shell.elf
+exe /bin/worker user-worker.elf
+exe /bin/countdown user-countdown.elf
+exe /bin/primes user-primes.elf
+exe /bin/chain user-chain.elf

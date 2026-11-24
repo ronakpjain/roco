@@ -8,14 +8,19 @@ PYTHON ?= python3
 BUILD := build
 USER_RUNTIME := $(addprefix $(BUILD)/,user-start.o user-syscall.o user-lib.o user_layout.o)
 KERNEL_OBJS := $(addprefix $(BUILD)/,boot.o supervisor.o kernel.o fs.o)
-OS_OBJS := $(KERNEL_OBJS) $(BUILD)/user_images.o $(BUILD)/rootfs.o
-USER_HELLO := $(BUILD)/user-hello.elf
-USER_WORKER := $(BUILD)/user-worker.elf
 BOOT_SIM := $(SOC_DIR)/build/vl_tb_soc_boot/Vtb_soc_boot
 
+# Every image mounts a filesystem built from its own manifest. User
+# programs are files under /bin, loaded by the kernel at boot and by
+# spawn/exec at runtime; nothing is baked into the kernel image.
+ROOTFS_TXT := $(addprefix rootfs/,base.manifest motd.txt readme.txt notes.txt hello.script)
+ROOTFS_DEFAULT := $(addprefix $(BUILD)/,user-hello.elf user-worker.elf)
+ROOTFS_PROBE := $(addprefix $(BUILD)/,user-hello.elf user-probe.elf)
+ROOTFS_CONSOLE := $(addprefix $(BUILD)/,user-shell.elf user-worker.elf user-countdown.elf user-primes.elf user-chain.elf)
+ROOTFS_ELFS := $(sort $(ROOTFS_DEFAULT) $(ROOTFS_PROBE) $(ROOTFS_CONSOLE))
+
 .PHONY: all clean test console
-ROOTFS_FILES := rootfs/base.manifest rootfs/motd.txt rootfs/readme.txt rootfs/notes.txt rootfs/hello.script
-.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o
+.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o $(BUILD)/user-primes.o $(BUILD)/user-chain.o
 all: $(BUILD)/roco_os.elf $(BUILD)/roco_os.packet.hex
 
 $(BUILD):
@@ -30,10 +35,10 @@ $(BUILD)/kernel.o: kernel.c user/syscall.h kernel_fs.h $(roco_cc) | $(BUILD)
 $(BUILD)/fs.o: fs.c kernel_fs.h $(roco_cc) | $(BUILD)
 	$(roco_cc) -c -o $@ ./$<
 
-$(BUILD)/rootfs.S: tools/mkfs.py $(ROOTFS_FILES)
-	$(PYTHON) tools/mkfs.py rootfs/base.manifest -o $@
+$(BUILD)/rootfs-%.S: tools/mkfs.py rootfs/%.manifest $(ROOTFS_TXT) $(ROOTFS_ELFS)
+	$(PYTHON) tools/mkfs.py rootfs/$*.manifest -o $@ -I $(BUILD)
 
-$(BUILD)/rootfs.o: $(BUILD)/rootfs.S $(roco_as) | $(BUILD)
+$(BUILD)/rootfs-%.o: $(BUILD)/rootfs-%.S $(roco_as) | $(BUILD)
 	$(roco_as) -o $@ $<
 
 $(BUILD)/user-%.o: user/%.S $(roco_as) | $(BUILD)
@@ -51,17 +56,11 @@ $(BUILD)/user-lib.o $(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-
 $(BUILD)/user-shell.elf: $(USER_RUNTIME) $(BUILD)/user-shell.o $(BUILD)/user-editor.o $(roco_ld)
 	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
 
-$(BUILD)/user_images.S: tools/pack_users.py $(USER_HELLO) $(USER_WORKER)
-	$(PYTHON) $< $@ $(filter %.elf,$^)
-
-$(BUILD)/user_images.o: $(BUILD)/user_images.S $(roco_as)
-	$(roco_as) -o $@ $<
-
-$(BUILD)/roco_os.bin: $(OS_OBJS) $(roco_ld)
-	$(roco_ld) -o $(BUILD)/roco_os.elf --binary $@ $(OS_OBJS)
+$(BUILD)/roco_os.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-default.o $(ROOTFS_DEFAULT) $(roco_ld)
+	$(roco_ld) -o $(BUILD)/roco_os.elf --binary $@ $(filter %.o,$^)
 
 $(BUILD)/roco_os.elf: $(BUILD)/roco_os.bin
-	@test -f $@ || $(roco_ld) -o $@ $(OS_OBJS)
+	@test -f $@ || $(roco_ld) -o $@ $(KERNEL_OBJS) $(BUILD)/rootfs-default.o
 
 $(BUILD)/%.packet.hex: $(BUILD)/%.bin $(SOC_DIR)/scripts/boot.py
 	$(PYTHON) $(SOC_DIR)/scripts/boot.py --bin $< --emit-hex $@
@@ -69,22 +68,13 @@ $(BUILD)/%.packet.hex: $(BUILD)/%.bin $(SOC_DIR)/scripts/boot.py
 $(BUILD)/user-probe.o: tests/user_probe.S $(roco_as) | $(BUILD)
 	$(roco_as) -o $@ $<
 
-$(BUILD)/probe_images.S: tools/pack_users.py $(USER_HELLO) $(BUILD)/user-probe.elf
-	$(PYTHON) $< $@ $(filter %.elf,$^)
+$(BUILD)/user-probe.elf: $(USER_RUNTIME) $(BUILD)/user-probe.o $(roco_ld)
+	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
 
-$(BUILD)/probe_images.o: $(BUILD)/probe_images.S $(roco_as)
-	$(roco_as) -o $@ $<
-
-$(BUILD)/roco_os-probe.bin: $(KERNEL_OBJS) $(BUILD)/probe_images.o $(BUILD)/rootfs.o $(roco_ld)
+$(BUILD)/roco_os-probe.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-probe.o $(ROOTFS_PROBE) $(roco_ld)
 	$(roco_ld) -o $(BUILD)/roco_os-probe.elf --binary $@ $(filter %.o,$^)
 
-$(BUILD)/console_images.S: tools/pack_users.py $(BUILD)/user-shell.elf $(USER_WORKER) $(BUILD)/user-countdown.elf
-	$(PYTHON) $< $@ $(filter %.elf,$^)
-
-$(BUILD)/console_images.o: $(BUILD)/console_images.S $(roco_as)
-	$(roco_as) -o $@ $<
-
-$(BUILD)/roco_os-console.bin: $(KERNEL_OBJS) $(BUILD)/console_images.o $(BUILD)/rootfs.o $(roco_ld)
+$(BUILD)/roco_os-console.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-console.o $(ROOTFS_CONSOLE) $(roco_ld)
 	$(roco_ld) -o $(BUILD)/roco_os-console.elf --binary $@ $(filter %.o,$^)
 
 console: $(BUILD)/roco_os-console.packet.hex

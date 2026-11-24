@@ -1,0 +1,5 @@
+# Probe image: hart 1 runs a program that faults on a kernel page.
+include base.manifest
+
+exe /bin/hello user-hello.elf
+exe /bin/probe user-probe.elf

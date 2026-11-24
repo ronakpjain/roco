@@ -18,7 +18,7 @@ def main():
     sim, packet = args.sim.resolve(), args.packet.resolve()
     # 8N1 at the testbench's 96 core clocks per bit, plus runtime headroom.
     cycles = 960 * len(packet.read_bytes().splitlines())
-    cycles += 90_000_000 if args.console else 30_000_000
+    cycles += 400_000_000 if args.console else 30_000_000
     command = [str(sim), f"+packet={packet}", f"+max_cycles={cycles}"]
     commands = None
     if args.console:
@@ -33,6 +33,8 @@ def main():
             "rm /tmp/renamed.txt\ncat /tmp/renamed.txt\ndf\n"
             "jobs\nrun missing &\nrun worker\nrun countdown &\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
             "run countdown 0 &\necho shell still active\nrun worker 0 &\nwait\n"
+            "run /bin/primes &\nwait\ncat /tmp/primes.txt\n"
+            "run chain &\nwait\ncat /tmp/chained.txt\njobs\n"
             "edit /home/user/notes.txt\n.list\nappended line\n.save\n.quit\ncat /home/user/notes.txt\n"
             "edit\n.clear\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
             ".set 1 print script works\n.list\n.quit\nscript\n"
@@ -62,6 +64,7 @@ def main():
             "Type help for commands, ls to browse the RAM filesystem.\n"
             "roco_os user shell; type help.\n"
             "roco_os> Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n"
+            "run takes worker, countdown, or a /bin program path.\n"
             "roco_os> UART input\n"
             "roco_os> Unknown command; try help.\n"
             "roco_os> Line too long.\n"
@@ -92,6 +95,12 @@ def main():
             "worker: completed successfully.\n", "countdown: completed successfully.\n",
             "Started on hart 0.\n", "shell still active\n",
             "worker: completed successfully.\n", "countdown: completed successfully.\n",
+            "Started on hart 1.\n",
+            "2\n3\n5\n7\n11\n",
+            "97\nroco_os> ",
+            "Started on hart 1.\n",
+            "chained\nroco_os> ",
+            "chain: completed successfully.\n",
             "appended line\n",
             "1 print script works\n2 set 40\n3 add 2\n4 show\n5 repeat 2 hi\n",
             "script works\n42\nhi\nhi\n", "script works\n42\nScript error on line 5.\n", "Bye.\n",

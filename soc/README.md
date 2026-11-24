@@ -321,9 +321,10 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
   the peer (dirty lines are written back first). Share writable data with
   AMO/LR/SC or uncached MMIO; plain stores do not invalidate the peer.
   `FENCE.I`/`SFENCE.VMA` write back only the requester's D-cache, then
-  broadcast the I-cache and TLB invalidation to both harts. Only the
-  requester is released; a full flush of the peer's cache would drop a
-  lookup it issues during the flush window.
+  invalidate both I-caches and, once the writeback drains, the peer's MMU.
+  Only the requester is released; a full flush of the peer's cache would
+  drop a lookup it issues during the flush window, and holding the peer's
+  TLB flush for the whole window would drop its in-flight fetch responses.
 - Each hart has a private TLB pair fed by its own walker; shootdown is the
   broadcast above rather than per-address invalidation.
 - The TLBs are 16-entry direct mapped, so a conflict or concurrent I/D

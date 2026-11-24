@@ -178,6 +178,7 @@ module roco_soc #(
   logic remote_tlb_flush0, remote_tlb_flush1;
   logic dcache_flush;
   logic dcache_flush0, dcache_flush1;
+  logic peer_tlb_pulse;
   logic dcache_flush_done0, dcache_flush_done1;
   logic icache_flush;
   logic [1:0] fence_state;
@@ -1517,11 +1518,11 @@ module roco_soc #(
 
   // ------------------------------------------- FENCE.I/SFENCE sequence
   // FENCE.I must make prior stores visible to the instruction stream, so
-  // write back both D-caches, invalidate both I-caches, then release the
-  // stalled FENCE.I instruction. The requesting core holds IF/ID/EX until
-  // its fence_done; the other hart keeps running (software must synchronize
-  // racing stores). SFENCE.VMA rides the same window and additionally
-  // flushes both TLBs via the remote_tlb_flush broadcast below.
+  // write back the requesting hart's D-cache, drain it, invalidate both
+  // I-caches, then release the stalled FENCE.I instruction. The requesting
+  // core holds IF/ID/EX until its fence_done; the other hart keeps running.
+  // SFENCE.VMA rides the same window and invalidates the peer's MMU after
+  // the drain, when the updated PTEs are already in memory.
   localparam logic [1:0] F_IDLE   = 2'd0;
   localparam logic [1:0] F_DCACHE = 2'd1;
   localparam logic [1:0] F_DRAIN  = 2'd2;
@@ -1536,11 +1537,13 @@ module roco_soc #(
   assign dcache_flush0 = dcache_flush && (boot_cache_maintenance || fence_owner == 1'b0);
   assign dcache_flush1 = dcache_flush && (boot_cache_maintenance || fence_owner == 1'b1);
 
-  // TLB shootdown: the non-requesting hart flushes its MMU while either
-  // fence is in flight. Idempotent for the requesting hart (already
-  // flushing through its own mmu_flush).
-  assign remote_tlb_flush0 = (fence_state != F_IDLE) && fence_owner == 1'b1;
-  assign remote_tlb_flush1 = (fence_state != F_IDLE) && fence_owner == 1'b0;
+  // TLB shootdown: invalidate the peer's MMU once, after the D-cache
+  // writeback has drained, so its next walk already sees the new PTEs.
+  // Holding the flush for the whole fence would re-flush the peer on every
+  // cycle: each of its fetches would re-walk and in-flight fetch responses
+  // would be discarded for the entire writeback.
+  assign remote_tlb_flush0 = peer_tlb_pulse && fence_owner == 1'b1;
+  assign remote_tlb_flush1 = peer_tlb_pulse && fence_owner == 1'b0;
 
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -1548,11 +1551,13 @@ module roco_soc #(
       fence_owner <= 1'b0;
       dcache_flush <= 1'b0;
       icache_flush <= 1'b0;
+      peer_tlb_pulse <= 1'b0;
       fence_done0 <= 1'b0;
       fence_done1 <= 1'b0;
       boot_cache_maintenance <= 1'b0;
     end else begin
       icache_flush <= 1'b0;
+      peer_tlb_pulse <= 1'b0;
       if (boot_restart && !BOOT_OVERRIDE) begin
         boot_cache_maintenance <= 1'b1;
         dcache_flush <= 1'b1;
@@ -1583,6 +1588,7 @@ module roco_soc #(
           F_DRAIN: begin
             if (c_ready_synced) begin
               icache_flush <= 1'b1;
+              peer_tlb_pulse <= 1'b1;
               fence_state <= F_ICACHE;
             end
           end

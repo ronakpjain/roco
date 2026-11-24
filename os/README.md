@@ -180,6 +180,22 @@ starts the new program from its entry point with a fresh stack.
 `/bin/primes` prints primes up to 100 and records them in
 `/tmp/primes.txt`, since background jobs cannot write to the console.
 `/bin/chain` writes `/tmp/chained.txt` and then execs `/bin/worker`.
+`/bin/spin` yields forever until the shell kills it.
+
+`sleep <ticks>` parks the calling task for at least that many `mtime`
+ticks; `uptime` prints the low 32 bits of `mtime`. `ps` lists every
+process id with its state, and `kill <pid>` stops a job (or clears a
+finished one) at any time:
+
+```text
+roco_os> run spin &
+roco_os> ps
+pid 1 shell: active on hart 0.
+pid 2 spin: active on hart 1.
+roco_os> kill 2
+roco_os> jobs
+No job yet.
+```
 
 ## Boot artifacts
 
@@ -205,11 +221,11 @@ programs that do not fit the following layout:
 
 | Virtual range | User permissions | Contents |
 | --- | --- | --- |
-| `0x00400000` to `0x00403fff` | Read, execute | `.text`, `.rodata` (16 KiB) |
-| `0x00404000` to `0x00405fff` | Read, write | `.data`, zeroed `.bss` (8 KiB) |
-| `0x00406000` to `0x00408fff` | Read, write | 12 KiB heap |
-| `0x00409000` to `0x00409fff` | Unmapped | Stack guard |
-| `0x0040a000` to `0x0040ffff` | Read, write | 24 KiB stack |
+| `0x00400000` to `0x00407fff` | Read, execute | `.text`, `.rodata` (32 KiB) |
+| `0x00408000` to `0x00409fff` | Read, write | `.data`, zeroed `.bss` (8 KiB) |
+| `0x0040a000` to `0x0040bfff` | Read, write | 8 KiB heap |
+| `0x0040c000` to `0x0040cfff` | Unmapped | Stack guard |
+| `0x0040d000` to `0x0040ffff` | Read, write | 12 KiB stack |
 
 The kernel, backing-page aliases, and MMIO are supervisor-only. The
 kernel validates user buffer ranges before reading through its own aliases.

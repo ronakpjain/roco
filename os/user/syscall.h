@@ -58,6 +58,9 @@
 #define SYS_GETPPID 21
 #define SYS_EXEC 22
 #define SYS_SPAWN 23
+#define SYS_SLEEP 24
+#define SYS_KILL 25
+#define SYS_UPTIME 26
 #define SYS_RUN_JOB 30
 #define SYS_JOB_STATUS 31
 
@@ -99,27 +102,27 @@
  * User virtual memory layout. A process gets 64 KiB of address space;
  * the kernel backs it with a private, contiguous 64 KiB slab of SDRAM.
  *
- *   0x00400000  text and read-only data   16 KiB, read/execute
- *   0x00404000  data and bss               8 KiB, read/write
- *   0x00406000  heap                      12 KiB, read/write
- *   0x00409000  guard page                      unmapped
- *   0x0040a000  stack                     24 KiB, read/write
+ *   0x00400000  text and read-only data   32 KiB, read/execute
+ *   0x00408000  data and bss               8 KiB, read/write
+ *   0x0040a000  heap                       8 KiB, read/write
+ *   0x0040c000  guard page                      unmapped
+ *   0x0040d000  stack                     12 KiB, read/write
  *   0x00410000  end of user space
  */
 #define USER_BASE 0x00400000u
-#define USER_TEXT_BYTES 0x4000u
-#define USER_DATA_BASE 0x00404000u
+#define USER_TEXT_BYTES 0x8000u
+#define USER_DATA_BASE 0x00408000u
 #define USER_DATA_BYTES 0x2000u
-#define USER_HEAP_BASE 0x00406000u
-#define USER_HEAP_BYTES 0x3000u
-#define USER_GUARD_BASE 0x00409000u
-#define USER_STACK_BASE 0x0040a000u
+#define USER_HEAP_BASE 0x0040a000u
+#define USER_HEAP_BYTES 0x2000u
+#define USER_GUARD_BASE 0x0040c000u
+#define USER_STACK_BASE 0x0040d000u
 #define USER_TOP 0x00410000u
 #define USER_SLOT_BYTES 0x00010000u
-#define USER_TEXT_PAGES 4u
+#define USER_TEXT_PAGES 8u
 #define USER_DATA_PAGES 2u
-#define USER_HEAP_PAGES 3u
-#define USER_STACK_PAGES 6u
+#define USER_HEAP_PAGES 2u
+#define USER_STACK_PAGES 3u
 
 int write(int fd, const void *buffer, int length);
 int read(int fd, void *buffer, int length);
@@ -144,6 +147,9 @@ int getpid(void);
 int getppid(void);
 int exec(const char *path);
 int spawn(const char *path, int hart);
+int sleep(unsigned ticks);
+int kill(int pid);
+unsigned uptime(void);
 
 /* Generic up-to-three-argument form, useful for exercising unknown calls. */
 int syscall(int number, int arg0, int arg1);
@@ -174,5 +180,8 @@ int sys_getpid(void);
 int sys_getppid(void);
 int sys_exec(const char *path);
 int sys_spawn(const char *path, int hart);
+int sys_sleep(unsigned ticks);
+int sys_kill(int pid);
+unsigned sys_uptime(void);
 
 #endif

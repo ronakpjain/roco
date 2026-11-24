@@ -307,3 +307,39 @@ sys_spawn:
   ret
 .size spawn, . - spawn
 .size sys_spawn, . - sys_spawn
+
+.globl sleep
+.globl sys_sleep
+.type sleep, @function
+.type sys_sleep, @function
+sleep:
+sys_sleep:
+  li a7, 24             # SYS_SLEEP
+  ecall
+  ret
+.size sleep, . - sleep
+.size sys_sleep, . - sys_sleep
+
+.globl kill
+.globl sys_kill
+.type kill, @function
+.type sys_kill, @function
+kill:
+sys_kill:
+  li a7, 25             # SYS_KILL
+  ecall
+  ret
+.size kill, . - kill
+.size sys_kill, . - sys_kill
+
+.globl uptime
+.globl sys_uptime
+.type uptime, @function
+.type sys_uptime, @function
+uptime:
+sys_uptime:
+  li a7, 26             # SYS_UPTIME
+  ecall
+  ret
+.size uptime, . - uptime
+.size sys_uptime, . - sys_uptime

@@ -6,3 +6,4 @@ exe /bin/worker user-worker.elf
 exe /bin/countdown user-countdown.elf
 exe /bin/primes user-primes.elf
 exe /bin/chain user-chain.elf
+exe /bin/spin user-spin.elf

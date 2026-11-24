@@ -1,6 +1,9 @@
 #include "lib.h"
 #include "editor.h"
 
+static void job_line(const char *name, int state);
+static const char *slot_name(int slot);
+
 #define LINE_CAP 80
 
 static void show_file(const char *path)
@@ -233,6 +236,63 @@ static void run_job(char *args)
         print("Could not start job.\n");
 }
 
+static void show_ps(void)
+{
+    int status;
+
+    print("pid 1 shell: active on hart 0.\n");
+    status = syscall(SYS_JOB_STATUS, JOB_WORKER, 0);
+    print("pid 2 ");
+    job_line(slot_name(JOB_WORKER), status);
+    status = syscall(SYS_JOB_STATUS, JOB_COUNTDOWN, 0);
+    print("pid 3 ");
+    job_line(slot_name(JOB_COUNTDOWN), status);
+}
+
+static void kill_job(char *args)
+{
+    int pid = 0;
+
+    while (*args >= '0' && *args <= '9') {
+        pid = pid * 10 + (*args - '0');
+        ++args;
+    }
+    while (*args == ' ' || *args == '\t')
+        ++args;
+    if (pid < 2 || pid > 3 || *args != 0)
+        print("Usage: kill <pid>\n");
+    else if (syscall(SYS_KILL, pid, 0) != 0)
+        print("kill: failed.\n");
+}
+
+static void sleep_ticks(char *args)
+{
+    unsigned ticks = 0;
+
+    if (*args < '0' || *args > '9') {
+        print("Usage: sleep <ticks>\n");
+        return;
+    }
+    while (*args >= '0' && *args <= '9') {
+        ticks = ticks * 10u + (unsigned)(*args - '0');
+        ++args;
+    }
+    while (*args == ' ' || *args == '\t')
+        ++args;
+    if (*args != 0) {
+        print("Usage: sleep <ticks>\n");
+        return;
+    }
+    sleep(ticks);
+}
+
+static void show_uptime(void)
+{
+    print("ticks ");
+    print_unum(uptime());
+    print("\n");
+}
+
 static const char *slot_name(int slot)
 {
     if (job_name[slot][0] != 0)
@@ -297,7 +357,7 @@ static int command(char *line, int *editing)
     }
 
     if (strcmp(line, "help") == 0)
-        print("Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n"
+        print("Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, ps, kill, sleep, uptime, wait, edit, script, exit\n"
         "run takes worker, countdown, or a /bin program path.\n");
     else if (strcmp(line, "hart") == 0) {
         if (gethart() == 0)
@@ -325,6 +385,14 @@ static int command(char *line, int *editing)
         remove_file(args);
     else if (strcmp(line, "df") == 0)
         show_space();
+    else if (strcmp(line, "ps") == 0 && *args == 0)
+        show_ps();
+    else if (strcmp(line, "kill") == 0)
+        kill_job(args);
+    else if (strcmp(line, "sleep") == 0)
+        sleep_ticks(args);
+    else if (strcmp(line, "uptime") == 0 && *args == 0)
+        show_uptime();
     else if (strcmp(line, "run") == 0)
         run_job(args);
     else if (strcmp(line, "jobs") == 0)

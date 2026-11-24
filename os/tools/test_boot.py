@@ -35,6 +35,8 @@ def main():
             "run countdown 0 &\necho shell still active\nrun worker 0 &\nwait\n"
             "run /bin/primes &\nwait\ncat /tmp/primes.txt\n"
             "run chain &\nwait\ncat /tmp/chained.txt\njobs\n"
+            "run spin &\nps\nkill 2\njobs\nwait\n"
+            "sleep 200000\nuptime\n"
             "edit /home/user/notes.txt\n.list\nappended line\n.save\n.quit\ncat /home/user/notes.txt\n"
             "edit\n.clear\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
             ".set 1 print script works\n.list\n.quit\nscript\n"
@@ -63,7 +65,7 @@ def main():
             "Welcome to roco_os.\n"
             "Type help for commands, ls to browse the RAM filesystem.\n"
             "roco_os user shell; type help.\n"
-            "roco_os> Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, wait, edit, script, exit\n"
+            "roco_os> Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, ps, kill, sleep, uptime, wait, edit, script, exit\n"
             "run takes worker, countdown, or a /bin program path.\n"
             "roco_os> UART input\n"
             "roco_os> Unknown command; try help.\n"
@@ -101,6 +103,11 @@ def main():
             "Started on hart 1.\n",
             "chained\nroco_os> ",
             "chain: completed successfully.\n",
+            "Started on hart 1.\n",
+            "pid 1 shell: active on hart 0.\n",
+            "pid 2 spin: active on hart 1.\n",
+            "countdown: completed successfully.\n",
+            "ticks ",
             "appended line\n",
             "1 print script works\n2 set 40\n3 add 2\n4 show\n5 repeat 2 hi\n",
             "script works\n42\nhi\nhi\n", "script works\n42\nScript error on line 5.\n", "Bye.\n",

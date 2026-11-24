@@ -87,6 +87,8 @@ static unsigned fd_off[MAX_PROCS][MAX_FDS];
 static unsigned fd_flags[MAX_PROCS][MAX_FDS];
 static unsigned proc_cwd[MAX_PROCS];
 static unsigned proc_ino[MAX_PROCS];
+static unsigned sleep_start[MAX_PROCS];
+static unsigned sleep_ticks[MAX_PROCS];
 
 static int console_image(void)
 {
@@ -190,18 +192,21 @@ static void setup_space(unsigned slot)
 
     for (i = 0; i < 1024u; ++i)
         leaf[i] = 0;
+    /* Leaf slots mirror the virtual layout: text, data, heap, one
+       unmapped guard page, then the stack. */
     for (i = 0; i < USER_TEXT_PAGES; ++i)
         leaf[i] = pte(pa + i * PAGE_SIZE, PTE_R | PTE_X | PTE_U | PTE_A);
     for (i = 0; i < USER_DATA_PAGES; ++i)
         leaf[USER_TEXT_PAGES + i] = pte(pa + (USER_TEXT_PAGES + i) * PAGE_SIZE,
                                        PTE_RW | PTE_U | PTE_A | PTE_D);
     for (i = 0; i < USER_HEAP_PAGES; ++i)
-        leaf[6u + i] = pte(pa + (6u + i) * PAGE_SIZE,
-                           PTE_RW | PTE_U | PTE_A | PTE_D);
-    /* Leaf slot 9 is the unmapped stack guard page. */
+        leaf[USER_TEXT_PAGES + USER_DATA_PAGES + i] =
+            pte(pa + (USER_TEXT_PAGES + USER_DATA_PAGES + i) * PAGE_SIZE,
+                PTE_RW | PTE_U | PTE_A | PTE_D);
     for (i = 0; i < USER_STACK_PAGES; ++i)
-        leaf[10u + i] = pte(pa + (10u + i) * PAGE_SIZE,
-                            PTE_RW | PTE_U | PTE_A | PTE_D);
+        leaf[(USER_GUARD_BASE - USER_BASE) / PAGE_SIZE + 1u + i] =
+            pte(pa + ((USER_GUARD_BASE - USER_BASE) / PAGE_SIZE + 1u + i) * PAGE_SIZE,
+                PTE_RW | PTE_U | PTE_A | PTE_D);
 
     root[USER_BASE >> 22] = pte((unsigned)leaf, 0);
     /* Supervisor-only identity mappings: RAM (kernel, aliases, stacks), MMIO. */
@@ -280,11 +285,19 @@ static void switch_space(unsigned slot)
     enable_paging(0x80000000u | (root >> 12));
 }
 
+static int sleeping(unsigned slot)
+{
+    /* Wrap-safe: the low 32 bits of mtime lap every 45 seconds at the
+       simulation clock, so compare elapsed time against the duration. */
+    return sleep_ticks[slot] != 0 &&
+        (MTIME_LOW - sleep_start[slot]) < sleep_ticks[slot];
+}
+
 static int runnable(unsigned slot, unsigned hart)
 {
     if (slot == 0)
-        return hart == 0;
-    return job_state[slot] == JOB_ACTIVE + hart;
+        return hart == 0 && !sleeping(0);
+    return job_state[slot] == JOB_ACTIVE + hart && !sleeping(slot);
 }
 
 static unsigned next_slot(unsigned hart)
@@ -310,6 +323,8 @@ void worker_loop(unsigned stack_top, unsigned hart)
     } while (id == MAX_PROCS);
     current[hart] = id;
     context = contexts + id * TF_SAVED;
+    sleep_start[id] = 0;
+    sleep_ticks[id] = 0;
     if (!saved[id]) {
         if (load_program(id, (int)proc_ino[id]) != 0) {
             job_state[id] = JOB_FAULT;
@@ -707,6 +722,21 @@ static int submit_job(unsigned id, unsigned hart)
     return 0;
 }
 
+static int sys_kill(unsigned hart, unsigned pid)
+{
+    unsigned slot;
+
+    (void)hart;
+    if (pid < 2u || pid > MAX_PROCS)
+        return -1;
+    slot = pid - 1u;
+    saved[slot] = 0;
+    sleep_start[slot] = 0;
+    sleep_ticks[slot] = 0;
+    job_state[slot] = JOB_IDLE;
+    return 0;
+}
+
 static int spawn_job(unsigned hart, const char *path)
 {
     int ino = fs_lookup_path(0, path);
@@ -857,7 +887,17 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
             frame[TF_A0] = (unsigned)-1;
         else
             exec_self(hart, slot, path, frame);
-    }
+    } else if (syscall == SYS_SLEEP) {
+        frame[TF_A0] = 0;
+        if (frame[TF_A1] != 0 && console_image()) {
+            sleep_start[slot] = MTIME_LOW;
+            sleep_ticks[slot] = frame[TF_A1];
+            reschedule(frame);
+        }
+    } else if (syscall == SYS_UPTIME)
+        frame[TF_A0] = MTIME_LOW;
+    else if (syscall == SYS_KILL && console_image() && hart == 0 && current[0] == 0)
+        frame[TF_A0] = (unsigned)sys_kill(hart, frame[TF_A0]);
     else if (hart == 0 && current[0] == 0 && syscall == SYS_JOB_STATUS && console_image() && valid_job(frame[TF_A0]))
         frame[TF_A0] = job_state[frame[TF_A0]];
     else

@@ -1,3 +1,3 @@
-# Force writable sections onto the next page in the fixed-layout linker.
+# Reserve two text pages before the writable data page.
 .section .data
-.balign 4096
+.balign 8192

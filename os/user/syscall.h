@@ -10,7 +10,7 @@
  *   3: gethart(void)                   -> hart id (0 or 1)
  *   4: yield(void)                     -> 0
  *   5: readchar(void)                  -> byte, or -1 if unavailable
- *   6: run_job(a0 = job ID)            -> 0, JOB_BUSY, or -1 if invalid
+ *   6: run_job(a0 = job ID, a1 = hart) -> 0, JOB_BUSY, or -1 if invalid
  *   7: job_status(a0 = job ID)        -> idle, active, or completion
  *
  * All other trap numbers return -1.
@@ -26,7 +26,7 @@
 
 /* Job syscalls are only available to hart 0 in the console image. */
 #define JOB_IDLE 0
-#define JOB_ACTIVE 1
+#define JOB_ACTIVE 1  /* Add the target hart number for an active slot. */
 #define JOB_WORKER 1
 #define JOB_COUNTDOWN 2
 #define JOB_DONE 256  /* Completion is JOB_DONE plus the low 8 exit-status bits. */

@@ -39,17 +39,19 @@ Wait for `roco> `, then try:
 
 ```text
 run countdown &
-run worker &
+run worker 0 &
 hart
 jobs
 wait
 exit
 ```
 
-The shell runs in user mode on hart 0. Hart 1 time-slices `worker` and
-`countdown` in separate user address spaces, with a hardware timer tick
-every 20,000 `mtime` ticks while a job runs. `yield()` can hand off early.
-`run <worker|countdown> &` returns immediately. There is one instance
+The shell runs in user mode on hart 0. Either hart can time-slice
+`worker` and `countdown` in separate user address spaces. On hart 0 the
+shell gets its own time slice and is the only task allowed to read UART
+input. The timer slice is 20,000 `mtime` ticks; `yield()` can hand off
+early. `run <worker|countdown> [0|1] &` returns immediately and defaults to
+hart 1 when no hart is specified. There is one instance
 slot for each bundled program; duplicate active launches are rejected.
 `jobs` reports both slots and `wait` waits for all active jobs. A fresh
 launch resets that program's writable data and stack. Both programs
@@ -66,6 +68,34 @@ printf 'run countdown &\nhart\nwait\nexit\n' | make console
 ```
 
 `make test` also checks the shell transcript over the simulated UART.
+
+### Editor and scripts
+
+`edit` opens a single RAM-only document (12 lines of up to 79 characters).
+Type a line to append it. `.list` shows numbered lines, `.set N text`
+replaces a line, `.del N` deletes one, `.clear` empties the document, and
+`.quit` returns to the shell without discarding the document. Reset or
+exit loses the document; there is no filesystem.
+
+Try typing this at the console:
+
+```text
+edit
+print result:
+set 40
+add 2
+show
+repeat 2 hello
+.quit
+script
+```
+
+`script` runs the document from the top. Blank lines and `#` comments
+are ignored. `set` and `add` operate on a single decimal accumulator
+(0 through 999999), `show` prints it, and `repeat N text` prints text up
+to 20 times. An invalid statement stops execution and reports the line
+number. Scripts run in the shell task; background jobs still get their
+own time slices.
 
 ## Boot artifacts
 
@@ -90,10 +120,10 @@ that do not fit the following layout:
 
 | Virtual range | User permissions | Contents |
 | --- | --- | --- |
-| `0x00400000` to `0x00400fff` | Read, execute | `.text`, `.rodata` |
-| `0x00401000` to `0x00401fff` | Read, write | `.data`, zeroed `.bss` |
-| `0x00402000` to `0x00402fff` | Unmapped | Stack guard |
-| `0x00403000` to `0x00404fff` | Read, write | 8 KiB stack |
+| `0x00400000` to `0x00401fff` | Read, execute | `.text`, `.rodata` |
+| `0x00402000` to `0x00402fff` | Read, write | `.data`, zeroed `.bss` |
+| `0x00403000` to `0x00403fff` | Unmapped | Stack guard |
+| `0x00404000` to `0x00405fff` | Read, write | 8 KiB stack |
 
 The kernel, backing-page aliases, and MMIO are supervisor-only. The
 kernel validates user buffer ranges before reading through its own aliases.
@@ -113,10 +143,10 @@ stacks grow down from `0x100ff000` and `0x100fd000`.
 | 1 | `write(buf, len)` | Bytes written, or `-1` for an invalid nonempty buffer or a length over 256 |
 | 2 | `exit(status)` | Never returns; returning from `main` does the same thing |
 | 3 | `gethart()` | `0` or `1` |
-| 4 | `yield()` | `0`; a console job gives up the rest of its time slice if the other slot is active |
-| 5 | `readchar()` | Next UART byte on hart 0, or `-1` if none is available or the caller is on hart 1 |
-| 6 | `syscall(SYS_RUN_JOB, id, 0)` | Console hart 0 only: submits a job, returns `0`, `JOB_BUSY`, or `-1` |
-| 7 | `syscall(SYS_JOB_STATUS, id, 0)` | Console hart 0 only: returns idle, active, or completion status for a program slot |
+| 4 | `yield()` | `0`; a console task gives up the rest of its time slice if another task is runnable |
+| 5 | `readchar()` | Next UART byte for the hart 0 shell (or the default hart 0 program); `-1` if unavailable |
+| 6 | `syscall(SYS_RUN_JOB, id, hart)` | Shell only: submits a job, returns `0`, `JOB_BUSY`, or `-1` |
+| 7 | `syscall(SYS_JOB_STATUS, id, 0)` | Shell only: returns idle, `JOB_ACTIVE + hart`, or completion status |
 
 Unknown calls return `-1`. In the default image the system stops when both
 programs exit successfully, or immediately on a nonzero exit or an

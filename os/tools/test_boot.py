@@ -18,7 +18,7 @@ def main():
     sim, packet = args.sim.resolve(), args.packet.resolve()
     # 8N1 at the testbench's 96 core clocks per bit, plus runtime headroom.
     cycles = 960 * len(packet.read_bytes().splitlines())
-    cycles += 12_000_000 if args.console else 2_000_000
+    cycles += 30_000_000 if args.console else 2_000_000
     command = [str(sim), f"+packet={packet}", f"+max_cycles={cycles}"]
     commands = None
     if args.console:
@@ -26,7 +26,10 @@ def main():
         commands = (
             "help\r\necho UART input\nmissing\n" + "x" * 80 + "\n"
             "jobs\nrun missing &\nrun worker\nrun countdown &\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
-            "run worker &\nwait\nrun worker &\nwait\nexit\n"
+            "run countdown 0 &\necho shell still active\nrun worker 0 &\nwait\n"
+            "edit\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
+            ".set 1 print script works\n.list\n.quit\nscript\n"
+            "edit\n.del 5\ninvalid\n.quit\nscript\nexit\n"
         )
     run = subprocess.run(
         command,
@@ -49,13 +52,13 @@ def main():
     if args.console:
         expected = (
             "ROCO user shell; type help.\n"
-            "roco> Commands: help, hart, echo [text], run <worker|countdown> &, jobs, wait, exit\n"
+            "roco> Commands: help, hart, echo [text], run <worker|countdown> [0|1] &, jobs, wait, edit, script, exit\n"
             "roco> UART input\n"
             "roco> Unknown command; try help.\n"
             "roco> Line too long.\n"
             "roco> No job yet.\n"
             "roco> No such program.\n"
-            "roco> Usage: run <worker|countdown> &\n"
+            "roco> Usage: run <worker|countdown> [0|1] &\n"
         )
         if expected not in run.stdout:
             sys.exit("Unexpected shell transcript")
@@ -65,9 +68,11 @@ def main():
         for line in (
             "Started on hart 1.\n", "That program is already active.\n", "Started on hart 1.\n",
             "countdown: 3\n", "hart 1 user worker\n", "countdown: done\n",
-            "countdown: completed successfully.\n", "hart 1 user worker\n",
-            "worker: completed successfully.\n", "hart 1 user worker\n",
-            "worker: completed successfully.\n", "Bye.\n",
+            "countdown: completed successfully.\n",
+            "countdown: hart 0\n", "countdown: 3\n", "hart 0 user worker\n", "countdown: done\n",
+            "worker: completed successfully.\n", "countdown: completed successfully.\n",
+            "1 print script works\n2 set 40\n3 add 2\n4 show\n5 repeat 2 hi\n",
+            "script works\n42\nhi\nhi\n", "script works\n42\nScript error on line 5.\n", "Bye.\n",
         ):
             pos = run.stdout.find(line, offset)
             if pos < 0:
@@ -75,6 +80,10 @@ def main():
             offset = pos + len(line)
         if "hart 0\n" not in run.stdout.partition("countdown: done\n")[0]:
             sys.exit("Expected the shell to respond while countdown was active")
+        local = run.stdout.partition("countdown: completed successfully.\n")[2]
+        local = local.partition("countdown: done\n")[0]
+        if "shell still active\n" not in local or local.count("Started on hart 0.\n") != 2:
+            sys.exit("Expected shell input and a second launch during the hart 0 job")
         return
     for expected in ("hart 0 user hello\n", "hart 1 user worker\n"):
         if run.stdout.count(expected) != 1:

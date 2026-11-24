@@ -40,14 +40,14 @@ def emit_app(label, path):
     text, data = bytearray(), bytearray()
     for name, (addr, size, payload) in sections.items():
         if name in (".text", ".rodata"):
-            target, page = text, BASE
+            target, page, capacity = text, BASE, 2 * PAGE
         elif name in (".data", ".bss"):
-            target, page = data, BASE + PAGE
+            target, page, capacity = data, BASE + 2 * PAGE, PAGE
         else:
             raise ValueError(f"unsupported allocated section {name}")
         offset = addr - page
-        if offset < 0 or offset + size > PAGE:
-            raise ValueError(f"{name} does not fit its 4 KiB page")
+        if offset < 0 or offset + size > capacity:
+            raise ValueError(f"{name} does not fit its {capacity // 1024} KiB region")
         if payload:
             target.extend(b"\0" * max(0, offset + len(payload) - len(target)))
             target[offset : offset + len(payload)] = payload

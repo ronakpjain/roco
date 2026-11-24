@@ -90,16 +90,20 @@ bss_done:
 
   # ---------------------------------------------------------------- hart 1
 boot_hart1:
-  beqz s0, enter_supervisor
   la t0, user_countdown
   lw t0, 0(t0)
   beqz t0, enter_supervisor
   # The compare register resets to zero, so disarm it before enabling MTIE.
   li t0, 0x80000060
+  bnez s0, timer_init
+  li t0, 0x80000020
+timer_init:
   li t1, -1
   sw t1, 4(t0)
   sw t1, 0(t0)
   la t0, timer_scratch
+  slli t1, s0, 3
+  add t0, t0, t1
   csrw mscratch, t0
   li t0, 0x20            # Delegate supervisor timer interrupts.
   csrw mideleg, t0
@@ -123,7 +127,7 @@ enter_supervisor:
 .size _start, . - _start
 
 # ------------------------------------------------------------------------
-# Forward hart 1's timer to S mode. Other M-mode traps are fatal.
+# Forward the local hardware timer to S mode. Other M-mode traps are fatal.
 .balign 4
 .type m_trap_vector, @function
 m_trap_vector:
@@ -137,6 +141,10 @@ m_trap_vector:
 
   # Disarm the physical interrupt and post STIP. S mode rearms mtimecmp.
   li t1, 0x80000060
+  csrr t2, mhartid
+  bnez t2, timer_disarm
+  li t1, 0x80000020
+timer_disarm:
   li t2, -1
   sw t2, 4(t1)
   sw t2, 0(t1)
@@ -180,4 +188,4 @@ boot_fail:
 .section .bss
 .balign 4
 timer_scratch:
-  .zero 8
+  .zero 16

@@ -14,7 +14,7 @@ USER_WORKER := $(BUILD)/user-worker.elf
 BOOT_SIM := $(SOC_DIR)/build/vl_tb_soc_boot/Vtb_soc_boot
 
 .PHONY: all clean test console
-.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o
+.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o
 all: $(BUILD)/roco-os.elf $(BUILD)/roco-os.packet.hex
 
 $(BUILD):
@@ -33,6 +33,12 @@ $(BUILD)/user-%.o: user/%.c user/syscall.h $(ROCO_CC) | $(BUILD)
 	$(ROCO_CC) -c -o $@ $<
 
 $(BUILD)/user-%.elf: $(USER_RUNTIME) $(BUILD)/user-%.o $(ROCO_LD)
+	$(ROCO_LD) --base 0x00400000 -o $@ $(filter %.o,$^)
+
+$(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-%.o: user/%.c user/editor.h user/syscall.h $(ROCO_CC) | $(BUILD)
+	$(ROCO_CC) -O1 -c -o $@ $<
+
+$(BUILD)/user-shell.elf: $(USER_RUNTIME) $(BUILD)/user-shell.o $(BUILD)/user-editor.o $(ROCO_LD)
 	$(ROCO_LD) --base 0x00400000 -o $@ $(filter %.o,$^)
 
 $(BUILD)/user_images.S: tools/pack_users.py $(USER_HELLO) $(USER_WORKER)

@@ -10,7 +10,8 @@ int worker_bss;
 static const char worker_message[20] = "hart 1 user worker\n";
 
 int main(void) {
-  if (gethart() != 1) {
+  int hart = gethart();
+  if (hart != 0 && hart != 1) {
     return 1;
   }
 
@@ -45,7 +46,10 @@ int main(void) {
     return 8;
   }
 
-  if (write(worker_message, sizeof(worker_message) - 1) !=
+  if (hart == 0) {
+    if (write("hart 0 user worker\n", 19) != 19)
+      return 9;
+  } else if (write(worker_message, sizeof(worker_message) - 1) !=
       (int)(sizeof(worker_message) - 1)) {
     return 9;
   }

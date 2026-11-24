@@ -12,8 +12,8 @@ static int pause(void)
 
 int main(void)
 {
-    if (gethart() != 1)
-        return 1;
+    if (gethart() == 0)
+        write("countdown: hart 0\n", 18);
     write("countdown: 3\n", 13);
     if (!pause())
         return 2;

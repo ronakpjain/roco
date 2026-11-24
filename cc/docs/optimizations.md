@@ -171,7 +171,9 @@ one load to save and restore the register.
 Only the registers actually used are saved. The prologue and epilogue keep the
 stack 16-byte aligned and save each `s2`-`s11` slot at `s0+16`, `s0+20`, and so
 on. Locals in registers survive calls because every compiled callee preserves
-the same registers.
+the same registers. Leaf functions omit the unused `ra` save and restore.
+Discarded assignments to a register local use `li sN, constant` or
+`mv sN, sM` directly instead of routing the value through `a0`.
 
 The backend also uses register locals directly instead of copying them through
 `a0`:
@@ -373,16 +375,16 @@ runtime.
 
 | Workload | `-O0` cycles | `-O1` cycles | `-O2` cycles | `-O2` retired |
 | --- | ---: | ---: | ---: | ---: |
-| `tests/e2e/main.c` | 599 | 374 | 374 | 228 |
-| `tests/e2e/features.c` | 4974 | 2854 | 2672 | 2049 |
-| `tests/e2e/optimized.c` | 6515 | 5453 | 5150 | 3050 |
+| `tests/e2e/main.c` | 588 | 369 | 369 | 224 |
+| `tests/e2e/features.c` | 4966 | 2833 | 2651 | 2035 |
+| `tests/e2e/optimized.c` | 6123 | 5157 | 4854 | 2864 |
 
 OS images built with the kernel and filesystem at `-O2`:
 
 | Image | Before this work | Current | Change |
 | --- | ---: | ---: | ---: |
-| default UART boot | 9,998,813 cycles | 8,183,091 cycles | -18.2% |
-| console/rootfs workload | 60,462,477 cycles | 49,623,767 cycles | -17.9% |
+| default UART boot | 9,998,813 cycles | 8,109,359 cycles | -18.9% |
+| console/rootfs workload | 60,462,477 cycles | 49,217,512 cycles | -18.6% |
 
 `-O1` now provides the bulk of the runtime improvement through local register
 allocation and direct register operands. `-O2` adds the arithmetic

@@ -74,6 +74,7 @@ Codegen also performs these local optimizations:
   `slti`/`sltiu` instead of a temporary;
 - hot scalar locals live in callee-saved `s2`-`s11` registers, while arrays,
   address-taken locals, and `volatile` locals stay in memory;
+- leaf functions omit the unused `ra` save and restore;
 - ALU operations, branches, increments, and compound assignments use register
   locals directly instead of copying them through `a0`;
 - scalar local loads and stores use `s0`-relative offsets directly;

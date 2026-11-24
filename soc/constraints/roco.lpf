@@ -6,10 +6,14 @@
 BLOCK RESETPATHS;
 BLOCK ASYNCPATHS;
 
-# Reference clock (ball A4, dedicated ULC_GPLL0T_IN).
+# Reference clock (ball A4, dedicated ULC_GPLL0T_IN). Diamond buffers
+# the port into net clk_24_c and scores FREQUENCY PORT against zero
+# items, so constrain the post-buffer net explicitly (keep the PORT
+# line for nextpnr, which resolves it fine).
 LOCATE COMP "clk_24" SITE "A4";
 IOBUF PORT "clk_24" IO_TYPE=LVCMOS33;
 FREQUENCY PORT "clk_24" 24 MHz;
+FREQUENCY NET "clk_24_c" 24 MHz;
 
 # Reset and user buttons, active low with board pull-ups.
 LOCATE COMP "app_reset_n" SITE "B5";

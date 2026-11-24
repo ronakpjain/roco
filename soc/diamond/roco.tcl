@@ -66,7 +66,11 @@ foreach {pat dst} [list \
     "impl1/${proj}_${impl}.twr" out/roco_diamond.twr \
     "impl1/*.twr"             out/roco_diamond.twr \
     "impl1/${proj}_${impl}.mrp" out/roco_diamond.mrp \
-    "impl1/*.mrp"             out/roco_diamond.mrp] {
+    "impl1/*.mrp"             out/roco_diamond.mrp \
+    "impl1/${proj}_${impl}.ncd" out/roco_diamond.ncd \
+    "impl1/*.ncd"             out/roco_diamond.ncd \
+    "impl1/${proj}_${impl}.prf" out/roco_diamond.prf \
+    "impl1/*.prf"             out/roco_diamond.prf] {
     set hits [glob -nocomplain $pat]
     if {[llength $hits] > 0} {
         file copy -force [lindex $hits 0] $dst

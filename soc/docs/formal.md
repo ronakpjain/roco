@@ -27,11 +27,15 @@ matrix job is labeled `prove` (unbounded safety), `bmc` or `bmc-fast`
 (bounded, with an explicit depth in the workflow), or `cover` (reachability of
 the states its assertions need). CI pins OSS CAD Suite and the upstream
 ISA model revision, and uploads solver logs and any counterexample VCDs.
-The matrix gates the completed checks, including `core-isa`, `core-isa-stall`
-and `csr-trap`, together with the `cover` runs described under
-[cover reachability](#cover-reachability).
-Exploratory jobs such as the monolithic `core prove` and `core-multiply prove`
-remain runnable locally but are not gates.
+The workflow matrix is the source of truth for the automatic gate. It runs
+component proofs, bounded core checks, and selected covers. Whole-SoC `soc-*`
+formal jobs are temporarily local-only while their harnesses are updated for
+SMP and the SDRAM clock crossing. `xbar prove`, `core-isa prove`,
+`core-isa-stall prove`, and `core-atomic-stream prove` are also local-only
+because they have not reliably closed within the proof budget. The gated
+`xbar cover`, `core-atomic bmc-fast`, and `core bmc-fast` checks remain bounded
+checks, not replacements for those proofs. No jobs or assertions have been
+removed from the local runner; use the commands below to reproduce them.
 
 The workflow also runs a simulation matrix for `test_core`, `test_soc`,
 `test_boot`, `test_dcache` and `test_atomic_mmio`, building the sibling `cc`
@@ -45,8 +49,8 @@ the CI job. Changes to either `soc/` or `cc/` trigger this workflow.
 ### Unbounded safety proofs
 
 Install [SymbiYosys](https://github.com/YosysHQ/sby) and Yosys's ABC executable.
-Both bus contracts passed unbounded with ABC's property-directed reachability
-(PDR):
+The APB bridge and AXI crossbar contracts use ABC's property-directed
+reachability (PDR). The current crossbar proof is local-only:
 
 ```sh
 bash formal/run.sh bridge prove
@@ -108,8 +112,8 @@ The second form skips the boot image, shortens SDRAM power-up and uses
 two-line caches, which brings the same CPU traffic inside a bound the solver
 can unroll.
 
-`soc-mmio-memory` carries the SoC-level data path instead. Its passing
-`bmc-fast` proof requires the CPU store at the pins, the refetch and refill
+`soc-mmio-memory` checks the SoC-level data path locally. Its `bmc-fast`
+assertions require the CPU store at the pins, the refetch and refill
 after FENCE.I, and the halt within the 420-cycle deadline, so those states
 are reachable rather than assumed. Its own cover run witnesses the same
 events explicitly and takes a few minutes:
@@ -250,7 +254,7 @@ crossbar, SDRAM adapter and controller. Independent handshake counters prove
 four ordered beats per I-cache read and eight per D-cache read, with `LAST`
 only on the final beat. D-cache requests are aligned eight-word bursts;
 native requests and write payloads remain stable under backpressure. These
-checks do not assume anything about SDRAM input data. The `soc-ram` CI gate
+checks do not assume anything about SDRAM input data. The local `soc-ram` job
 also includes this complete assertion set.
 
 The ownership scoreboard starts a new epoch on CPU reset. UART boot restart
@@ -380,7 +384,7 @@ model, with no added internal assumptions. It checks instruction provenance,
 not architectural results or next-PC semantics, and does not associate deferred
 divide writeback with its issuing instruction.
 
-CI includes both prove and cover rows. The cover row uses the existing fast
+Both modes are available locally. The cover command uses the existing fast
 configuration (boot override, shortened SDRAM startup and two-line caches),
 and external memory initialized with either NOP or an illegal zero instruction
 at the reset word (all other halfwords zero), with witnesses for a watched
@@ -632,7 +636,7 @@ timing.
 bash formal/run.sh soc-mmio-memory bmc-fast
 ```
 
-This 422-step CI check instantiates the actual `roco_soc`, with no internal bus
+This 422-step local check instantiates the actual `roco_soc`, with no internal bus
 cutpoints. A fixed ten-instruction program reads symbolic GPIO buttons through
 AXI/APB, stores them to one byte in a symbolically initialized SDRAM word, and
 runs FENCE.I. The harness checks the byte merge at the SDRAM pins before the

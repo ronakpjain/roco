@@ -154,6 +154,15 @@ timer_disarm:
   mret
 
 m_fatal:
+  # Diagnostic: print mepc then mcause in hex before reporting.
+  csrr a0, mepc
+  call m_hex
+  li a0, 0x3a
+  call m_putc
+  csrr a0, mcause
+  call m_hex
+  li a0, 0x0a
+  call m_putc
   csrr t0, mcause
   csrr t1, mhartid
   slli t1, t1, 8
@@ -164,6 +173,46 @@ m_fatal:
   sw t0, 0(t1)
 1:
   j 1b
+# Print low byte of a0 as a UART character. Clobbers t0-t1.
+m_putc:
+  li t0, 0x80000004
+1:
+  lw t1, 0(t0)
+  andi t1, t1, 1
+  beqz t1, 1b
+  li t0, 0x80000000
+  sw a0, 0(t0)
+  ret
+# Print a0 as eight hex digits. Clobbers t0-t2 and 16 bytes of stack.
+m_hex:
+  addi sp, sp, -16
+  sw ra, 12(sp)
+  mv t0, a0
+  li t1, 8
+1:
+  srli t2, t0, 28
+  andi t2, t2, 15
+  addi t2, t2, 48
+  li t3, 58
+  bltu t2, t3, 2f
+  addi t2, t2, 39
+2:
+  slli t0, t0, 4
+  addi sp, sp, -16
+  sw a0, 0(sp)
+  sw t0, 4(sp)
+  sw t1, 8(sp)
+  mv a0, t2
+  call m_putc
+  lw a0, 0(sp)
+  lw t0, 4(sp)
+  lw t1, 8(sp)
+  addi sp, sp, 16
+  addi t1, t1, -1
+  bnez t1, 1b
+  lw ra, 12(sp)
+  addi sp, sp, 16
+  ret
 
 .size m_trap_vector, . - m_trap_vector
 

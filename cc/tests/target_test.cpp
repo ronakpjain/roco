@@ -19,6 +19,7 @@ TEST(TargetTest, UsesRocoDefaults) {
   EXPECT_EQ(costs.store, 1);
   EXPECT_EQ(costs.branch, 1);
   EXPECT_EQ(costs.jump, 1);
+  EXPECT_EQ(costs.data_cache_line, 32);
 }
 
 TEST(TargetTest, ParsesCommentsAndOverrides) {
@@ -29,12 +30,14 @@ TEST(TargetTest, ParsesCommentsAndOverrides) {
     shift = 1
     compare = 2
     jump = 3
+    data_cache_line = 64
   )");
   EXPECT_EQ(costs.multiply, 3);
   EXPECT_EQ(costs.divide, 24);
   EXPECT_EQ(costs.shift, 1);
   EXPECT_EQ(costs.compare, 2);
   EXPECT_EQ(costs.jump, 3);
+  EXPECT_EQ(costs.data_cache_line, 64);
   EXPECT_EQ(costs.arithmetic, 1);
 }
 

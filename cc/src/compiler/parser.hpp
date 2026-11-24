@@ -166,6 +166,7 @@ class Parser {
       return;
     }
     const TypePtr base = parse_declspec();
+    declaration_volatile_ = declspec_volatile_;
     if (is_typedef) {
       while (true) {
         Declarator alias = parse_declarator(base, false, false);
@@ -189,8 +190,16 @@ class Parser {
   }
 
   TypePtr parse_declspec() {
-    while (consume_keyword("const") || consume_keyword("volatile") ||
-           consume_keyword("restrict")) {
+    declspec_volatile_ = false;
+    while (true) {
+      if (consume_keyword("const") || consume_keyword("restrict")) {
+        continue;
+      }
+      if (consume_keyword("volatile")) {
+        declspec_volatile_ = true;
+        continue;
+      }
+      break;
     }
     if (peek().kind == TokenKind::Identifier) {
       const auto alias = typedefs_.find(peek().text);
@@ -209,8 +218,11 @@ class Parser {
     bool saw_other = false;
 
     while (true) {
-      if (consume_keyword("const") || consume_keyword("volatile") ||
-          consume_keyword("restrict")) {
+      if (consume_keyword("const") || consume_keyword("restrict")) {
+        continue;
+      }
+      if (consume_keyword("volatile")) {
+        declspec_volatile_ = true;
         continue;
       }
       if (consume_keyword("unsigned")) {
@@ -323,6 +335,7 @@ class Parser {
               break;
             }
             const TypePtr parameter_base = parse_declspec();
+            const bool parameter_volatile = declspec_volatile_;
             Declarator parameter =
                 parse_declarator(parameter_base, false, true);
             TypePtr parameter_type = parameter.type;
@@ -333,6 +346,7 @@ class Parser {
             declaration->name = parameter.name;
             declaration->type = parameter_type;
             declaration->token = parameter.token;
+            declaration->is_volatile = parameter_volatile;
             params.push_back(std::move(declaration));
             if (!consume_punct(",")) {
               break;
@@ -432,12 +446,14 @@ class Parser {
       if (declarator.type->kind == TypeKind::Function) {
         fail(declarator.token, "functions cannot be declared as variables");
       }
+      const bool declaration_volatile = declaration_volatile_;
       auto declaration = std::make_unique<Decl>();
       declaration->name = declarator.name;
       declaration->type = declarator.type;
       declaration->token = declarator.token;
       declaration->is_static = is_static;
       declaration->is_extern = is_extern;
+      declaration->is_volatile = declaration_volatile;
 
       if (consume_punct("=")) {
         parse_initializer(*declaration);
@@ -483,7 +499,9 @@ class Parser {
       if (!consume_punct(",")) {
         break;
       }
-      declarator = parse_declarator(parse_declspec(), true, false);
+      const TypePtr next_base = parse_declspec();
+      declaration_volatile_ = declspec_volatile_;
+      declarator = parse_declarator(next_base, true, false);
     }
     expect_punct(";");
   }
@@ -791,6 +809,7 @@ class Parser {
       fail("local storage classes are not supported yet");
     }
     const TypePtr base = parse_declspec();
+    const bool declaration_volatile = declspec_volatile_;
     auto statement = std::make_unique<Stmt>();
     statement->kind = StmtKind::Declaration;
     statement->token = peek();
@@ -800,6 +819,7 @@ class Parser {
       declaration->name = declarator.name;
       declaration->type = declarator.type;
       declaration->token = declarator.token;
+      declaration->is_volatile = declaration_volatile;
       if (consume_punct("=")) {
         if (consume_punct("{")) {
           fail(declaration->token,
@@ -1752,6 +1772,8 @@ class Parser {
 
   std::string filename_;
   OptimizationLevel optimization_ = OptimizationLevel::O0;
+  bool declspec_volatile_ = false;
+  bool declaration_volatile_ = false;
   std::vector<Token> tokens_;
   std::size_t position_ = 0;
   Program program_;

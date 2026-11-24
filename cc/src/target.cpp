@@ -98,6 +98,10 @@ bool set_cost(CostModel& costs, std::string_view name, int value) {
     costs.jump = value;
     return true;
   }
+  if (name == "data_cache_line") {
+    costs.data_cache_line = value;
+    return true;
+  }
   return false;
 }
 

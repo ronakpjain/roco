@@ -267,7 +267,8 @@ inline LocalRegisterPlan allocate_local_registers(const Function& function,
   std::vector<Candidate> candidates;
   for (const Decl* declaration : function.locals) {
     if (declaration == nullptr || declaration->type == nullptr ||
-        declaration->type->kind == TypeKind::Array) {
+        declaration->type->kind == TypeKind::Array ||
+        declaration->is_volatile) {
       continue;
     }
     const detail::LocalRegisterUse& use = collector.use_of(declaration);

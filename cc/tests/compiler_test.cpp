@@ -302,6 +302,31 @@ TEST(CompilerTest, OperatesDirectlyOnRegisterLocals) {
   EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
 }
 
+TEST(CompilerTest, KeepsVolatileLocalsInMemory) {
+  const std::string assembly = compile(R"(
+    int read(volatile int value) { return value + value + value; }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("lw a0, -4(s0)"), std::string::npos);
+  EXPECT_EQ(assembly.find("s2"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
+TEST(CompilerTest, AlignsSharedGlobalsToTheCacheLine) {
+  const char* source = R"(
+    volatile int flag;
+    int table[2];
+    int scalar;
+  )";
+  const std::string baseline = compile(source);
+  EXPECT_EQ(baseline.find(".p2align 5"), std::string::npos);
+
+  const std::string aligned =
+      compile(source, roco::OptimizationLevel::O1);
+  EXPECT_NE(aligned.find(".p2align 5\n  .globl flag"), std::string::npos);
+  EXPECT_NE(aligned.find(".p2align 5\n  .globl table"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(aligned, "compiler-output.S"));
+}
+
 TEST(CompilerTest, DropsDeadExpressionResultsAtO1) {
   const char* decrement = "int f(int x) { while (x) x--; return x; }\n";
   const char* discard = "int f(int x, int y) { x + y; return x; }\n";

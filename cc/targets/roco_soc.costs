@@ -27,3 +27,6 @@ load       = 2
 store      = 1
 branch     = 1
 jump       = 1
+
+# Data-cache line size for cache-aware global layout.
+data_cache_line = 32

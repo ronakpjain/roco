@@ -2329,6 +2329,19 @@ class Codegen {
     return true;
   }
 
+  std::size_t global_alignment(const Decl& declaration,
+                               const TypePtr& type) const {
+    if (!optimizing(OptimizationLevel::O1) ||
+        (type->kind != TypeKind::Array && !declaration.is_volatile)) {
+      return type->align;
+    }
+    const int line = options_.costs.data_cache_line;
+    if (line <= 1) {
+      return type->align;
+    }
+    return std::max(type->align, static_cast<std::size_t>(line));
+  }
+
   void emit_globals() {
     for (const auto& global : program_.globals) {
       if (!global->defined || global->decl->type->kind == TypeKind::Function) {
@@ -2339,9 +2352,10 @@ class Codegen {
       const bool has_initializer =
           declaration.init != nullptr || !declaration.init_list.empty() ||
           declaration.has_brace_init;
+      const std::size_t alignment = global_alignment(declaration, type);
       if (!has_initializer) {
         emit("  .section .bss");
-        emit_alignment(type->align);
+        emit_alignment(alignment);
         if (!global->is_static && !global->is_extern) {
           emit("  .globl " + declaration.name);
         }
@@ -2351,7 +2365,7 @@ class Codegen {
       }
 
       emit("  .section .data");
-      emit_alignment(type->align);
+      emit_alignment(alignment);
       if (!global->is_static && !global->is_extern) {
         emit("  .globl " + declaration.name);
       }

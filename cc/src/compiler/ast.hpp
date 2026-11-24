@@ -97,6 +97,7 @@ struct Decl {
   Token token;
   bool is_static = false;
   bool is_extern = false;
+  bool is_volatile = false;
   bool has_brace_init = false;
   ExprPtr init;
   std::vector<ExprPtr> init_list;

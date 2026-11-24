@@ -50,6 +50,8 @@ struct CostModel {
   int compare = 1;
   /// Pipeline occupancy of an unconditional jump or call.
   int jump = 1;
+  /// Data-cache line size in bytes, used for cache-aware global layout.
+  int data_cache_line = 32;
 };
 
 /** @brief Return the roco defaults for the cost model. */

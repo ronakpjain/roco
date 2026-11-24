@@ -7,12 +7,13 @@ wasteful" from "change the instruction selected using this SoC's timing".
 | Level | Purpose |
 | --- | --- |
 | `-O0` | Default. Stack-machine lowering with no new optimization pass. Hardware-directed tests use this level so the exact instruction under test is emitted. |
-| `-O1` | Local scalar cleanups: constant folding, direct branches, better addresses, dead results, and constant call arguments. |
+| `-O1` | Local scalar cleanups: constant folding, direct branches, better addresses, dead results, constant call arguments, local register allocation, and cache-aware global layout. |
 | `-O2` | Everything in `-O1`, plus cost-model-driven instruction selection for constant multiply, divide, remainder, address scaling, and pointer differences. |
 
 The pass order is frontend constant folding, then the existing single-pass
-backend with the level's code-generation policy. There is no register
-allocator, global dataflow, loop transform, or auto-vectorization yet.
+backend with the level's code-generation policy. Hot scalar locals are kept
+in callee-saved registers; there is no global dataflow, loop transform, or
+auto-vectorization yet.
 
 ## `-O1` optimizations
 
@@ -156,6 +157,59 @@ longer take a temporary-stack round trip.
   li a0, 4
 ```
 
+### Local register allocation
+
+At `-O1` and `-O2`, hot scalar locals are assigned to callee-saved `s2`-`s11`
+registers. The frontend already has a stack slot for every local, so this is a
+backend decision: arrays, address-taken locals, and `volatile` locals stay in
+memory, and the rest are ranked by estimated cycle savings. Reads inside loops
+are weighted more heavily than straight-line reads because they repeat. The
+profitability estimate uses the target cost model: a register read avoids the
+difference between load and ALU latency, while the function pays one store and
+one load to save and restore the register.
+
+Only the registers actually used are saved. The prologue and epilogue keep the
+stack 16-byte aligned and save each `s2`-`s11` slot at `s0+16`, `s0+20`, and so
+on. Locals in registers survive calls because every compiled callee preserves
+the same registers.
+
+The backend also uses register locals directly instead of copying them through
+`a0`:
+
+- `total += i` becomes one `add s3, s3, s2`.
+- `i++` with an unused result becomes one `addi s2, s2, 1`.
+- Comparisons branch on the registers directly, so `i < n` becomes `bge s2, s4, ...`.
+- Commutative and non-commutative ALU operations use two register operands
+  when both sides are locals.
+
+```asm
+# int sum(int n) { int total = 0; for (int i = 0; i < n; i++) total += i; return total; }
+# -O2
+.L1:
+  bge s2, s4, .L3
+  add s3, s3, s2
+.L2:
+  addi s2, s2, 1
+  j .L1
+```
+
+### Cache-aware global layout and coherence
+
+The roco D-cache is 4 KiB, 128 lines of 32 bytes, direct-mapped, blocking,
+write-back, and write-allocate. Every fill is exclusive and probes the peer
+cache, so two objects on one line can cause avoidable coherence traffic between
+harts. At `-O1` and `-O2`, global arrays and `volatile` objects are aligned to
+the target's `data_cache_line` (32 bytes by default). This keeps likely shared
+or row-structured objects from sharing a line with an unrelated object.
+`volatile` locals are never register-allocated, so every source-level access
+remains a memory access.
+
+The compiler does not cache ordinary globals in registers and does not reorder
+memory, so a shared object remains visible through the same cache/coherence
+rules as hand-written assembly. Function and loop `.p2align` padding was also
+measured against the 16-byte I-cache and rejected: the extra fetch lines cost
+more cycles than the alignment saved.
+
 ## `-O2` cost-model instruction selection
 
 `-O2` compares the hardware multiply/divide sequence with a generated
@@ -285,8 +339,9 @@ The defaults live in
 | `store` | 1 | Store pipeline occupancy |
 | `branch` | 1 | Conditional-branch occupancy/redirect |
 | `jump` | 1 | Unconditional jump/call occupancy/redirect |
+| `data_cache_line` | 32 | D-cache line size used for cache-aware global layout |
 
-All of these values participate in sequence scoring. `compare` distinguishes
+All instruction values participate in sequence scoring. `compare` distinguishes
 comparison results from plain ALU results. `load` also charges the load-use
 bubble when a spilled temporary is reloaded immediately before the hardware
 operation, and `store` charges the spill itself. `branch` and `jump` are
@@ -311,14 +366,26 @@ These are Icarus `soc/build/tb_core.vvp` runs with `+measure_execution` and
 `+trace`. Retired counts are deterministic instructions; cycles include
 startup and memory stalls, so they are not frequency claims.
 
-| Workload | `-O0` retired | `-O2` retired | `-O0` cycles | `-O2` cycles |
-| --- | ---: | ---: | ---: | ---: |
-| `tests/e2e/main.c` | 321 | 279 | 599 | 551 |
-| `tests/e2e/features.c` | 2969 | 2445 | 4974 | 4190 |
-| `tests/e2e/optimized.c` | 3694 | 3294 | 6515 | 6015 |
-| `soc/sw/vector/main.c` | 9045 | 7490 | 15431 | 13596 |
+Cycle count is the primary compiler benchmark; retired instructions are only
+diagnostic. Register allocation can add a few prologue instructions while
+removing dependent load latency, so code size and retired count do not track
+runtime.
 
-`-O1` produces most of the code-size benefit; `-O2` adds the arithmetic
+| Workload | `-O0` cycles | `-O1` cycles | `-O2` cycles | `-O2` retired |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/e2e/main.c` | 599 | 374 | 374 | 228 |
+| `tests/e2e/features.c` | 4974 | 2854 | 2672 | 2049 |
+| `tests/e2e/optimized.c` | 6515 | 5453 | 5150 | 3050 |
+
+OS images built with the kernel and filesystem at `-O2`:
+
+| Image | Before this work | Current | Change |
+| --- | ---: | ---: | ---: |
+| default UART boot | 9,998,813 cycles | 8,183,091 cycles | -18.2% |
+| console/rootfs workload | 60,462,477 cycles | 49,623,767 cycles | -17.9% |
+
+`-O1` now provides the bulk of the runtime improvement through local register
+allocation and direct register operands. `-O2` adds the arithmetic
 instruction-selection changes and is verified separately by
 `tests/e2e/optimized.c`, which also executes pointer differences and a
 non-power-of-two `char[][3]` row scale.
@@ -339,6 +406,7 @@ non-power-of-two `char[][3]` row scale.
   `cpu_smoke_c_o2` runs the same sources plus `optimized.c` at `-O2`
   against the real core testbench.
 - Unit tests check the exact assembly shapes for each level, the 32-bit
-  constant-folding rules, cost-model parsing, and that cost overrides can
-  switch instruction selection between shift/add and `mul`/`div`, including
-  address scaling and pointer differences.
+  constant-folding rules, cost-model parsing, local register allocation,
+  volatile and address-taken memory storage, cache-line global alignment, and
+  that cost overrides can switch instruction selection between shift/add and
+  `mul`/`div`, including address scaling and pointer differences.

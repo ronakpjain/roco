@@ -18,8 +18,8 @@ ctest --test-dir build --output-on-failure
 | `elf_test` | object round trips, executable program headers, malformed input |
 | `assembler_test` | instructions, pseudoinstructions, labels, data, atomics, vectors, errors |
 | `linker_test` | cross-object symbols, absolute and PC-relative relocations, bss bounds, call pairs, errors |
-| `compiler_test` | preprocessing, typedefs, expression/control-flow codegen, globals, arrays, strings, diagnostics, `-O1`/`-O2` transformations, cost-model selection, generated assembly assembling cleanly |
-| `target_test` | default costs, `key=value` cost files, overrides, and compiling at every optimization level |
+| `compiler_test` | preprocessing, typedefs, expression/control-flow codegen, globals, arrays, strings, diagnostics, `-O1`/`-O2` transformations, local register allocation, volatile/address-taken storage, cache-line global alignment, cost-model selection, generated assembly assembling cleanly |
+| `target_test` | default costs, `key=value` cost files, cache geometry, overrides, and compiling at every optimization level |
 
 Assembler tests check exact machine words against LLVM `llvm-mc` encodings
 for the supported forms, including the roco vector subset. Rejection tests

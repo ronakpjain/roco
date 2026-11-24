@@ -58,10 +58,11 @@ Expressions use a simple accumulator plus a temporary stack:
 - `s0` is the frame pointer;
 - `s1` is a compiler-managed temporary stack pointer.
 
-Each function reserves a 16-byte save area, a frame for locals, and a
-1 KiB fallback temporary area. `sp` stays 16-byte aligned at calls.
-Expressions use `t0`-`t6` as a small temporary stack; values spill to the
-memory temporary only beyond seven live operands or around calls.
+Each function reserves a save area for `ra`, `s0`, `s1`, and any allocated
+`s2`-`s11` locals, a frame for locals, and a 1 KiB fallback temporary area.
+`sp` stays 16-byte aligned at calls. Expressions use `t0`-`t6` as a small
+temporary stack; values spill to the memory temporary only beyond seven live
+operands or around calls.
 Arguments are evaluated left to right and popped into `a0`-`a7` in reverse
 order before the call. A single argument already in `a0` is passed
 directly.
@@ -71,10 +72,14 @@ Codegen also performs these local optimizations:
 - only static functions reachable from a non-static entry point are emitted;
 - constant right operands use `addi`/`andi`/`ori`/`xori`, shifts, and
   `slti`/`sltiu` instead of a temporary;
+- hot scalar locals live in callee-saved `s2`-`s11` registers, while arrays,
+  address-taken locals, and `volatile` locals stay in memory;
+- ALU operations, branches, increments, and compound assignments use register
+  locals directly instead of copying them through `a0`;
 - scalar local loads and stores use `s0`-relative offsets directly;
-- local increments and compound assignments update their slots without
-  first materializing an address;
-- pointer and array index scaling uses immediate shifts where possible.
+- pointer and array index scaling uses immediate shifts where possible;
+- global arrays and `volatile` objects are aligned to the target data-cache
+  line to reduce false sharing between harts.
 
 The backend does not use compressed instructions, floating point, or
 vector instructions yet. The assembler and linker support roco's vector
@@ -88,7 +93,8 @@ by hardware-directed tests. `-O1` folds constants with 32-bit C semantics,
 canonicalizes commutative operands so constants sit on the right, lowers
 conditions to direct branches, folds constant indexes and index scaling,
 applies immediate compound assignments, removes dead expression results,
-and materializes constant call arguments directly. `-O2` adds cost-model
+materializes constant call arguments directly, allocates hot scalar locals to
+callee-saved registers, and applies the cache-aware global layout. `-O2` adds cost-model
 instruction selection for constant multiply, divide, remainder, address
 scaling, and pointer differences: powers of two, `2^a ± 2^b` multipliers,
 signed division bias sequences, and unsigned masks replace the hardware
@@ -111,6 +117,7 @@ default costs, measured effects, and the policy that keeps SoC tests at
 | `src/compiler/ast.hpp` | declarations, statements, expressions |
 | `src/compiler/parser.hpp` | recursive-descent parser and semantic checks |
 | `src/compiler/codegen.hpp` | RV32 assembly backend |
+| `src/compiler/regalloc.hpp` | local register allocation and profitability analysis |
 | `src/compiler.cpp` | public compile entry points |
 
 ## Verification
@@ -121,5 +128,7 @@ and diagnostics. The
 `cpu_smoke_c` CTest compiles the C programs at `-O0`, assembles and links
 them, and runs them on the real core testbench. `cpu_smoke_c_o2` runs the
 same path at `-O2`, including a workload that checks the strength-reduced
-multiply/divide sequences. Both pass only when the program writes `1` to
-the `tohost` register.
+multiply/divide sequences, local register allocation, pointer differences, and
+non-power-of-two row scaling. Both pass only when the program writes `1` to
+the `tohost` register. Cycle count, not retired instruction count, is the
+primary optimization metric.

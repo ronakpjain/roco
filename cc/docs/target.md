@@ -97,8 +97,8 @@ code.
 - Page tables must live in the SDRAM window. Physical PPN bits 21:20 are
   zero.
 - `FENCE.I` and `SFENCE.VMA` write back the whole D-cache before
-  invalidating caches and TLBs. There is no cache coherence and no DMA
-  master.
+  invalidating caches and TLBs. The D-caches use MSI write-back snooping;
+  there is no DMA master.
 - PMP, the debug module, and hardware A/D updates are not implemented.
 
 ## ABI and code-generation policy
@@ -119,13 +119,16 @@ backend work.
 
 `roco_cc` has three optimization levels. `-O0` is the default and keeps the
 direct lowering used by hardware-directed tests. `-O1` adds local scalar
-cleanups. `-O2` uses the costs in
-[`../targets/roco_soc.costs`](../targets/roco_soc.costs) to choose between
+cleanups and allocates hot scalar locals to `s2`-`s11`. `-O2` uses the costs
+in [`../targets/roco_soc.costs`](../targets/roco_soc.costs) to choose between
 hardware multiply/divide and shift/add sequences, including address scaling
-and pointer differences. Update that file when the multiply pipeline,
-divider, load-use path, or branch redirect changes, or override individual
-values with `--cost multiply=N` / `--cost divide=N`. See
-[optimizations](optimizations.md) for the defaults and transformations.
+and pointer differences. The same file carries the 32-byte D-cache line size
+used to align global arrays and `volatile` objects; `volatile` locals always
+stay in memory. Update that file when the multiply pipeline, divider,
+load-use path, branch redirect, or cache geometry changes, or override
+individual values with `--cost multiply=N` / `--cost divide=N` /
+`--cost data_cache_line=N`. See [optimizations](optimizations.md) for the
+defaults and transformations.
 
 - `roco_cc` supplies freestanding `<stdint.h>`; quoted headers are searched
   relative to the source file.

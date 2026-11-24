@@ -755,6 +755,19 @@ static int sys_kill(unsigned hart, unsigned pid)
     sleep_start[slot] = 0;
     sleep_ticks[slot] = 0;
     job_state[slot] = JOB_IDLE;
+    if (console_owner == slot + 1u)
+        console_owner = 1;
+    return 0;
+}
+
+static int sys_fg(unsigned hart, unsigned slot)
+{
+    (void)hart;
+    if (slot < 1u || slot >= MAX_PROCS)
+        return -1;
+    if (job_state[slot] != JOB_ACTIVE && job_state[slot] != JOB_ACTIVE + 1u)
+        return -1;
+    console_owner = slot + 1u;
     return 0;
 }
 
@@ -835,6 +848,8 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         }
         if (slot != 0 && (cause != 8u || syscall == SYS_EXIT)) {
             saved[slot] = 0;
+            if (console_owner == slot + 1u)
+                console_owner = 1;
             if (cause != 8u)
                 job_state[slot] = JOB_FAULT | (cause & 0xffu);
             else
@@ -920,6 +935,8 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         frame[TF_A0] = MTIME_LOW;
     else if (syscall == SYS_SBRK)
         frame[TF_A0] = (unsigned)sys_sbrk(hart, (int)frame[TF_A0]);
+    else if (syscall == SYS_FG && console_image() && hart == 0 && current[0] == 0)
+        frame[TF_A0] = (unsigned)sys_fg(hart, frame[TF_A0]);
     else if (syscall == SYS_KILL && console_image() && hart == 0 && current[0] == 0)
         frame[TF_A0] = (unsigned)sys_kill(hart, frame[TF_A0]);
     else if (hart == 0 && current[0] == 0 && syscall == SYS_JOB_STATUS && console_image() && valid_job(frame[TF_A0]))

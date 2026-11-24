@@ -62,6 +62,7 @@
 #define SYS_KILL 25
 #define SYS_UPTIME 26
 #define SYS_SBRK 27
+#define SYS_FG 28
 #define SYS_RUN_JOB 30
 #define SYS_JOB_STATUS 31
 
@@ -152,6 +153,7 @@ int sleep(unsigned ticks);
 int kill(int pid);
 unsigned uptime(void);
 void *sbrk(int increment);
+int fg(int slot);
 
 /* Generic up-to-three-argument form, useful for exercising unknown calls. */
 int syscall(int number, int arg0, int arg1);
@@ -186,5 +188,6 @@ int sys_sleep(unsigned ticks);
 int sys_kill(int pid);
 unsigned sys_uptime(void);
 void *sys_sbrk(int increment);
+int sys_fg(int slot);
 
 #endif

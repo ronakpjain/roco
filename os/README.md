@@ -171,8 +171,10 @@ roco_os> run primes &
 roco_os> run /bin/chain &
 ```
 
-`run` returns immediately and reports the job slot; `jobs` and `wait`
-work as before, showing the spawned program's name. At most two background
+`run` with `&` returns immediately and reports the job slot; without
+`&` the job runs in the foreground and its console output is shown
+instead of dropped. `jobs` and `wait` work as before, showing the spawned
+program's name. At most two background
 jobs fit; a third reports no free slot until one finishes. A job that
 `exec()`s another path keeps its slot, files, and working directory but
 starts the new program from its entry point with a fresh stack.

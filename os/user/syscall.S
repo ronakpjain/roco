@@ -355,3 +355,15 @@ sys_sbrk:
   ret
 .size sbrk, . - sbrk
 .size sys_sbrk, . - sys_sbrk
+
+.globl fg
+.globl sys_fg
+.type fg, @function
+.type sys_fg, @function
+fg:
+sys_fg:
+  li a7, 28             # SYS_FG
+  ecall
+  ret
+.size fg, . - fg
+.size sys_fg, . - sys_fg

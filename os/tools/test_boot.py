@@ -31,13 +31,15 @@ def main():
             "cat /tmp/note.txt\n"
             "mv /tmp/note.txt /tmp/renamed.txt\ncat /tmp/renamed.txt\n"
             "rm /tmp/renamed.txt\ncat /tmp/renamed.txt\ndf\n"
-            "jobs\nrun missing &\nrun worker\nrun countdown &\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
+            "jobs\nrun missing &\nrun worker now\nrun countdown &\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
             "run countdown 0 &\necho shell still active\nrun worker 0 &\nwait\n"
             "run /bin/primes &\nwait\ncat /tmp/primes.txt\n"
             "run chain &\nwait\ncat /tmp/chained.txt\njobs\n"
             "run spin &\nps\nkill 2\njobs\nwait\n"
             "sleep 200000\nuptime\n"
             "run alloc &\nwait\ncat /tmp/alloc.ok\n"
+            "run countdown\n"
+            "run worker 0\n"
             "edit /home/user/notes.txt\n.list\nappended line\n.save\n.quit\ncat /home/user/notes.txt\n"
             "edit\n.clear\nprint temporary\nset 40\nadd 2\nshow\nrepeat 2 hi\n"
             ".set 1 print script works\n.list\n.quit\nscript\n"
@@ -67,7 +69,7 @@ def main():
             "Type help for commands, ls to browse the RAM filesystem.\n"
             "roco_os user shell; type help.\n"
             "roco_os> Commands: help, hart, echo, ls, cat, pwd, cd, mkdir, rmdir, mv, rm, df, run, jobs, ps, kill, sleep, uptime, wait, edit, script, exit\n"
-            "run takes worker, countdown, or a /bin program path.\n"
+            "run takes worker, countdown, or a /bin program path, with & for background.\n"
             "roco_os> UART input\n"
             "roco_os> Unknown command; try help.\n"
             "roco_os> Line too long.\n"
@@ -111,6 +113,11 @@ def main():
             "ticks ",
             "Started on hart 1.\n",
             "alloc ok\nroco_os> ",
+            "countdown: 3\n",
+            "countdown: done\n",
+            "countdown: completed successfully.\n",
+            "hart 0 user worker\n",
+            "worker: completed successfully.\n",
             "appended line\n",
             "1 print script works\n2 set 40\n3 add 2\n4 show\n5 repeat 2 hi\n",
             "script works\n42\nhi\nhi\n", "script works\n42\nScript error on line 5.\n", "Bye.\n",
@@ -121,8 +128,8 @@ def main():
             offset = pos + len(line)
         if run.stdout.count("Started on hart 0.\n") != 2:
             sys.exit("Expected two foreground-style launches on hart 0")
-        if run.stdout.count("worker: completed successfully.\n") != 2:
-            sys.exit("Expected both worker runs to complete")
+        if run.stdout.count("worker: completed successfully.\n") != 3:
+            sys.exit("Expected all three worker runs to complete")
         return
     for expected in ("hart 0 user hello\n", "hart 1 user worker\n"):
         if run.stdout.count(expected) != 1:

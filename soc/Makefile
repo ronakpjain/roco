@@ -321,9 +321,11 @@ test_atomic_mmio: $(BUILD_DIR)/mmio_loads.hex $(BUILD_DIR)/atomic_mmio.hex $(SOC
 	$(SOC_SIM) +hex=$(BUILD_DIR)/atomic_mmio.hex
 	$(SOC_SIM) +hex=$(BUILD_DIR)/mmio_loads.hex
 
-.PHONY: test_smp
+.PHONY: test_smp test_smp_hammer
 test_smp: $(BUILD_DIR)/smp_bringup.hex $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/smp_bringup.hex
+test_smp_hammer: $(BUILD_DIR)/smp_hammer.hex $(SOC_SIM_DEP)
+	$(SOC_SIM) +hex=$(BUILD_DIR)/smp_hammer.hex
 
 .PHONY: test_csr_intent
 test_csr_intent: $(BUILD_DIR)/counter_retire.hex $(BUILD_DIR)/csr_intent.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)

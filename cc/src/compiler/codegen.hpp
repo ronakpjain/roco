@@ -934,13 +934,45 @@ class Codegen {
     if (scale <= 1) {
       return;
     }
-    if (optimizing(OptimizationLevel::O1) && is_power_of_two(scale)) {
+    const std::vector<std::string> fallback = scale_fallback_sequence(scale);
+    if (optimizing(OptimizationLevel::O2) &&
+        scale <= static_cast<std::size_t>(
+                     std::numeric_limits<std::int32_t>::max()) &&
+        emit_constant_multiply(static_cast<std::int32_t>(scale), fallback)) {
+      return;
+    }
+    if (!optimizing(OptimizationLevel::O2) &&
+        optimizing(OptimizationLevel::O1) && is_power_of_two(scale)) {
       emit("  slli a0, a0, " +
            std::to_string(power_of_two_shift(scale)));
       return;
     }
-    emit("  li a1, " + std::to_string(scale));
-    emit("  mul a0, a0, a1");
+    emit_sequence(fallback);
+  }
+
+  void emit_pointer_difference_scale(std::size_t scale) {
+    if (scale <= 1) {
+      return;
+    }
+    const std::vector<std::string> fallback =
+        pointer_divide_fallback_sequence(scale);
+    if (optimizing(OptimizationLevel::O2)) {
+      std::vector<std::string> best = fallback;
+      int best_cost = sequence_cost(fallback);
+      if (is_power_of_two(scale)) {
+        consider_sequence(best, best_cost,
+                          {"srai a0, a0, " +
+                           std::to_string(power_of_two_shift(scale))});
+      }
+      emit_sequence(best);
+      return;
+    }
+    if (optimizing(OptimizationLevel::O1) && is_power_of_two(scale)) {
+      emit("  srai a0, a0, " +
+           std::to_string(power_of_two_shift(scale)));
+      return;
+    }
+    emit_sequence(fallback);
   }
 
   void emit_add_to_a0(std::int64_t offset) {
@@ -1697,16 +1729,7 @@ class Codegen {
     if (expression.binary == BinaryOp::Sub && is_pointer(left_type) &&
         is_pointer(right_type)) {
       emit("  sub a0, a1, a0");
-      const std::size_t scale = left_type->base->size;
-      if (scale > 1) {
-        if (optimizing(OptimizationLevel::O1) && is_power_of_two(scale)) {
-          emit("  srai a0, a0, " +
-               std::to_string(power_of_two_shift(scale)));
-        } else {
-          emit("  li a1, " + std::to_string(scale));
-          emit("  div a0, a0, a1");
-        }
-      }
+      emit_pointer_difference_scale(left_type->base->size);
       return;
     }
     bool is_unsigned = left_type->is_unsigned || right_type->is_unsigned;

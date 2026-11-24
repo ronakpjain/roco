@@ -314,13 +314,14 @@ startup and memory stalls, so they are not frequency claims.
 | Workload | `-O0` retired | `-O2` retired | `-O0` cycles | `-O2` cycles |
 | --- | ---: | ---: | ---: | ---: |
 | `tests/e2e/main.c` | 321 | 279 | 599 | 551 |
-| `tests/e2e/features.c` | 626 | 518 | 1279 | 1066 |
-| `tests/e2e/optimized.c` | 3518 | 3162 | 6301 | 5623 |
+| `tests/e2e/features.c` | 2969 | 2445 | 4974 | 4190 |
+| `tests/e2e/optimized.c` | 3694 | 3294 | 6515 | 6015 |
 | `soc/sw/vector/main.c` | 9045 | 7490 | 15431 | 13596 |
 
 `-O1` produces most of the code-size benefit; `-O2` adds the arithmetic
 instruction-selection changes and is verified separately by
-`tests/e2e/optimized.c`.
+`tests/e2e/optimized.c`, which also executes pointer differences and a
+non-power-of-two `char[][3]` row scale.
 
 ## Test policy
 

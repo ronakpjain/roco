@@ -35,8 +35,6 @@ struct CostModel {
   int arithmetic = 1;
   /// Result latency of a shift or bitwise immediate operation.
   int shift = 1;
-  /// Result latency of a comparison such as `slt` or `snez`.
-  int compare = 1;
   /// Dependent-result latency of `mul` (one pipeline bubble on roco).
   int multiply = 2;
   /// Dependent-result latency of `div`/`rem` (iterative radix-four divider).
@@ -48,6 +46,8 @@ struct CostModel {
   int store = 1;
   /// Pipeline occupancy of a conditional branch.
   int branch = 1;
+  /// Result latency of a comparison such as `slt` or `snez`.
+  int compare = 1;
   /// Pipeline occupancy of an unconditional jump or call.
   int jump = 1;
 };

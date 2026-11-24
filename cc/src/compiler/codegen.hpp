@@ -157,17 +157,26 @@ class Codegen {
 
   void generate_function(const Function& function) {
     temp_stack_.clear();
+    local_registers_ = optimizing(OptimizationLevel::O1)
+                           ? allocate_local_registers(function, options_.costs)
+                           : LocalRegisterPlan{};
     return_label_ = new_label();
     if (!function.is_static) {
       emit("  .globl " + function.name);
     }
     emit("  .type " + function.name + ", @function");
     emit(function.name + ":");
-    emit("  addi sp, sp, -16");
+    const int save_size =
+        (16 + 4 * local_registers_.used + 15) & ~15;
+    emit("  addi sp, sp, -" + std::to_string(save_size));
     emit("  sw ra, 12(sp)");
     emit("  sw s0, 8(sp)");
     emit("  sw s1, 4(sp)");
     emit("  mv s0, sp");
+    for (int slot = 0; slot < local_registers_.used; ++slot) {
+      emit("  sw " + LocalRegisterPlan::register_name(slot) + ", " +
+           std::to_string(16 + 4 * slot) + "(s0)");
+    }
     emit("  addi sp, sp, -" + std::to_string(function.frame_size));
     emit("  addi s1, s0, -" + std::to_string(function.local_area));
 
@@ -178,8 +187,15 @@ class Codegen {
         fail(function.params[i]->token,
              "roco_cc currently supports at most eight parameters");
       }
-      emit("  sw " + arg_registers[i] + ", " +
-           std::to_string(function.params[i]->offset) + "(s0)");
+      const int slot = local_register_slot(function.params[i].get());
+      if (slot >= 0) {
+        convert_register(function.params[i]->type, arg_registers[i]);
+        emit("  mv " + LocalRegisterPlan::register_name(slot) + ", " +
+             arg_registers[i]);
+      } else {
+        emit("  sw " + arg_registers[i] + ", " +
+             std::to_string(function.params[i]->offset) + "(s0)");
+      }
     }
 
     generate_statement(*function.body, function);
@@ -189,13 +205,26 @@ class Codegen {
     emit(return_label_ + ":");
     emit("  mv sp, s0");
     emit("  lw ra, 12(sp)");
+    for (int slot = 0; slot < local_registers_.used; ++slot) {
+      emit("  lw " + LocalRegisterPlan::register_name(slot) + ", " +
+           std::to_string(16 + 4 * slot) + "(sp)");
+    }
     emit("  lw s0, 8(sp)");
     emit("  lw s1, 4(sp)");
-    emit("  addi sp, sp, 16");
+    emit("  addi sp, sp, " + std::to_string(save_size));
     emit("  ret");
     if (!temp_stack_.empty()) {
       throw Error("internal error: unbalanced compiler expression stack");
     }
+  }
+
+  int local_register_slot(const Decl* declaration) const {
+    return local_registers_.slot_for(declaration);
+  }
+
+  std::string local_register_name(const Decl* declaration) const {
+    const int slot = local_register_slot(declaration);
+    return slot < 0 ? std::string() : LocalRegisterPlan::register_name(slot);
   }
 
   bool optimizing(OptimizationLevel level) const {
@@ -527,7 +556,13 @@ class Codegen {
           if (declaration->init) {
             generate_expression(*declaration->init, function);
             convert_value(declaration->type);
-            emit("  sw a0, " + std::to_string(declaration->offset) + "(s0)");
+            const std::string reg = local_register_name(declaration.get());
+            if (reg.empty()) {
+              emit("  sw a0, " + std::to_string(declaration->offset) +
+                   "(s0)");
+            } else {
+              emit("  mv " + reg + ", a0");
+            }
           }
         }
         return;
@@ -556,7 +591,7 @@ class Codegen {
           object_type = expression.global->decl->type;
         }
         if (object_type->kind != TypeKind::Array && expression.local != nullptr) {
-          load_from(expression.type, "s0", expression.local->offset);
+          load_local(*expression.local, expression.type, "a0");
           return;
         }
         generate_address(expression, function);
@@ -673,8 +708,9 @@ class Codegen {
     if (expression.lhs->kind == ExprKind::Var &&
         expression.lhs->local != nullptr &&
         expression.lhs->local->type->kind != TypeKind::Array) {
-      const int offset = expression.lhs->local->offset;
-      load_from(expression.lhs->type, "s0", offset);
+      const bool in_register =
+          local_register_slot(expression.lhs->local) >= 0;
+      load_local(*expression.lhs->local, expression.lhs->type, "a0");
       const bool increment = expression.unary == UnaryOp::PreIncrement ||
                              expression.unary == UnaryOp::PostIncrement;
       const bool post = expression.unary == UnaryOp::PostIncrement ||
@@ -690,17 +726,25 @@ class Codegen {
       } else {
         emit("  addi a0, a0, " + std::to_string(delta));
       }
-      store_to(expression.lhs->type, "s0", offset);
+      if (in_register) {
+        convert_value(expression.lhs->type);
+        emit("  mv " + local_register_name(expression.lhs->local) +
+             ", a0");
+      } else {
+        store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
+      }
       if (optimizing(OptimizationLevel::O1)) {
         if (need_value) {
           if (post) {
             emit("  mv a0, a2");
-          } else {
+          } else if (!in_register) {
             convert_value(expression.lhs->type);
           }
         }
       } else {
-        convert_value(expression.lhs->type);
+        if (!in_register) {
+          convert_value(expression.lhs->type);
+        }
         if (post) {
           emit("  mv a0, a2");
         }
@@ -755,8 +799,16 @@ class Codegen {
           expression.lhs->local != nullptr &&
           expression.lhs->local->type->kind != TypeKind::Array) {
         generate_expression(*expression.rhs, function);
-        store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
-        convert_result(expression.lhs->type, need_value);
+        const std::string reg =
+            local_register_name(expression.lhs->local);
+        if (reg.empty()) {
+          store_to(expression.lhs->type, "s0",
+                   expression.lhs->local->offset);
+          convert_result(expression.lhs->type, need_value);
+        } else {
+          convert_value(expression.lhs->type);
+          emit("  mv " + reg + ", a0");
+        }
         return;
       }
       if (expression.lhs->kind == ExprKind::Var &&
@@ -813,13 +865,11 @@ class Codegen {
         is_unsigned = expression.lhs->type->is_unsigned;
       }
       if (local_compound) {
-        load_into(expression.lhs->type, "a0", "s0",
-                  expression.lhs->local->offset);
+        load_local(*expression.lhs->local, expression.lhs->type, "a0");
         if (emit_immediate(expression.binary, immediate,
                            expression.lhs->type, expression.rhs->type)) {
-          store_to(expression.lhs->type, "s0",
-                   expression.lhs->local->offset);
-          convert_result(expression.lhs->type, need_value);
+          finish_local_store(*expression.lhs->local, expression.lhs->type,
+                             need_value);
           return;
         }
         push_a0();
@@ -830,9 +880,8 @@ class Codegen {
         pop_to("a1");
         apply_binary(expression.binary, expression.lhs->type,
                      expression.rhs->type, is_unsigned);
-        store_to(expression.lhs->type, "s0",
-                 expression.lhs->local->offset);
-        convert_result(expression.lhs->type, need_value);
+        finish_local_store(*expression.lhs->local, expression.lhs->type,
+                           need_value);
         return;
       }
       generate_address(*expression.lhs, function);
@@ -865,8 +914,7 @@ class Codegen {
         emit_scale_a0(expression.lhs->type->base->size);
       }
       emit("  mv a2, a0");
-      load_into(expression.lhs->type, "a1", "s0",
-                expression.lhs->local->offset);
+      load_local(*expression.lhs->local, expression.lhs->type, "a1");
       emit("  mv a0, a2");
       bool is_unsigned = expression.lhs->type->is_unsigned ||
                          expression.rhs->type->is_unsigned;
@@ -875,8 +923,8 @@ class Codegen {
       }
       apply_binary(expression.binary, expression.lhs->type,
                    expression.rhs->type, is_unsigned);
-      store_to(expression.lhs->type, "s0", expression.lhs->local->offset);
-      convert_result(expression.lhs->type, need_value);
+      finish_local_store(*expression.lhs->local, expression.lhs->type,
+                         need_value);
       return;
     }
     generate_address(*expression.lhs, function);
@@ -1563,6 +1611,28 @@ class Codegen {
     load_into(type, "a0", base, offset);
   }
 
+  void load_local(const Decl& local, const TypePtr& type,
+                  const std::string& reg) {
+    const std::string assigned = local_register_name(&local);
+    if (!assigned.empty()) {
+      emit("  mv " + reg + ", " + assigned);
+    } else {
+      load_into(type, reg, "s0", local.offset);
+    }
+  }
+
+  void finish_local_store(const Decl& local, const TypePtr& type,
+                          bool need_value) {
+    const std::string assigned = local_register_name(&local);
+    if (!assigned.empty()) {
+      convert_value(type);
+      emit("  mv " + assigned + ", a0");
+    } else {
+      store_to(type, "s0", local.offset);
+      convert_result(type, need_value);
+    }
+  }
+
   void store_to(const TypePtr& type, const std::string& base, int offset) {
     switch (type->kind) {
       case TypeKind::Char:
@@ -1925,24 +1995,26 @@ class Codegen {
     throw Error("cannot store a value of this type");
   }
 
-  void convert_value(const TypePtr& type) {
+  void convert_register(const TypePtr& type, const std::string& reg) {
     if (type->kind == TypeKind::Char) {
       if (type->is_unsigned) {
-        emit("  andi a0, a0, 255");
+        emit("  andi " + reg + ", " + reg + ", 255");
       } else {
-        emit("  slli a0, a0, 24");
-        emit("  srai a0, a0, 24");
+        emit("  slli " + reg + ", " + reg + ", 24");
+        emit("  srai " + reg + ", " + reg + ", 24");
       }
     } else if (type->kind == TypeKind::Short) {
       if (type->is_unsigned) {
-        emit("  slli a0, a0, 16");
-        emit("  srli a0, a0, 16");
+        emit("  slli " + reg + ", " + reg + ", 16");
+        emit("  srli " + reg + ", " + reg + ", 16");
       } else {
-        emit("  slli a0, a0, 16");
-        emit("  srai a0, a0, 16");
+        emit("  slli " + reg + ", " + reg + ", 16");
+        emit("  srai " + reg + ", " + reg + ", 16");
       }
     }
   }
+
+  void convert_value(const TypePtr& type) { convert_register(type, "a0"); }
 
   void convert_result(const TypePtr& type, bool need_value) {
     if (need_value || !optimizing(OptimizationLevel::O1)) {
@@ -2173,6 +2245,7 @@ class Codegen {
   std::ostringstream output_;
   std::unordered_set<Function*> reachable_;
   std::vector<TempValue> temp_stack_;
+  LocalRegisterPlan local_registers_;
   std::uint64_t label_counter_ = 0;
   std::string return_label_;
   std::vector<std::string> break_labels_;

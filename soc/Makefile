@@ -326,6 +326,8 @@ test_smp: $(BUILD_DIR)/smp_bringup.hex $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/smp_bringup.hex
 test_smp_hammer: $(BUILD_DIR)/smp_hammer.hex $(SOC_SIM_DEP)
 	$(SOC_SIM) +hex=$(BUILD_DIR)/smp_hammer.hex
+test_smp_amorace: $(BUILD_DIR)/smp_amorace.hex $(SOC_SIM_DEP)
+	$(SOC_SIM) +hex=$(BUILD_DIR)/smp_amorace.hex
 
 .PHONY: test_csr_intent
 test_csr_intent: $(BUILD_DIR)/counter_retire.hex $(BUILD_DIR)/csr_intent.hex $(CORE_SIM_DEP) $(SOC_SIM_DEP)

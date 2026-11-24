@@ -211,7 +211,7 @@ static int load_program(unsigned slot, int ino, unsigned hart)
         fs_read(ino, 16 + text_words * 4u, (char *)ram + DATA_OFFSET,
                 data_words * 4u) != (int)(data_words * 4u))
         return -1;
-    /* TEMPORARY: verify the copy before installing it. */
+    /* Sanity-check the copy against the image before installing it. */
     {
         unsigned check[4];
         unsigned i;

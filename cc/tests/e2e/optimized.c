@@ -51,6 +51,14 @@ int add_through(int *p) {
   *p += 5;
   return *p;
 }
+int distance(int *a, int *b) {
+  return a - b;
+}
+char row_start(char a[][3], int i) {
+  return a[i][0];
+}
+
+static char rows[2][3];
 
 static int check_multipliers(int x) {
   int failures = 0;
@@ -114,5 +122,10 @@ int main(void) {
   array[3] = 40;
   if (advance(array) != 30) return 55;
   if (add_through(array) != 15) return 56;
+  if (distance(&array[3], &array[0]) != 3) return 57;
+  if (distance(&array[0], &array[3]) != -3) return 58;
+
+  rows[1][0] = 42;
+  if (row_start(rows, 1) != 42) return 59;
   return 0;
 }

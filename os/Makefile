@@ -62,7 +62,7 @@ $(BUILD)/probe_images.o: $(BUILD)/probe_images.S $(ROCO_AS)
 $(BUILD)/roco-os-probe.bin: $(KERNEL_OBJS) $(BUILD)/probe_images.o $(ROCO_LD)
 	$(ROCO_LD) -o $(BUILD)/roco-os-probe.elf --binary $@ $(filter %.o,$^)
 
-$(BUILD)/console_images.S: tools/pack_users.py $(BUILD)/user-shell.elf $(BUILD)/user-console_peer.elf
+$(BUILD)/console_images.S: tools/pack_users.py $(BUILD)/user-shell.elf $(USER_WORKER) $(BUILD)/user-countdown.elf
 	$(PYTHON) $< $@ $(filter %.elf,$^)
 
 $(BUILD)/console_images.o: $(BUILD)/console_images.S $(ROCO_AS)

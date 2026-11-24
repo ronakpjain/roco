@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Pack two fixed-layout roco_ld ELF files into a compact assembly object."""
+"""Pack fixed-layout roco_ld ELF files into a compact assembly object."""
 
+import argparse
 import struct
 import sys
 from pathlib import Path
@@ -62,14 +63,23 @@ def emit_app(label, path):
 
 
 def main():
-    output, hello, worker = map(Path, sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("primary", type=Path)
+    parser.add_argument("worker", type=Path)
+    parser.add_argument("countdown", type=Path, nargs="?")
+    args = parser.parse_args()
     lines = [".section .rodata", ".balign 4"]
-    for label, path in (("user_hello", hello), ("user_worker", worker)):
+    for label, path in (("user_hello", args.primary), ("user_worker", args.worker),
+                        ("user_countdown", args.countdown)):
+        if path is None:
+            lines += [f".globl {label}", f"{label}:", "    .word 0, 0"]
+            continue
         try:
             lines += emit_app(label, path)
         except (ValueError, IndexError, struct.error) as exc:
             sys.exit(f"{path}: {exc}")
-    output.write_text("\n".join(lines) + "\n", encoding="ascii")
+    args.output.write_text("\n".join(lines) + "\n", encoding="ascii")
 
 
 if __name__ == "__main__":

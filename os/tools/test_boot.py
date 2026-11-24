@@ -17,12 +17,17 @@ def main():
     args = parser.parse_args()
     sim, packet = args.sim.resolve(), args.packet.resolve()
     # 8N1 at the testbench's 96 core clocks per bit, plus runtime headroom.
-    cycles = 960 * len(packet.read_bytes().splitlines()) + 2_000_000
+    cycles = 960 * len(packet.read_bytes().splitlines())
+    cycles += 12_000_000 if args.console else 2_000_000
     command = [str(sim), f"+packet={packet}", f"+max_cycles={cycles}"]
     commands = None
     if args.console:
         command.append("+console")
-        commands = "help\r\nhart\necho UART input\nmissing\n" + "x" * 80 + "\nexit\n"
+        commands = (
+            "help\r\necho UART input\nmissing\n" + "x" * 80 + "\n"
+            "jobs\nrun missing &\nrun worker\nrun countdown &\nrun worker &\nhart\njobs\nwait\n"
+            "run worker &\nwait\nrun worker &\nwait\nexit\n"
+        )
     run = subprocess.run(
         command,
         input=commands,
@@ -44,15 +49,30 @@ def main():
     if args.console:
         expected = (
             "ROCO user shell; type help.\n"
-            "roco> Commands: help, hart, echo [text], exit\n"
-            "roco> hart 0\n"
+            "roco> Commands: help, hart, echo [text], run <worker|countdown> &, jobs, wait, exit\n"
             "roco> UART input\n"
             "roco> Unknown command; try help.\n"
             "roco> Line too long.\n"
-            "roco> Bye.\n"
+            "roco> No job yet.\n"
+            "roco> No such program.\n"
+            "roco> Usage: run <worker|countdown> &\n"
         )
         if expected not in run.stdout:
             sys.exit("Unexpected shell transcript")
+        # UART lines can arrive from either hart; check the causal order,
+        # not their exact position relative to the next shell prompt.
+        offset = 0
+        for line in (
+            "Started on hart 1.\n", "Hart 1 is busy.\n", "hart 0\n",
+            "countdown is running on hart 1.\n", "countdown: done\n",
+            "Job completed successfully.\n", "hart 1 user worker\n",
+            "Job completed successfully.\n", "hart 1 user worker\n",
+            "Job completed successfully.\n", "Bye.\n",
+        ):
+            pos = run.stdout.find(line, offset)
+            if pos < 0:
+                sys.exit(f"Missing or out-of-order shell output: {line.rstrip()!r}")
+            offset = pos + len(line)
         return
     for expected in ("hart 0 user hello\n", "hart 1 user worker\n"):
         if run.stdout.count(expected) != 1:

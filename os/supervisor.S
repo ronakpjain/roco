@@ -1,5 +1,5 @@
 .section .text
-.globl enable_paging, enter_user, s_trap_vector, lock_uart, unlock_uart
+.globl enable_paging, enter_user, restart_worker, s_trap_vector, lock_uart, unlock_uart
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
@@ -7,6 +7,11 @@ enable_paging:
     # a redundant SFENCE.VMA while the other hart is executing.
     csrw satp, a0
     ret
+
+# Drop the old user trap and kernel call frames before taking another job.
+restart_worker:
+    mv sp, a0
+    tail worker_loop
 
 # The trap frame lives at the top of this hart's supervisor stack.
 enter_user:
@@ -156,4 +161,4 @@ unlock_uart:
 .balign 4096
 .globl page_tables
 page_tables:
-    .zero 16384
+    .zero 24576

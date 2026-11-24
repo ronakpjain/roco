@@ -10,6 +10,8 @@
  *   3: gethart(void)                   -> hart id (0 or 1)
  *   4: yield(void)                     -> 0
  *   5: readchar(void)                  -> byte, or -1 if unavailable
+ *   6: run_job(a0 = job ID)            -> 0, JOB_BUSY, or -1 if invalid
+ *   7: job_status(void)                -> idle, active job ID, or completion
  *
  * All other trap numbers return -1.
  */
@@ -19,6 +21,16 @@
 #define SYS_GETHART 3
 #define SYS_YIELD 4
 #define SYS_READCHAR 5
+#define SYS_RUN_JOB 6
+#define SYS_JOB_STATUS 7
+
+/* Job syscalls are only available to hart 0 in the console image. */
+#define JOB_IDLE 0
+#define JOB_WORKER 1
+#define JOB_COUNTDOWN 2
+#define JOB_DONE 256  /* Completion is JOB_DONE plus the low 8 exit-status bits. */
+#define JOB_FAULT 512 /* Fault is JOB_FAULT plus the exception cause. */
+#define JOB_BUSY -2
 
 int write(const void *buffer, int length);
 void exit(int status);

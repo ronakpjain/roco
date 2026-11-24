@@ -35,15 +35,33 @@ handled by the supervisor on hart 1, rather than a successful load.
 make console
 ```
 
-Wait for `roco> `, then enter `help`, `hart`, `echo <text>`, or `exit`.
-The shell runs in user mode on hart 0 and reads and writes the simulated
-UART. Hart 1 runs a quiet user-mode check in this image. Host terminal
-line editing works as usual; `exit` or Ctrl-D ends the session.
+Wait for `roco> `, then try:
+
+```text
+run countdown &
+hart
+jobs
+wait
+run worker &
+wait
+exit
+```
+
+The shell runs in user mode on hart 0 while the job runs in its own user
+address space on hart 1. `run <worker|countdown> &` returns immediately;
+if hart 1 already has a job, the shell rejects the request instead of
+queuing it. `jobs` reports the current or last job, and `wait` waits for
+completion. You can rerun either program; its writable data and stack
+are reset on each launch. Both programs are bundled at build time.
+
+Job output uses the same UART and can appear next to the shell prompt.
+Host terminal line editing works as usual. `exit` or Ctrl-D closes the
+shell and waits for any running job before stopping the simulator.
 
 You can also pipe commands from a script:
 
 ```sh
-printf 'help\nhart\necho Hello from ROCO\nexit\n' | make console
+printf 'run countdown &\nhart\nwait\nexit\n' | make console
 ```
 
 `make test` also checks the shell transcript over the simulated UART.
@@ -82,7 +100,8 @@ The UART lock prevents writes from different harts interleaving.
 
 Physical allocations stay in the first MiB of SDRAM to avoid aliasing in
 the SoC's simulation model. The kernel starts at `0x10000000`, the user
-backing pages start at `0x10040000` and `0x10048000`, and the kernel
+backing pages start at `0x10040000`, `0x10048000`, and `0x10050000`
+(countdown in the console image), and the kernel
 stacks grow down from `0x100ff000` and `0x100fd000`.
 
 `user/syscall.h` declares wrappers for the syscall ABI: put the number in
@@ -95,8 +114,12 @@ stacks grow down from `0x100ff000` and `0x100fd000`.
 | 3 | `gethart()` | `0` or `1` |
 | 4 | `yield()` | `0`; currently a no-op |
 | 5 | `readchar()` | Next UART byte on hart 0, or `-1` if none is available or the caller is on hart 1 |
+| 6 | `syscall(SYS_RUN_JOB, id, 0)` | Console hart 0 only: submits a job, returns `0`, `JOB_BUSY`, or `-1` |
+| 7 | `syscall(SYS_JOB_STATUS, 0, 0)` | Console hart 0 only: returns idle, active job ID, or completion status |
 
-Unknown calls return `-1`. The system stops when both programs exit with
-status zero, or immediately on a nonzero exit or an unhandled trap.
-This is a static two-program system: no scheduler, timer preemption,
-filesystem, or runtime executable loading.
+Unknown calls return `-1`. In the default image the system stops when both
+programs exit successfully, or immediately on a nonzero exit or an
+unhandled trap. In the console image a nonzero job exit or a delegated
+user-mode fault is reported as job status rather than stopping the shell.
+There is no scheduler, timer preemption, filesystem, or runtime executable
+loading.

@@ -177,7 +177,7 @@ module dcache #(
   logic [IDX_BITS-1:0] flush_idx;
   logic [OFF_BITS-1:0] beat;
   logic flush_active, probe_writeback_active, resume_fill;
-  logic full_flush_entry, probe_writeback_entry;
+  logic full_flush_entry, probe_writeback_entry, probe_writeback_pending;
   assign flush_busy = flush_active || probe_writeback_active;
 
   logic [MEM_WORD_BITS-1:0] victim_word;
@@ -213,25 +213,32 @@ module dcache #(
   // only if it belongs to that word and its line still has the right tag.
   // Use this same test for EX hits, replays, and recovery after a fill.
   logic demand, read_valid_q, read_hit_q, read_matches, read_live, read_probed;
-  logic read_tag_match;
+  logic ex_tag_match, replay_tag_match, demand_blocked;
   logic [24:2] target_addr, read_addr, read_addr_q;
-  logic [IDX_BITS-1:0] target_idx, read_idx, read_idx_q;
+  logic [IDX_BITS-1:0] target_idx, ex_idx, read_idx_q;
   assign demand = cm_valid || cm_amo_read;
   assign target_addr = demand ? cm_addr : lu_addr_q;
   assign target_idx = target_addr[IDX_HI:IDX_LO];
-  assign read_idx = read_addr[IDX_HI:IDX_LO];
+  assign ex_idx = lu_addr[IDX_HI:IDX_LO];
   assign read_idx_q = read_addr_q[IDX_HI:IDX_LO];
-  assign read_tag_match = lookup_tag_ram[read_idx] == read_addr[24:IDX_HI+1];
-  assign read_matches = read_valid_q && read_addr_q == target_addr;
+  // The late EX issue/hold decision selects a hit bit, not a tag-RAM
+  // address. Keep both tag checks independent of that decision.
+  assign ex_tag_match = lookup_tag_ram[ex_idx] == lu_addr[24:IDX_HI+1];
+  assign replay_tag_match = tag_ram[target_idx] == target_addr[24:IDX_HI+1];
+  assign read_matches = read_valid_q && (demand ? read_addr_q == cm_addr : read_addr_q == lu_addr_q);
   assign read_probed = snoop_valid && read_addr_q[24:OFF_BITS+2] == snoop_addr[22:OFF_BITS];
   // Register the tag check alongside the data. A fill can change the tag
   // only in S_FILL, which cannot produce a valid read. Invalidation can
-  // still race the registered read, so recheck the valid bit and probe.
-  assign read_live = read_hit_q && valid_ram[read_idx_q] && !(snoop_drop && read_probed);
+  // still race the registered read, so recheck the valid bit.
+  assign read_live = read_hit_q && valid_ram[read_idx_q];
+  // A matching invalidate window waits even if the probe turns out not
+  // to drop the line. The CPU hold path must not read the snoop tag RAM.
+  // A probe writeback likewise owns the data port before checking its tag.
+  assign demand_blocked = flush_busy || flush || probe_writeback_pending ||
+                          (read_probed && (snoop_invalidate || cm_amo_read));
   assign recovery_ready = pending_miss && read_valid_q;
-  assign cm_ready = state == S_IDLE && !flush_busy && !full_flush_entry && !probe_writeback_entry &&
-                    (demand || lookup_hit_q || recovery_ready) && read_live && read_matches &&
-                    !(cm_amo_read && read_probed);
+  assign cm_ready = state == S_IDLE && !demand_blocked &&
+                    (demand || lookup_hit_q || recovery_ready) && read_live && read_matches;
 
   // Do not pin the line against probes. If ownership is revoked while the
   // core holds an AMO operand, send it back to the read phase, not to a
@@ -259,11 +266,11 @@ module dcache #(
 `endif
   assign miss_line = miss_line_word;
   logic start_miss;
-  assign start_miss = state == S_IDLE && !flush_busy && !full_flush_entry &&
-                      !probe_writeback_entry && (demand ? read_matches && !read_live : miss_pulse);
+  assign start_miss = state == S_IDLE && !demand_blocked &&
+                      (demand ? read_matches && !read_live : miss_pulse);
+  assign probe_writeback_pending = snoop_writeback && !snoop_writeback_done;
   assign probe_writeback_entry = (state == S_IDLE || state == S_FILL_REQ) &&
-      snoop_writeback && !snoop_writeback_done && snoop_match && dirty_ram[snoop_idx] &&
-      !flush_busy;
+      probe_writeback_pending && snoop_match && dirty_ram[snoop_idx] && !flush_busy;
   assign full_flush_entry = state == S_IDLE && flush && !flush_busy && !probe_writeback_entry;
 
   always_ff @(posedge clk or posedge rst) begin
@@ -276,12 +283,12 @@ module dcache #(
       read_addr_q <= '0;
     end else begin
       lookup_valid_q <= lu_valid && state == S_IDLE;
-      if (lu_valid) lookup_hit_q <= state == S_IDLE && valid_ram[read_idx] && read_tag_match;
+      if (lu_valid) lookup_hit_q <= state == S_IDLE && valid_ram[ex_idx] && ex_tag_match;
       else if (cm_valid && cm_ready) lookup_hit_q <= 1'b0;
       if (start_miss) pending_miss <= 1'b1;
       else if (cm_valid && cm_ready) pending_miss <= 1'b0;
       read_valid_q <= state == S_IDLE && !start_miss && !full_flush_entry && !probe_writeback_entry;
-      read_hit_q <= read_tag_match;
+      read_hit_q <= lu_valid ? ex_tag_match : replay_tag_match;
       read_addr_q <= read_addr;
     end
   end

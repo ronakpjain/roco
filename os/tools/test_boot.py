@@ -61,6 +61,17 @@ def main():
         if not run.returncode or "tb_soc_boot: FAIL code=1293 (0 sdram errors)" not in run.stdout:
             print(run.stdout, end="")
             sys.exit("Expected a supervisor load-page-fault report from hart 1")
+        # The crash report names the process, decodes the cause, and resolves
+        # the faulting pc through the program's linked symbol table.
+        for line in (
+            "*** roco_os panic: user-mode fault on hart 1, pid 2 (/bin/probe)",
+            "cause 13 (load page fault)  epc ",
+            "    user stack ",
+            " main+0x",
+        ):
+            if line not in run.stdout:
+                print(run.stdout, end="")
+                sys.exit(f"Missing crash report detail: {line!r}")
         print("User isolation: PASS (hart 1 supervisor load page fault)")
         return
     print(run.stdout, end="")

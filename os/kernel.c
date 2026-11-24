@@ -54,6 +54,9 @@ extern const char rootfs_names[8192];
 extern const unsigned rootfs_data[49152];
 
 void enable_paging(unsigned satp_value);
+unsigned read_stval(void);
+void machine_fatal(unsigned hart, unsigned epc, unsigned cause, unsigned tval,
+                   unsigned sp);
 void enter_user(unsigned pc, unsigned user_sp, unsigned kernel_sp, unsigned hart);
 void restart_worker(unsigned stack_top, unsigned hart);
 void resume_worker(unsigned stack_top, unsigned *context);
@@ -169,18 +172,429 @@ static void put_hex(unsigned w)
     }
 }
 
-/* TEMPORARY DIAGNOSTIC: report fatal traps over UART before halting. */
-static void report_fatal(unsigned hart, unsigned epc, unsigned cause, unsigned tval)
+/*
+ * Crash diagnostics.
+ *
+ * A fatal trap reports the faulting context over the UART: the cause, the
+ * faulting address, the register file, and a backtrace of the faulting
+ * stack. Backtraces walk the frame records roco_cc emits ([s0+12] holds
+ * the return address, [s0+8] the caller's s0) and resolve addresses with
+ * the symbol tables linked in by tools/mksyms.py.
+ *
+ * Everything here writes the UART directly: a crash may interrupt any
+ * kernel path, including one that already holds the console lock.
+ */
+#define CRASH_MAX_PROGRAMS 16
+#define CRASH_MAX_SYMBOLS 1024
+#define CRASH_MAX_FRAMES 16
+#define CRASH_SCAN_FRAMES 8
+#define CRASH_STACK_BYTES 8192u
+
+/* roco_cc cannot declare an array of unknown size, but these bounds are
+   only for indexing: the count tables say how much was really linked. */
+extern const unsigned crash_kernel_text[2];
+extern const unsigned crash_kernel_sym_count;
+extern const unsigned crash_kernel_sym_addrs[CRASH_MAX_SYMBOLS];
+extern const char *crash_kernel_sym_names[CRASH_MAX_SYMBOLS];
+extern const unsigned crash_program_count;
+extern const char *crash_program_paths[CRASH_MAX_PROGRAMS];
+extern const unsigned crash_program_text_start[CRASH_MAX_PROGRAMS];
+extern const unsigned crash_program_text_end[CRASH_MAX_PROGRAMS];
+extern const unsigned crash_program_sym_count[CRASH_MAX_PROGRAMS];
+extern const unsigned *crash_program_sym_addrs[CRASH_MAX_PROGRAMS];
+extern const char **crash_program_sym_names[CRASH_MAX_PROGRAMS];
+extern unsigned crash_stack_tops[2];
+
+/* Active backtrace context. A crash prints one report and halts (or retires
+   the faulting job), so plain globals keep the unwinder's signature small. */
+static const unsigned *trace_addrs;
+static const char **trace_names;
+static unsigned trace_count;
+static unsigned trace_text_lo;
+static unsigned trace_text_hi;
+static unsigned trace_va_base;
+static unsigned trace_pa_base;
+static unsigned trace_stack_lo;
+static unsigned trace_stack_hi;
+
+/* Inode of each /bin program in the symbol tables; 0 when this image does
+   not contain it. Resolved at boot so a crash never takes filesystem locks. */
+static unsigned crash_prog_ino[CRASH_MAX_PROGRAMS];
+/* Set while a crash report is printing so the other hart stops writing. */
+static volatile unsigned panic_mode;
+
+static char *user_alias(unsigned slot, unsigned addr);
+
+static const char *crash_reg_names[] = {
+    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
+    "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
+    "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+    "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"
+};
+
+static void put_str(const char *s)
 {
-    put_byte('F');
-    put_hex(hart);
-    put_byte(':');
+    while (*s != 0)
+        put_byte(*s++);
+}
+
+static void put_dec(unsigned v)
+{
+    char digits[10];
+    int at = 10;
+
+    do {
+        --at;
+        digits[at] = (char)('0' + v % 10u);
+        v /= 10u;
+    } while (v != 0);
+    while (at < 10) {
+        put_byte(digits[at]);
+        ++at;
+    }
+}
+
+static void put_hex_min(unsigned w)
+{
+    int i = 7;
+
+    while (i > 0 && ((w >> (unsigned)(i * 4)) & 15u) == 0)
+        --i;
+    for (; i >= 0; --i) {
+        unsigned n = (w >> (unsigned)(i * 4)) & 15u;
+        put_byte((char)(n < 10u ? '0' + n : 'a' + n - 10u));
+    }
+}
+
+static const char *crash_cause_name(unsigned cause)
+{
+    if (cause == 0u)
+        return "instruction address misaligned";
+    if (cause == 1u)
+        return "instruction access fault";
+    if (cause == 2u)
+        return "illegal instruction";
+    if (cause == 3u)
+        return "breakpoint";
+    if (cause == 4u)
+        return "load address misaligned";
+    if (cause == 5u)
+        return "load access fault";
+    if (cause == 6u)
+        return "store address misaligned";
+    if (cause == 7u)
+        return "store access fault";
+    if (cause == 8u)
+        return "user-mode ecall";
+    if (cause == 9u)
+        return "supervisor-mode ecall";
+    if (cause == 12u)
+        return "instruction page fault";
+    if (cause == 13u)
+        return "load page fault";
+    if (cause == 15u)
+        return "store page fault";
+    return 0;
+}
+
+/* Find the function containing pc in an ascending address table. */
+static const char *crash_symbol(unsigned pc, const unsigned *addrs,
+                                const char **names, unsigned count,
+                                unsigned *offset)
+{
+    unsigned lo = 0;
+    unsigned hi = count;
+
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2u;
+        if (addrs[mid] <= pc)
+            lo = mid + 1u;
+        else
+            hi = mid;
+    }
+    if (lo == 0)
+        return 0;
+    *offset = pc - addrs[lo - 1u];
+    return names[lo - 1u];
+}
+
+static void crash_where(unsigned pc, const unsigned *addrs, const char **names,
+                        unsigned count)
+{
+    unsigned offset = 0;
+    const char *name;
+
+    name = crash_symbol(pc, addrs, names, count, &offset);
+    if (name != 0) {
+        put_str("  ");
+        put_str(name);
+        put_str("+0x");
+        put_hex_min(offset);
+    }
+}
+
+/* Stack words live either in the identity-mapped kernel image or in a user
+   slot's backing RAM; both are reached as pa_base + (addr - va_base). */
+static int crash_peek(unsigned va_base, unsigned pa_base, unsigned lo,
+                      unsigned hi, unsigned addr, unsigned *value)
+{
+    if (hi < 4u || addr < lo || addr > hi - 4u)
+        return 0;
+    *value = *(volatile unsigned *)(pa_base + (addr - va_base));
+    return 1;
+}
+
+static void crash_trace_target(const unsigned *addrs, const char **names,
+                               unsigned count, unsigned text_lo,
+                               unsigned text_hi)
+{
+    trace_addrs = addrs;
+    trace_names = names;
+    trace_count = count;
+    trace_text_lo = text_lo;
+    trace_text_hi = text_hi;
+}
+
+static void crash_trace_stack(unsigned va_base, unsigned pa_base,
+                              unsigned stack_lo, unsigned stack_hi)
+{
+    trace_va_base = va_base;
+    trace_pa_base = pa_base;
+    trace_stack_lo = stack_lo;
+    trace_stack_hi = stack_hi;
+}
+
+static void crash_frame(unsigned index, unsigned pc)
+{
+    put_str("      #");
+    put_dec(index);
+    put_byte(' ');
+    put_hex(pc);
+    crash_where(pc, trace_addrs, trace_names, trace_count);
+    put_byte('\n');
+}
+
+static unsigned crash_unwind(unsigned pc, unsigned fp, unsigned sp)
+{
+    unsigned frames = 1;
+    unsigned ra;
+    unsigned next;
+
+    crash_frame(0, pc);
+    for (;;) {
+        if (frames >= CRASH_MAX_FRAMES || trace_stack_hi < 16u)
+            break;
+        if (fp < trace_stack_lo || fp > trace_stack_hi - 16u ||
+            (fp & 3u) != 0)
+            break;
+        if (!crash_peek(trace_va_base, trace_pa_base, trace_stack_lo,
+                        trace_stack_hi, fp + 12u, &ra))
+            break;
+        if (ra < trace_text_lo || ra >= trace_text_hi)
+            break;
+        /* A return address points just past the call: name the call site. */
+        crash_frame(frames, ra);
+        if (!crash_peek(trace_va_base, trace_pa_base, trace_stack_lo,
+                        trace_stack_hi, fp + 8u, &next))
+            break;
+        if (next <= fp)
+            break;
+        fp = next;
+        ++frames;
+    }
+    return frames;
+}
+
+/* Fallback for a corrupted frame chain: report stack words that point into
+   text. Slower and noisier than crash_unwind(), but it still names code. */
+static unsigned crash_scan(unsigned from)
+{
+    unsigned addr = from & ~3u;
+    unsigned printed = 0;
+    unsigned value;
+
+    if (addr < trace_stack_lo)
+        addr = trace_stack_lo;
+    while (trace_stack_hi >= 4u && addr <= trace_stack_hi - 4u &&
+           printed < CRASH_SCAN_FRAMES) {
+        if (crash_peek(trace_va_base, trace_pa_base, trace_stack_lo,
+                       trace_stack_hi, addr, &value) &&
+            value >= trace_text_lo && value < trace_text_hi) {
+            put_str("      ? ");
+            put_hex(addr);
+            put_str(" -> ");
+            put_hex(value);
+            crash_where(value, trace_addrs, trace_names, trace_count);
+            put_byte('\n');
+            ++printed;
+        }
+        addr += 4u;
+    }
+    return printed;
+}
+
+static const char *crash_program_path(unsigned slot)
+{
+    unsigned ino = proc_ino[slot];
+    unsigned i;
+
+    if (ino == 0)
+        return 0;
+    for (i = 0; i < crash_program_count && i < CRASH_MAX_PROGRAMS; ++i)
+        if (crash_prog_ino[i] == ino)
+            return crash_program_paths[i];
+    return 0;
+}
+
+static void crash_registers(unsigned *frame)
+{
+    unsigned i;
+    unsigned r;
+
+    for (i = 0; i < 32; i += 4) {
+        for (r = i; r < i + 4u; ++r) {
+            put_byte(' ');
+            put_str(crash_reg_names[r]);
+            put_byte(' ');
+            put_hex(r == 0 ? 0 : frame[r]);
+        }
+        put_byte('\n');
+    }
+}
+
+static void crash_user_stack(unsigned slot, unsigned pc, unsigned fp,
+                             unsigned sp)
+{
+    const unsigned *addrs = 0;
+    const char **names = 0;
+    unsigned count = 0;
+    unsigned text_lo = USER_BASE;
+    unsigned text_hi = USER_BASE + USER_TEXT_BYTES;
+    unsigned ram = USER_RAM + slot * USER_STRIDE;
+    unsigned ino = proc_ino[slot];
+    unsigned i;
+
+    for (i = 0; i < crash_program_count && i < CRASH_MAX_PROGRAMS; ++i) {
+        if (ino != 0 && crash_prog_ino[i] == ino) {
+            text_lo = crash_program_text_start[i];
+            text_hi = crash_program_text_end[i];
+            count = crash_program_sym_count[i];
+            addrs = crash_program_sym_addrs[i];
+            names = crash_program_sym_names[i];
+            break;
+        }
+    }
+    if (sp < USER_STACK_BASE)
+        sp = USER_STACK_BASE;
+    put_str("    user stack ");
+    put_hex(sp);
+    put_str("..");
+    put_hex(USER_TOP);
+    put_byte('\n');
+    crash_trace_target(addrs, names, count, text_lo, text_hi);
+    crash_trace_stack(USER_BASE, ram, USER_STACK_BASE, USER_TOP);
+    if (crash_unwind(pc, fp, sp) <= 1 && crash_scan(sp) == 0)
+        put_str("      (no return addresses)\n");
+}
+
+static void crash_kernel_stack(unsigned hart, unsigned pc, unsigned fp,
+                               unsigned sp)
+{
+    unsigned top = crash_stack_tops[hart & 1u];
+    unsigned lo = top - CRASH_STACK_BYTES;
+
+    put_str("    kernel stack ");
+    put_hex(sp);
+    put_str("..");
+    put_hex(top);
+    put_byte('\n');
+    crash_trace_target(crash_kernel_sym_addrs, crash_kernel_sym_names,
+                       crash_kernel_sym_count, crash_kernel_text[0],
+                       crash_kernel_text[1]);
+    crash_trace_stack(0, 0, lo, top);
+    if (crash_unwind(pc, fp, sp) <= 1 && crash_scan(sp) == 0)
+        put_str("      (no return addresses)\n");
+}
+
+/* Report a fatal supervisor or user trap. A user fault from a job slot is
+   recoverable: the caller retires the job after the report. */
+void crash_fatal(unsigned hart, unsigned *frame, unsigned cause, unsigned tval,
+                 int user)
+{
+    unsigned slot = console_image() ? current[hart] : hart;
+    const char *program = crash_program_path(slot);
+    const char *name = crash_cause_name(cause);
+    unsigned epc = frame[TF_PC];
+    int recoverable = user && console_image() && slot != 0;
+
+    panic_mode = 1;
+    put_byte('\n');
+    put_str(recoverable ? "*** roco_os fault: " : "*** roco_os panic: ");
+    put_str(user ? "user" : "supervisor");
+    put_str("-mode fault on hart ");
+    put_dec(hart);
+    if (program != 0) {
+        put_str(", pid ");
+        put_dec(slot + 1u);
+        put_str(" (");
+        put_str(program);
+        put_byte(')');
+    }
+    put_byte('\n');
+    put_str("    cause ");
+    put_dec(cause);
+    if (name != 0) {
+        put_str(" (");
+        put_str(name);
+        put_byte(')');
+    }
+    put_str("  epc ");
     put_hex(epc);
-    put_byte(':');
-    put_hex(cause);
-    put_byte(':');
+    put_str("  tval ");
     put_hex(tval);
     put_byte('\n');
+    crash_registers(frame);
+    if (user)
+        crash_user_stack(slot, epc, frame[8], frame[2]);
+    else
+        crash_kernel_stack(hart, epc, frame[8], frame[2]);
+}
+
+/* Machine-mode traps are fatal firmware-protocol bugs: report and halt.
+   There is no trap frame here, so only the stack is available. */
+void machine_fatal(unsigned hart, unsigned epc, unsigned cause, unsigned tval,
+                   unsigned sp)
+{
+    unsigned top = crash_stack_tops[hart & 1u];
+    unsigned lo = top - CRASH_STACK_BYTES;
+
+    panic_mode = 1;
+    put_byte('\n');
+    put_str("*** roco_os panic: machine-mode fault on hart ");
+    put_dec(hart);
+    put_byte('\n');
+    put_str("    cause ");
+    put_dec(cause);
+    put_str("  mepc ");
+    put_hex(epc);
+    put_str("  mtval ");
+    put_hex(tval);
+    put_str("  sp ");
+    put_hex(sp);
+    put_byte('\n');
+    put_str("    kernel stack ");
+    put_hex(sp);
+    put_str("..");
+    put_hex(top);
+    put_byte('\n');
+    crash_trace_target(crash_kernel_sym_addrs, crash_kernel_sym_names,
+                       crash_kernel_sym_count, crash_kernel_text[0],
+                       crash_kernel_text[1]);
+    crash_trace_stack(0, 0, lo, top);
+    if (crash_scan(sp) == 0)
+        put_str("      (no return addresses)\n");
+    TOHOST = 0xbad00000u | (hart << 8) | (cause & 0xffu);
+    for (;;) {}
 }
 
 static void put_byte(char c)
@@ -193,6 +607,8 @@ static void console_write(unsigned pid, const char *src, unsigned len)
     unsigned i;
 
     if (console_image() && pid != console_owner)
+        return;
+    if (panic_mode)
         return;
     spin_lock(&uart_lock);
     for (i = 0; i < len; ++i)
@@ -363,6 +779,13 @@ void kernel_init(void)
         }
     }
     is_console = fs_lookup_path(0, "/bin/shell") >= 0;
+    /* Resolve the crash symbol tables' programs while the filesystem is
+       quiet and every image file is still in place. */
+    for (slot = 0; slot < crash_program_count && slot < CRASH_MAX_PROGRAMS;
+         ++slot) {
+        int ino = fs_lookup_path(0, crash_program_paths[slot]);
+        crash_prog_ino[slot] = ino > 0 ? (unsigned)ino : 0u;
+    }
     put_byte('B');
     for (slot = 0; slot < MAX_PROCS; ++slot)
         fd_reset(slot);
@@ -953,6 +1376,11 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
             return;
         }
         if (slot != 0 && (cause != 8u || syscall == SYS_EXIT)) {
+            if (cause != 8u) {
+                /* A faulting job is recoverable: report it, then retire it. */
+                crash_fatal(hart, frame, cause, read_stval(), 1);
+                panic_mode = 0;
+            }
             saved[slot] = 0;
             if (console_owner == slot + 1u)
                 console_owner = 1;
@@ -964,8 +1392,7 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         }
     }
     if (from_supervisor != 0 || cause != 8u) {
-        unsigned epc = frame[TF_PC];
-        report_fatal(hart, epc, cause, 0);
+        crash_fatal(hart, frame, cause, read_stval(), from_supervisor == 0);
         TOHOST = 0x400u | (hart << 8) | (cause & 0xffu);
         for (;;) {}
     }

@@ -204,6 +204,32 @@ roco_os> jobs
 No job yet.
 ```
 
+## Crash reports
+
+A trap the kernel cannot resume prints a self-contained report before the
+hart halts: the mode, hart, process and cause, the faulting addresses, the
+whole register file, and a backtrace. A user-mode fault in a job slot is
+reported the same way and then retires that job, so the shell survives.
+
+```text
+*** roco_os panic: user-mode fault on hart 0, pid 1 (/bin/shell)
+    cause 15 (store page fault)  epc 004013cc  tval 0040c000
+ zero 00000000 ra 00401414 sp 0040efc0 gp 00408800
+ ...
+    user stack 0040efc0..00410000
+      #0 004013cc  level3+0x2c
+      #1 00401414  level2+0x24
+      #2 00401458  level1+0x24
+      #3 004014bc  main+0x44
+```
+
+Backtraces follow the frame records roco_cc emits (`[s0+12]` holds the
+return address, `[s0+8]` the caller's `s0`). Names come from symbol tables
+that `tools/mksyms.py` builds from the linker's `-Map` output: the kernel
+is linked twice, once for the map, and every user program link writes
+`build/user-<name>.map`. A corrupted frame chain falls back to listing
+stack words that point into text.
+
 ## Boot artifacts
 
 `build/roco_os.elf` has kernel symbols, `build/roco_os.bin` is the flat

@@ -1,6 +1,11 @@
 .section .text
 .globl enable_paging, enter_user, restart_worker, resume_worker, clear_tick
 .globl s_trap_vector, spin_lock, spin_unlock, flush_icache, set_scratch
+.globl read_stval
+
+read_stval:
+    csrr a0, stval
+    ret
 
 enable_paging:
     # Hart 0 published these immutable tables before releasing hart 1.
@@ -198,3 +203,13 @@ set_scratch:
 .globl page_tables
 page_tables:
     .zero 24576
+
+# Supervisor stack tops, one per hart: hart 0 owns [0x100fd000, 0x100ff000)
+# and hart 1 the adjacent 8 KiB below it. boot.S picks each hart's downward
+# stack from this table and crash backtraces scan up to the same bound, so
+# this is the only copy of the layout.
+.section .data
+.balign 4
+.globl crash_stack_tops
+crash_stack_tops:
+    .word 0x100ff000, 0x100fd000

@@ -23,8 +23,16 @@ ROOTFS_PROBE := $(addprefix $(BUILD)/,user-hello.elf user-probe.elf)
 ROOTFS_CONSOLE := $(addprefix $(BUILD)/,user-shell.elf user-worker.elf user-countdown.elf user-primes.elf user-chain.elf user-spin.elf user-alloc.elf)
 ROOTFS_ELFS := $(sort $(ROOTFS_DEFAULT) $(ROOTFS_PROBE) $(ROOTFS_CONSOLE))
 
+# Crash backtraces resolve addresses with symbol tables generated from
+# linker maps: link once for the map, emit the table, link again with it.
+KSYM_PROGS := hello worker shell countdown primes chain spin alloc probe
+# Every user link also writes user-<name>.map, so the program ELFs are the
+# prerequisites that guarantee the maps exist.
+KSYM_ELFS := $(addprefix $(BUILD)/user-,$(addsuffix .elf,$(KSYM_PROGS)))
+KSYM_ARGS := $(foreach p,$(KSYM_PROGS),--program /bin/$(p)=$(BUILD)/user-$(p).map)
+
 .PHONY: all clean test console
-.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o $(BUILD)/user-primes.o $(BUILD)/user-chain.o $(BUILD)/user-spin.o $(BUILD)/user-alloc.o
+.SECONDARY: $(USER_RUNTIME) $(BUILD)/ksyms.o $(BUILD)/ksyms-stub.o $(BUILD)/ksym-kernel.elf $(BUILD)/ksym-kernel.map $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o $(BUILD)/user-primes.o $(BUILD)/user-chain.o $(BUILD)/user-spin.o $(BUILD)/user-alloc.o
 all: $(BUILD)/roco_os.elf $(BUILD)/roco_os.packet.hex
 
 $(BUILD):
@@ -52,19 +60,36 @@ $(BUILD)/user-%.o: user/%.c user/syscall.h $(roco_cc) | $(BUILD)
 	$(roco_cc) -c -o $@ $<
 
 $(BUILD)/user-%.elf: $(USER_RUNTIME) $(BUILD)/user-%.o $(roco_ld)
-	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
+	$(roco_ld) --base 0x00400000 -Map $(BUILD)/user-$*.map -o $@ $(filter %.o,$^)
 
 $(BUILD)/user-lib.o $(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-%.o: user/%.c user/lib.h user/editor.h user/syscall.h $(roco_cc) | $(BUILD)
 	$(roco_cc) -O1 -c -o $@ $<
 
 $(BUILD)/user-shell.elf: $(USER_RUNTIME) $(BUILD)/user-shell.o $(BUILD)/user-editor.o $(roco_ld)
-	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
+	$(roco_ld) --base 0x00400000 -Map $(BUILD)/user-shell.map -o $@ $(filter %.o,$^)
 
-$(BUILD)/roco_os.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-default.o $(ROOTFS_DEFAULT) $(roco_ld)
+# First-pass link only for the map. Appending the generated table leaves
+# every kernel symbol where this link put it (the table is .rodata last).
+$(BUILD)/ksyms-stub.S: tools/mksyms.py | $(BUILD)
+	$(PYTHON) tools/mksyms.py --stub -o $@
+
+$(BUILD)/ksyms-stub.o: $(BUILD)/ksyms-stub.S $(roco_as) | $(BUILD)
+	$(roco_as) -o $@ $<
+
+$(BUILD)/ksym-kernel.map: $(KERNEL_OBJS) $(BUILD)/rootfs-default.o $(BUILD)/ksyms-stub.o $(roco_ld)
+	$(roco_ld) -o $(BUILD)/ksym-kernel.elf -Map $@ $(filter %.o,$^)
+
+$(BUILD)/ksyms.S: tools/mksyms.py $(BUILD)/ksym-kernel.map $(KSYM_ELFS) | $(BUILD)
+	$(PYTHON) tools/mksyms.py -o $@ --kernel $(BUILD)/ksym-kernel.map $(KSYM_ARGS)
+
+$(BUILD)/ksyms.o: $(BUILD)/ksyms.S $(roco_as) | $(BUILD)
+	$(roco_as) -o $@ $<
+
+$(BUILD)/roco_os.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-default.o $(BUILD)/ksyms.o $(ROOTFS_DEFAULT) $(roco_ld)
 	$(roco_ld) -o $(BUILD)/roco_os.elf --binary $@ $(filter %.o,$^)
 
 $(BUILD)/roco_os.elf: $(BUILD)/roco_os.bin
-	@test -f $@ || $(roco_ld) -o $@ $(KERNEL_OBJS) $(BUILD)/rootfs-default.o
+	@test -f $@ || $(roco_ld) -o $@ $(KERNEL_OBJS) $(BUILD)/rootfs-default.o $(BUILD)/ksyms.o
 
 $(BUILD)/%.packet.hex: $(BUILD)/%.bin $(SOC_DIR)/scripts/boot.py
 	$(PYTHON) $(SOC_DIR)/scripts/boot.py --bin $< --emit-hex $@
@@ -73,12 +98,12 @@ $(BUILD)/user-probe.o: tests/user_probe.S $(roco_as) | $(BUILD)
 	$(roco_as) -o $@ $<
 
 $(BUILD)/user-probe.elf: $(USER_RUNTIME) $(BUILD)/user-probe.o $(roco_ld)
-	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
+	$(roco_ld) --base 0x00400000 -Map $(BUILD)/user-probe.map -o $@ $(filter %.o,$^)
 
-$(BUILD)/roco_os-probe.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-probe.o $(ROOTFS_PROBE) $(roco_ld)
+$(BUILD)/roco_os-probe.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-probe.o $(BUILD)/ksyms.o $(ROOTFS_PROBE) $(roco_ld)
 	$(roco_ld) -o $(BUILD)/roco_os-probe.elf --binary $@ $(filter %.o,$^)
 
-$(BUILD)/roco_os-console.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-console.o $(ROOTFS_CONSOLE) $(roco_ld)
+$(BUILD)/roco_os-console.bin: $(KERNEL_OBJS) $(BUILD)/rootfs-console.o $(BUILD)/ksyms.o $(ROOTFS_CONSOLE) $(roco_ld)
 	$(roco_ld) -o $(BUILD)/roco_os-console.elf --binary $@ $(filter %.o,$^)
 
 console: $(BUILD)/roco_os-console.packet.hex

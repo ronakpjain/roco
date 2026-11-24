@@ -44,6 +44,7 @@ module csr_trap_contract (
       .wr_data(wr_data),
       .irq_timer(timer_irq),
       .irq_external(external_irq),
+      .irq_software(1'b0),
       .irq_req(irq_req),
       .irq_code(irq_code),
       .vset_en(1'b0),

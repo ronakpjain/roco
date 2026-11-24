@@ -101,6 +101,8 @@ module rv32a_mem_contract (
       .dmem_valid(valid),
       .dmem_amo_read(amo_read),
       .dmem_amo_retry(1'b0),
+      .res_remote_valid(1'b0),
+      .res_remote_addr(30'd0),
       .dmem_we(we),
       .dmem_addr(addr),
       .dmem_wdata(data),

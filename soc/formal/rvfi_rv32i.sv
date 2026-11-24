@@ -129,6 +129,7 @@ module rvfi_rv32i #(
       .halt(1'b0),
       .irq_timer(irq_timer),
       .irq_external(irq_external),
+      .irq_software(1'b0),
       .imem_req(imem_req),
       .imem_addr(imem_addr),
       .imem_rsp_valid(imem_rsp_valid),
@@ -141,6 +142,7 @@ module rvfi_rv32i #(
       .dmem_lu_offset(),
       .dmem_lu_funct3(),
       .dmem_ready(dmem_ready),
+      .dmem_busy(1'b0),
       .dmem_req(dmem_req),
       .dmem_valid(dmem_valid),
       .dmem_we(dmem_we),
@@ -167,6 +169,10 @@ module rvfi_rv32i #(
 `endif
       .fence_req(),
       .fence_done(1'b1),
+      // This harness has no peer hart.
+      .res_remote_valid(1'b0),
+      .res_remote_addr(30'd0),
+      .remote_tlb_flush(1'b0),
       .rvfi_halt(),
       .rvfi_valid(rvfi_valid),
       .rvfi_order(rvfi_order),

@@ -12,15 +12,16 @@
 .type _start, @function
 
 _start:
-  # Per-hart downward stack.  Hart 0 gets [0x11ffd000, 0x11fff000) and
+  # Per-hart downward stack.  Hart 0 gets [0x100fd000, 0x100ff000) and
   # hart 1 gets the adjacent 8 KiB at the lower address.
   csrr s0, mhartid
   li t0, 1
   bltu t0, s0, boot_bad_hart
   slli t1, s0, 13
-  li s1, 0x11fff000
+  li s1, 0x100ff000
   sub s1, s1, t1
   mv sp, s1
+  la gp, __global_pointer$
 
   # Machine traps are fatal.  Interrupts are not used during boot.
   la t0, m_trap_vector
@@ -43,6 +44,9 @@ _start:
   # stores for the aligned middle.
   la t0, __bss_start
   la t1, __bss_end
+  la t2, _end
+  li t3, 0x10040000       # Start of user backing RAM; keep in sync with kernel.c.
+  bltu t3, t2, boot_image_too_large
   bgeu t0, t1, bss_done
 bss_align:
   andi t2, t0, 3
@@ -125,8 +129,13 @@ m_trap_vector:
 .type boot_bad_hart, @function
 boot_bad_hart:
   li t0, 0xbad00007
+  j boot_fail
+.size boot_bad_hart, . - boot_bad_hart
+
+boot_image_too_large:
+  li t0, 0xbad00008
+boot_fail:
   li t1, 0x80001000
   sw t0, 0(t1)
 1:
   j 1b
-.size boot_bad_hart, . - boot_bad_hart

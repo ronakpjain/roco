@@ -75,9 +75,9 @@ its pipeline register:
   faults. The 9-bit ASID field is accepted, but invalidation is full-flush.
 - Traps: illegal instruction, `ECALL`, `EBREAK`, misaligned load/store,
   misaligned instruction address, instruction/load/store page faults.
-- `FENCE` is a NOP; `FENCE.I` writes back the D-cache, invalidates the
-  I-cache and flushes younger instructions. `SFENCE.VMA` additionally
-  invalidates both TLBs.
+- `FENCE` is a NOP; `FENCE.I` writes back its own hart's D-cache,
+  invalidates both I-caches and flushes younger instructions.
+  `SFENCE.VMA` additionally invalidates both TLBs.
 - Trap vectors: direct and vectored `mtvec`/`stvec` modes.
 - CSRs: `mstatus`, `misa`, `medeleg`, `mideleg`, `mie`/`mip`, `mtvec`,
   `mepc`, `mcause`, `mtval`, `mscratch`, `mcounteren`, `mcycle[h]`,
@@ -118,8 +118,9 @@ the faulting virtual address in `mtval`/`stval` and use causes 12, 13 and
 15.
 
 The walker reads SDRAM directly rather than through the D-cache, so
-`SFENCE.VMA` first writes back the whole D-cache (the same sequence as
-`FENCE.I`), invalidates the I-cache, and then invalidates both TLBs.
+`SFENCE.VMA` first writes back the requester's whole D-cache (the same
+sequence as `FENCE.I`), invalidates the I-cache, and then invalidates both
+TLBs.
 Software that updates a PTE must execute `SFENCE.VMA` before relying on
 the new mapping. SATP writes replay younger fetches from the next
 instruction so invalidation cannot drop an in-flight instruction. The address and ASID operands are decoded but ignored:
@@ -319,8 +320,10 @@ Simulation (2026-11, Verilator 5.054 and Icarus Verilog 13):
   state: every fill is shared and every store/atomic upgrade invalidates
   the peer (dirty lines are written back first). Share writable data with
   AMO/LR/SC or uncached MMIO; plain stores do not invalidate the peer.
-  `FENCE.I`/`SFENCE.VMA` broadcast to both harts (both D-caches flushed,
-  both I-caches and TLBs invalidated) and release only the requester.
+  `FENCE.I`/`SFENCE.VMA` write back only the requester's D-cache, then
+  broadcast the I-cache and TLB invalidation to both harts. Only the
+  requester is released; a full flush of the peer's cache would drop a
+  lookup it issues during the flush window.
 - Each hart has a private TLB pair fed by its own walker; shootdown is the
   broadcast above rather than per-address invalidation.
 - The TLBs are 16-entry direct mapped, so a conflict or concurrent I/D

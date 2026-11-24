@@ -177,6 +177,7 @@ module roco_soc #(
   logic fence_owner;
   logic remote_tlb_flush0, remote_tlb_flush1;
   logic dcache_flush;
+  logic dcache_flush0, dcache_flush1;
   logic dcache_flush_done0, dcache_flush_done1;
   logic icache_flush;
   logic [1:0] fence_state;
@@ -672,7 +673,7 @@ module roco_soc #(
 `endif
       .clk(clk),
       .rst(cache_rst),
-      .flush(dcache_flush),
+      .flush(dcache_flush0),
       .flush_done(dcache_flush_done0),
       .lu_valid(dmem0_lu_valid && dmem0_lu_in_sdram),
       .lu_addr(dmem0_lu_addr[24:2]),
@@ -802,7 +803,7 @@ module roco_soc #(
   ) u_dcache1 (
       .clk(clk),
       .rst(cache_rst),
-      .flush(dcache_flush),
+      .flush(dcache_flush1),
       .flush_done(dcache_flush_done1),
       .lu_valid(dmem1_lu_valid && dmem1_lu_in_sdram),
       .lu_addr(dmem1_lu_addr[24:2]),
@@ -1526,6 +1527,15 @@ module roco_soc #(
   localparam logic [1:0] F_DRAIN  = 2'd2;
   localparam logic [1:0] F_ICACHE = 2'd3;
 
+  // Only the requesting hart's D-cache has to be written back: FENCE.I
+  // orders that hart's own prior stores before later instruction fetch.
+  // The flush reads every line through the cache's single array port, so
+  // flushing the peer's cache would preempt a demand lookup issued in the
+  // same cycle and strand its MEM stage with stale hit data. Boot
+  // maintenance clears both caches because neither hart is trusted yet.
+  assign dcache_flush0 = dcache_flush && (boot_cache_maintenance || fence_owner == 1'b0);
+  assign dcache_flush1 = dcache_flush && (boot_cache_maintenance || fence_owner == 1'b1);
+
   // TLB shootdown: the non-requesting hart flushes its MMU while either
   // fence is in flight. Idempotent for the requesting hart (already
   // flushing through its own mmu_flush).
@@ -1562,7 +1572,10 @@ module roco_soc #(
             end
           end
           F_DCACHE: begin
-            if (dcache_flush_done0 && dcache_flush_done1) begin
+            if (boot_cache_maintenance
+                    ? (dcache_flush_done0 && dcache_flush_done1)
+                    : (fence_owner == 1'b0 ? dcache_flush_done0
+                                           : dcache_flush_done1)) begin
               dcache_flush <= 1'b0;
               fence_state <= F_DRAIN;
             end

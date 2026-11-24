@@ -13,16 +13,16 @@ static int pause(void)
 int main(void)
 {
     if (gethart() == 0)
-        write("countdown: hart 0\n", 18);
-    write("countdown: 3\n", 13);
+        write(1, "countdown: hart 0\n", 18);
+    write(1, "countdown: 3\n", 13);
     if (!pause())
         return 2;
-    write("countdown: 2\n", 13);
+    write(1, "countdown: 2\n", 13);
     if (!pause())
         return 2;
-    write("countdown: 1\n", 13);
+    write(1, "countdown: 1\n", 13);
     if (!pause())
         return 2;
-    write("countdown: done\n", 16);
+    write(1, "countdown: done\n", 16);
     return 0;
 }

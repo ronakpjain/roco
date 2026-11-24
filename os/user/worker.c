@@ -38,7 +38,7 @@ int main(void) {
   }
 
   /* A null pointer is never valid user memory. */
-  if (write((const void *)0, 1) != -1) {
+  if (write(1, (const void *)0, 1) != -1) {
     return 7;
   }
 
@@ -47,9 +47,9 @@ int main(void) {
   }
 
   if (hart == 0) {
-    if (write("hart 0 user worker\n", 19) != 19)
+    if (write(1, "hart 0 user worker\n", 19) != 19)
       return 9;
-  } else if (write(worker_message, sizeof(worker_message) - 1) !=
+  } else if (write(1, worker_message, sizeof(worker_message) - 1) !=
       (int)(sizeof(worker_message) - 1)) {
     return 9;
   }

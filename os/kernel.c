@@ -1,13 +1,11 @@
 #include "user/syscall.h"
 
 #define PAGE_SIZE 4096u
-#define USER_BASE 0x00400000u
 /* The SoC testbench SDRAM model aliases addresses above its first MiB. */
 #define USER_RAM 0x10040000u
-#define USER_STRIDE 0x8000u
-#define DATA_OFFSET (2u * PAGE_SIZE)
-#define STACK_OFFSET (4u * PAGE_SIZE)
-#define USER_TOP (USER_BASE + 6u * PAGE_SIZE)
+#define USER_STRIDE USER_SLOT_BYTES
+#define DATA_OFFSET (USER_DATA_BASE - USER_BASE)
+#define STACK_OFFSET (USER_STACK_BASE - USER_BASE)
 
 #define PTE_V 0x01u
 #define PTE_R 0x02u
@@ -29,6 +27,7 @@
 #define TF_HART 0
 #define TF_A0 10
 #define TF_A1 11
+#define TF_A2 12
 #define TF_A7 17
 #define TF_PC 32
 #define TF_SAVED 33
@@ -49,7 +48,6 @@ void clear_tick(void);
 void lock_uart(unsigned *lock);
 void unlock_uart(unsigned *lock);
 
-static unsigned uart_lock;
 /* Only the owning hart writes its slot; 0 means running, 1 means success. */
 static volatile unsigned completed[2];
 /* The shell publishes JOB_ACTIVE + target hart in one store. Only that
@@ -58,6 +56,16 @@ static volatile unsigned job_state[3];
 static unsigned saved[3];
 static unsigned contexts[3 * TF_SAVED];
 static unsigned current[2];
+
+/*
+ * The UART is one shared console: both harts can reach it and the host can
+ * send a byte at any time. uart_lock serializes every register access, and
+ * only the owning process may write. Background jobs that want their output
+ * must redirect it to a file; this keeps a shell prompt and a foreground
+ * command's output free of unrelated lines.
+ */
+static unsigned uart_lock;
+static unsigned console_owner = 1;
 
 static int console_image(void)
 {
@@ -92,6 +100,35 @@ static unsigned pte(unsigned pa, unsigned flags)
     return (pa >> 2) | flags | PTE_V;
 }
 
+static void put_byte(char c)
+{
+    while ((UART_STATUS & 1u) == 0) {}
+    UART_DATA = (unsigned char)c;
+}
+
+static void console_write(unsigned pid, const char *src, unsigned len)
+{
+    unsigned i;
+
+    if (console_image() && pid != console_owner)
+        return;
+    lock_uart(&uart_lock);
+    for (i = 0; i < len; ++i)
+        put_byte(src[i]);
+    unlock_uart(&uart_lock);
+}
+
+static int console_readchar(void)
+{
+    int value = -1;
+
+    lock_uart(&uart_lock);
+    if ((UART_STATUS & 2u) != 0)
+        value = (int)(UART_DATA & 0xffu);
+    unlock_uart(&uart_lock);
+    return value;
+}
+
 static void reset_user(unsigned slot, const unsigned *image)
 {
     unsigned *ram = (unsigned *)(USER_RAM + slot * USER_STRIDE);
@@ -103,32 +140,45 @@ static void reset_user(unsigned slot, const unsigned *image)
         ram[DATA_OFFSET / 4u + i] = image[2u + image[0] + i];
 }
 
-static void setup_user(unsigned slot, const unsigned *image)
+static void setup_space(unsigned slot)
 {
     unsigned *root = page_tables + 2048u * slot;
     unsigned *leaf = root + 1024u;
     unsigned pa = USER_RAM + slot * USER_STRIDE;
-    unsigned *ram = (unsigned *)pa;
-    unsigned text_words = image[0];
     unsigned i;
 
-    for (i = 0; i < DATA_OFFSET / 4u; ++i)
-        ram[i] = 0;
-    for (i = 0; i < text_words; ++i)
-        ram[i] = image[2u + i];
-    reset_user(slot, image);
+    for (i = 0; i < 1024u; ++i)
+        leaf[i] = 0;
+    for (i = 0; i < USER_TEXT_PAGES; ++i)
+        leaf[i] = pte(pa + i * PAGE_SIZE, PTE_R | PTE_X | PTE_U | PTE_A);
+    for (i = 0; i < USER_DATA_PAGES; ++i)
+        leaf[USER_TEXT_PAGES + i] = pte(pa + (USER_TEXT_PAGES + i) * PAGE_SIZE,
+                                       PTE_RW | PTE_U | PTE_A | PTE_D);
+    for (i = 0; i < USER_HEAP_PAGES; ++i)
+        leaf[6u + i] = pte(pa + (6u + i) * PAGE_SIZE,
+                           PTE_RW | PTE_U | PTE_A | PTE_D);
+    /* Leaf slot 9 is the unmapped stack guard page. */
+    for (i = 0; i < USER_STACK_PAGES; ++i)
+        leaf[10u + i] = pte(pa + (10u + i) * PAGE_SIZE,
+                            PTE_RW | PTE_U | PTE_A | PTE_D);
 
     root[USER_BASE >> 22] = pte((unsigned)leaf, 0);
-    leaf[0] = pte(pa, PTE_R | PTE_X | PTE_U | PTE_A);
-    leaf[1] = pte(pa + PAGE_SIZE, PTE_R | PTE_X | PTE_U | PTE_A);
-    leaf[2] = pte(pa + DATA_OFFSET, PTE_RW | PTE_U | PTE_A | PTE_D);
-    /* The next page is an unmapped guard between data and stack. */
-    leaf[4] = pte(pa + STACK_OFFSET, PTE_RW | PTE_U | PTE_A | PTE_D);
-    leaf[5] = pte(pa + STACK_OFFSET + PAGE_SIZE, PTE_RW | PTE_U | PTE_A | PTE_D);
-
     /* Supervisor-only identity mappings: RAM (kernel, aliases, stacks), MMIO. */
     root[0x10000000u >> 22] = pte(0x10000000u, PTE_RW | PTE_X | PTE_A | PTE_D);
     root[0x80000000u >> 22] = pte(0x80000000u, PTE_RW | PTE_A | PTE_D);
+}
+
+static void setup_user(unsigned slot, const unsigned *image)
+{
+    unsigned *ram = (unsigned *)(USER_RAM + slot * USER_STRIDE);
+    unsigned i;
+
+    setup_space(slot);
+    for (i = 0; i < USER_TEXT_BYTES / 4u; ++i)
+        ram[i] = 0;
+    for (i = 0; i < image[0]; ++i)
+        ram[i] = image[2u + i];
+    reset_user(slot, image);
 }
 
 void kernel_init(void)
@@ -206,36 +256,42 @@ void supervisor_main(unsigned hart, unsigned stack_top)
     enter_user(USER_BASE, USER_TOP, stack_top, hart);
 }
 
-static int user_write(unsigned hart, unsigned addr, unsigned len)
+static int user_buffer(unsigned slot, unsigned addr, unsigned len, unsigned write)
 {
-    unsigned limit;
-    unsigned i;
-    unsigned slot = hart;
-    const unsigned char *src;
+    unsigned end = addr + len;
+    unsigned text_end = USER_BASE + USER_TEXT_BYTES;
+    unsigned data_end = USER_DATA_BASE + USER_DATA_BYTES;
+    unsigned heap_end = USER_HEAP_BASE + USER_HEAP_BYTES;
 
+    (void)slot;
+    if (len == 0)
+        return 1;
+    if (end < addr)
+        return 0;
+    if (addr >= USER_BASE && end <= text_end)
+        return !write;
+    if (addr >= USER_DATA_BASE && end <= data_end)
+        return 1;
+    if (addr >= USER_HEAP_BASE && end <= heap_end)
+        return 1;
+    if (addr >= USER_STACK_BASE && end <= USER_TOP)
+        return 1;
+    return 0;
+}
+
+static int user_write(unsigned hart, unsigned fd, unsigned addr, unsigned len)
+{
+    unsigned slot = console_image() ? current[hart] : hart;
+    const char *src;
+
+    if (fd != 1 && fd != 2)
+        return -1;
     if (len == 0)
         return 0;
-    if (len > MAX_WRITE || addr < USER_BASE || addr >= USER_TOP)
+    if (len > MAX_WRITE || !user_buffer(slot, addr, len, 0))
         return -1;
-    if (addr < USER_BASE + DATA_OFFSET + PAGE_SIZE)
-        limit = USER_BASE + DATA_OFFSET + PAGE_SIZE;
-    else if (addr >= USER_BASE + STACK_OFFSET)
-        limit = USER_TOP;
-    else
-        return -1;
-    if (len > limit - addr)
-        return -1;
-
-    /* Read through the private backing pages' S-only alias. SUM stays clear. */
-    if (console_image())
-        slot = current[hart];
-    src = (const unsigned char *)(USER_RAM + slot * USER_STRIDE + (addr - USER_BASE));
-    lock_uart(&uart_lock);
-    for (i = 0; i < len; ++i) {
-        while ((UART_STATUS & 1u) == 0) {}
-        UART_DATA = src[i];
-    }
-    unlock_uart(&uart_lock);
+    src = (const char *)(USER_RAM + slot * USER_STRIDE + (addr - USER_BASE));
+    console_write(slot + 1, src, len);
     return (int)len;
 }
 
@@ -318,7 +374,7 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         for (;;) {}
     }
     if (syscall == SYS_WRITE)
-        frame[TF_A0] = (unsigned)user_write(hart, frame[TF_A0], frame[TF_A1]);
+        frame[TF_A0] = (unsigned)user_write(hart, frame[TF_A0], frame[TF_A1], frame[TF_A2]);
     else if (syscall == SYS_EXIT) {
         /* Keep the shell schedulable while a local job drains. Retry the
            ecall after the next slice without losing its exit status. */
@@ -334,8 +390,8 @@ void supervisor_trap(unsigned *frame, unsigned cause, unsigned from_supervisor)
         frame[TF_A0] = 0;
         if (console_image())
             reschedule(frame);
-    } else if (syscall == SYS_READCHAR && hart == 0 && current[0] == 0 && (UART_STATUS & 2u) != 0)
-        frame[TF_A0] = UART_DATA & 0xffu;
+    } else if (syscall == SYS_READCHAR && hart == 0 && current[0] == 0)
+        frame[TF_A0] = (unsigned)console_readchar();
     else if (hart == 0 && current[0] == 0 && syscall == SYS_RUN_JOB && console_image())
         frame[TF_A0] = (unsigned)submit_job(frame[TF_A0], frame[TF_A1]);
     else if (hart == 0 && current[0] == 0 && syscall == SYS_JOB_STATUS && console_image() && valid_job(frame[TF_A0]))

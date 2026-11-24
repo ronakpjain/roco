@@ -13,7 +13,7 @@ int main(void) {
   }
 
   /* A null pointer is never valid user memory. */
-  if (write((const void *)0, 1) != -1) {
+  if (write(1, (const void *)0, 1) != -1) {
     return 3;
   }
 
@@ -21,7 +21,7 @@ int main(void) {
     return 4;
   }
 
-  if (write(hello_message, sizeof(hello_message) - 1) !=
+  if (write(1, hello_message, sizeof(hello_message) - 1) !=
       (int)(sizeof(hello_message) - 1)) {
     return 5;
   }

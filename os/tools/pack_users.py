@@ -8,6 +8,8 @@ from pathlib import Path
 
 BASE = 0x00400000
 PAGE = 4096
+TEXT_PAGES = 4
+DATA_PAGES = 2
 
 
 def read_elf(path):
@@ -40,9 +42,9 @@ def emit_app(label, path):
     text, data = bytearray(), bytearray()
     for name, (addr, size, payload) in sections.items():
         if name in (".text", ".rodata"):
-            target, page, capacity = text, BASE, 2 * PAGE
+            target, page, capacity = text, BASE, TEXT_PAGES * PAGE
         elif name in (".data", ".bss"):
-            target, page, capacity = data, BASE + 2 * PAGE, PAGE
+            target, page, capacity = data, BASE + TEXT_PAGES * PAGE, DATA_PAGES * PAGE
         else:
             raise ValueError(f"unsupported allocated section {name}")
         offset = addr - page

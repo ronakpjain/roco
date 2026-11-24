@@ -6,7 +6,7 @@ roco_ld ?= $(roco_dir)/build/roco_ld
 PYTHON ?= python3
 
 BUILD := build
-USER_RUNTIME := $(addprefix $(BUILD)/,user-start.o user-syscall.o user_layout.o)
+USER_RUNTIME := $(addprefix $(BUILD)/,user-start.o user-syscall.o user-lib.o user_layout.o)
 KERNEL_OBJS := $(addprefix $(BUILD)/,boot.o supervisor.o kernel.o)
 OS_OBJS := $(KERNEL_OBJS) $(BUILD)/user_images.o
 USER_HELLO := $(BUILD)/user-hello.elf
@@ -14,7 +14,7 @@ USER_WORKER := $(BUILD)/user-worker.elf
 BOOT_SIM := $(SOC_DIR)/build/vl_tb_soc_boot/Vtb_soc_boot
 
 .PHONY: all clean test console
-.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o
+.SECONDARY: $(USER_RUNTIME) $(BUILD)/user-hello.o $(BUILD)/user-worker.o $(BUILD)/user-shell.o $(BUILD)/user-countdown.o $(BUILD)/user-editor.o
 all: $(BUILD)/roco_os.elf $(BUILD)/roco_os.packet.hex
 
 $(BUILD):
@@ -35,7 +35,7 @@ $(BUILD)/user-%.o: user/%.c user/syscall.h $(roco_cc) | $(BUILD)
 $(BUILD)/user-%.elf: $(USER_RUNTIME) $(BUILD)/user-%.o $(roco_ld)
 	$(roco_ld) --base 0x00400000 -o $@ $(filter %.o,$^)
 
-$(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-%.o: user/%.c user/editor.h user/syscall.h $(roco_cc) | $(BUILD)
+$(BUILD)/user-lib.o $(BUILD)/user-shell.o $(BUILD)/user-editor.o: $(BUILD)/user-%.o: user/%.c user/lib.h user/editor.h user/syscall.h $(roco_cc) | $(BUILD)
 	$(roco_cc) -O1 -c -o $@ $<
 
 $(BUILD)/user-shell.elf: $(USER_RUNTIME) $(BUILD)/user-shell.o $(BUILD)/user-editor.o $(roco_ld)

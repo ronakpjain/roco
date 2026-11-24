@@ -1,5 +1,5 @@
 #include "editor.h"
-#include "syscall.h"
+#include "lib.h"
 
 #define ROWS 12
 #define COLS 80
@@ -22,13 +22,6 @@ static char *skip_space(char *s)
     return s;
 }
 
-static void copy_line(char *dst, const char *src)
-{
-    while (*src != 0)
-        *dst++ = *src++;
-    *dst = 0;
-}
-
 static char *number(char *s, unsigned *value)
 {
     unsigned n = 0;
@@ -45,18 +38,6 @@ static char *number(char *s, unsigned *value)
     return skip_space(s);
 }
 
-static void print_number(unsigned n)
-{
-    char digits[6];
-    int at = 6;
-    do {
-        --at;
-        digits[at] = (char)('0' + n % 10u);
-        n = n / 10u;
-    } while (n != 0);
-    write(digits + at, 6 - at);
-}
-
 int editor_line(char *line)
 {
     int i;
@@ -67,7 +48,7 @@ int editor_line(char *line)
         if (rows == ROWS)
             print("Document full.\n");
         else {
-            copy_line(document + rows * COLS, line);
+            strcpy(document + rows * COLS, line);
             ++rows;
         }
         return 1;
@@ -77,26 +58,26 @@ int editor_line(char *line)
         *args = 0;
         args = skip_space(args + 1);
     }
-    if (same(line, ".quit") && *args == 0)
+    if (strcmp(line, ".quit") == 0 && *args == 0)
         return 0;
-    if (same(line, ".clear") && *args == 0)
+    if (strcmp(line, ".clear") == 0 && *args == 0)
         rows = 0;
-    else if (same(line, ".list") && *args == 0) {
+    else if (strcmp(line, ".list") == 0 && *args == 0) {
         for (i = 0; i < rows; ++i) {
-            print_number((unsigned)(i + 1));
+            print_unum((unsigned)(i + 1));
             print(" ");
             print(document + i * COLS);
             print("\n");
         }
-    } else if (same(line, ".set") || same(line, ".del")) {
+    } else if (strcmp(line, ".set") == 0 || strcmp(line, ".del") == 0) {
         args = number(args, &n);
         if (args == (char *)0 || n == 0 || n > (unsigned)rows)
             print("Invalid line number.\n");
-        else if (same(line, ".set"))
-            copy_line(document + (n - 1u) * COLS, args);
+        else if (strcmp(line, ".set") == 0)
+            strcpy(document + (n - 1u) * COLS, args);
         else if (*args == 0) {
             for (i = (int)n; i < rows; ++i)
-                copy_line(document + (i - 1) * COLS, document + i * COLS);
+                strcpy(document + (i - 1) * COLS, document + i * COLS);
             --rows;
         } else
             print("Usage: .del N\n");
@@ -115,7 +96,7 @@ void script_run(void)
     int i;
 
     for (i = 0; i < rows; ++i) {
-        copy_line(line, document + i * COLS);
+        strcpy(line, document + i * COLS);
         op = skip_space(line);
         if (*op == 0 || *op == '#')
             continue;
@@ -124,25 +105,25 @@ void script_run(void)
             *args = 0;
             args = skip_space(args + 1);
         }
-        if (same(op, "print")) {
+        if (strcmp(op, "print") == 0) {
             print(args);
             print("\n");
-        } else if (same(op, "show") && *args == 0) {
-            print_number(value);
+        } else if (strcmp(op, "show") == 0 && *args == 0) {
+            print_unum(value);
             print("\n");
         } else {
             args = number(args, &n);
             if (args == (char *)0)
                 break;
-            if (same(op, "repeat") && n <= 20u) {
+            if (strcmp(op, "repeat") == 0 && n <= 20u) {
                 while (n > 0) {
                     print(args);
                     print("\n");
                     --n;
                 }
-            } else if (same(op, "set") && *args == 0)
+            } else if (strcmp(op, "set") == 0 && *args == 0)
                 value = n;
-            else if (same(op, "add") && *args == 0 && n <= MAX_NUMBER - value)
+            else if (strcmp(op, "add") == 0 && *args == 0 && n <= MAX_NUMBER - value)
                 value += n;
             else
                 break;
@@ -150,7 +131,7 @@ void script_run(void)
     }
     if (i < rows) {
         print("Script error on line ");
-        print_number((unsigned)(i + 1));
+        print_unum((unsigned)(i + 1));
         print(".\n");
     }
 }

@@ -120,27 +120,30 @@ that do not fit the following layout:
 
 | Virtual range | User permissions | Contents |
 | --- | --- | --- |
-| `0x00400000` to `0x00401fff` | Read, execute | `.text`, `.rodata` |
-| `0x00402000` to `0x00402fff` | Read, write | `.data`, zeroed `.bss` |
-| `0x00403000` to `0x00403fff` | Unmapped | Stack guard |
-| `0x00404000` to `0x00405fff` | Read, write | 8 KiB stack |
+| `0x00400000` to `0x00403fff` | Read, execute | `.text`, `.rodata` (16 KiB) |
+| `0x00404000` to `0x00405fff` | Read, write | `.data`, zeroed `.bss` (8 KiB) |
+| `0x00406000` to `0x00408fff` | Read, write | 12 KiB heap |
+| `0x00409000` to `0x00409fff` | Unmapped | Stack guard |
+| `0x0040a000` to `0x0040ffff` | Read, write | 24 KiB stack |
 
 The kernel, backing-page aliases, and MMIO are supervisor-only. The
 kernel validates user buffer ranges before reading through its own aliases.
-The UART lock prevents writes from different harts interleaving.
+The UART is a shared console guarded by a spinlock; only the console owner
+may write. Background jobs that need output must redirect it to a file, so
+their lines never interrupt a shell prompt or a foreground command.
 
 Physical allocations stay in the first MiB of SDRAM to avoid aliasing in
-the SoC's simulation model. The kernel starts at `0x10000000`, the user
-backing pages start at `0x10040000`, `0x10048000`, and `0x10050000`
-(countdown in the console image), and the kernel
-stacks grow down from `0x100ff000` and `0x100fd000`.
+the SoC's simulation model. The kernel starts at `0x10000000`, each user
+address space owns one 64 KiB backing slab starting at `0x10040000`,
+`0x10050000`, and `0x10060000` (countdown in the console image), and the
+kernel stacks grow down from `0x100ff000` and `0x100fd000`.
 
 `user/syscall.h` declares wrappers for the syscall ABI: put the number in
 `a7`, arguments in `a0` and `a1`, and issue `ecall`. Results come back in `a0`.
 
 | Number | Call | Result |
 | --- | --- | --- |
-| 1 | `write(buf, len)` | Bytes written, or `-1` for an invalid nonempty buffer or a length over 256 |
+| 1 | `write(fd, buf, len)` | Bytes written, or `-1` for a non-console descriptor, an invalid nonempty buffer, or a length over 256 |
 | 2 | `exit(status)` | Never returns; returning from `main` does the same thing |
 | 3 | `gethart()` | `0` or `1` |
 | 4 | `yield()` | `0`; a console task gives up the rest of its time slice if another task is runnable |

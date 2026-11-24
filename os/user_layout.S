@@ -1,3 +1,3 @@
-# Reserve two text pages before the writable data page.
+# Reserve four text pages before the writable data page.
 .section .data
-.balign 8192
+.balign 16384

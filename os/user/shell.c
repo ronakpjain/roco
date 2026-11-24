@@ -1,26 +1,7 @@
-#include "syscall.h"
+#include "lib.h"
 #include "editor.h"
 
 #define LINE_CAP 80
-
-void print(const char *s)
-{
-    int len = 0;
-    while (s[len] != 0)
-        ++len;
-    write(s, len);
-}
-
-int same(const char *a, const char *b)
-{
-    while (*a == *b) {
-        if (*a == 0)
-            return 1;
-        ++a;
-        ++b;
-    }
-    return 0;
-}
 
 static void run_job(char *args)
 {
@@ -54,9 +35,9 @@ static void run_job(char *args)
         print("Usage: run <worker|countdown> [0|1] &\n");
         return;
     }
-    if (same(args, "worker"))
+    if (strcmp(args, "worker") == 0)
         id = JOB_WORKER;
-    else if (same(args, "countdown"))
+    else if (strcmp(args, "countdown") == 0)
         id = JOB_COUNTDOWN;
     else {
         print("No such program.\n");
@@ -126,28 +107,28 @@ static int command(char *line, int *editing)
             ++args;
     }
 
-    if (same(line, "help"))
+    if (strcmp(line, "help") == 0)
         print("Commands: help, hart, echo [text], run <worker|countdown> [0|1] &, jobs, wait, edit, script, exit\n");
-    else if (same(line, "hart")) {
+    else if (strcmp(line, "hart") == 0) {
         if (gethart() == 0)
             print("hart 0\n");
         else
             print("hart 1\n");
-    } else if (same(line, "echo")) {
+    } else if (strcmp(line, "echo") == 0) {
         print(args);
         print("\n");
-    } else if (same(line, "run"))
+    } else if (strcmp(line, "run") == 0)
         run_job(args);
-    else if (same(line, "jobs"))
+    else if (strcmp(line, "jobs") == 0)
         show_job(0);
-    else if (same(line, "wait"))
+    else if (strcmp(line, "wait") == 0)
         show_job(1);
-    else if (same(line, "edit") && *args == 0) {
+    else if (strcmp(line, "edit") == 0 && *args == 0) {
         *editing = 1;
         print("Append text or use .list, .set N text, .del N, .clear, .quit.\n");
-    } else if (same(line, "script") && *args == 0)
+    } else if (strcmp(line, "script") == 0 && *args == 0)
         script_run();
-    else if (same(line, "exit"))
+    else if (strcmp(line, "exit") == 0)
         return 1;
     else
         print("Unknown command; try help.\n");

@@ -1,6 +1,6 @@
 # roco user-mode system call wrappers.
 #
-# The C ABI already places the first two arguments in a0 and a1, so the
+# The C ABI already places the first three arguments in a0-a2, so the
 # named wrappers only need to load the trap number into a7. syscall()
 # rearranges its C arguments (number, arg0, arg1) into (a7, a0, a1).
 
@@ -18,30 +18,30 @@ sys_write:
 .size write, . - write
 .size sys_write, . - sys_write
 
+.globl read
+.globl sys_read
+.type read, @function
+.type sys_read, @function
+read:
+sys_read:
+  li a7, 2              # SYS_READ
+  ecall
+  ret
+.size read, . - read
+.size sys_read, . - sys_read
+
 .globl exit
 .globl sys_exit
 .type exit, @function
 .type sys_exit, @function
 exit:
 sys_exit:
-  li a7, 2              # SYS_EXIT
+  li a7, 3              # SYS_EXIT
   ecall
 1:
   j 1b                  # exit must not return
 .size exit, . - exit
 .size sys_exit, . - sys_exit
-
-.globl gethart
-.globl sys_gethart
-.type gethart, @function
-.type sys_gethart, @function
-gethart:
-sys_gethart:
-  li a7, 3              # SYS_GETHART
-  ecall
-  ret
-.size gethart, . - gethart
-.size sys_gethart, . - sys_gethart
 
 .globl yield
 .globl sys_yield
@@ -55,13 +55,29 @@ sys_yield:
 .size yield, . - yield
 .size sys_yield, . - sys_yield
 
+.globl gethart
+.globl sys_gethart
+.type gethart, @function
+.type sys_gethart, @function
+gethart:
+sys_gethart:
+  li a7, 5              # SYS_GETHART
+  ecall
+  ret
+.size gethart, . - gethart
+.size sys_gethart, . - sys_gethart
+
 .globl readchar
+.globl sys_readchar
 .type readchar, @function
+.type sys_readchar, @function
 readchar:
-  li a7, 5              # SYS_READCHAR
+sys_readchar:
+  li a7, 6              # SYS_READCHAR
   ecall
   ret
 .size readchar, . - readchar
+.size sys_readchar, . - sys_readchar
 
 .globl syscall
 .globl sys_call
@@ -76,3 +92,14 @@ sys_call:
   ret
 .size syscall, . - syscall
 .size sys_call, . - sys_call
+
+.globl syscall3
+.type syscall3, @function
+syscall3:
+  mv a7, a0             # trap number
+  mv a0, a1             # arg0
+  mv a1, a2             # arg1
+  mv a2, a3             # arg2
+  ecall
+  ret
+.size syscall3, . - syscall3

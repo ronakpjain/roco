@@ -221,6 +221,37 @@ TEST(CompilerTest, FoldsConstantIndexesIntoLoadsAtO1) {
 }
 
 
+TEST(CompilerTest, PassesMultidimensionalRowsByAddress) {
+  const std::string source = R"(
+    static char names[4][24];
+    void put(char *p);
+    void pass(unsigned i) { put(names[i]); }
+    char *row(unsigned i) { return names[i]; }
+    char *next(unsigned i) { return names[i] + 1; }
+  )";
+  const std::string assembly = compile(source);
+  // Rows scale by their 24-byte size, and a row address is never loaded.
+  EXPECT_NE(assembly.find("li a1, 24"), std::string::npos);
+  EXPECT_EQ(assembly.find("lw a0, 0(a0)"), std::string::npos);
+  EXPECT_EQ(assembly.find("lb a0, 0(a0)"), std::string::npos);
+  EXPECT_NE(assembly.find("call put"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
+TEST(CompilerTest, IndexesMultidimensionalArraysByRow) {
+  const std::string source = R"(
+    static unsigned counts[3][8];
+    unsigned get(unsigned i, unsigned j) { return counts[i][j]; }
+    void set(unsigned i, unsigned j, unsigned value) { counts[i][j] = value; }
+  )";
+  const std::string assembly = compile(source);
+  // Rows scale by 32 bytes, elements load and store as words.
+  EXPECT_NE(assembly.find("li a1, 32"), std::string::npos);
+  EXPECT_NE(assembly.find("lw a0, 0(a0)"), std::string::npos);
+  EXPECT_NE(assembly.find("sw a0, 0(a1)"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
 TEST(CompilerTest, DropsDeadExpressionResultsAtO1) {
   const char* decrement = "int f(int x) { while (x) x--; return x; }\n";
   const char* discard = "int f(int x, int y) { x + y; return x; }\n";

@@ -16,6 +16,16 @@ int sum_array(int *p, int n) {
   return total;
 }
 
+static char names[4][8];
+static unsigned counts[3][4];
+
+int row_sum(char *p) {
+  int total = 0;
+  int k;
+  for (k = 0; k < 8; k++) total += p[k];
+  return total;
+}
+
 int main(void) {
   if (sizeof(int) != 4) return 10;
   if (sizeof(short) != 2) return 11;
@@ -61,5 +71,25 @@ int main(void) {
 
   if (sum_array(global_array, 4) != 100) return 28;
   if (fact(5) != 120) return 29;
+
+  unsigned i;
+  unsigned j;
+  for (i = 0; i < 4u; i++) {
+    for (j = 0; j < 8u; j++) {
+      names[i][j] = (char)(i * 8u + j);
+    }
+  }
+  for (i = 0; i < 3u; i++) {
+    for (j = 0; j < 4u; j++) {
+      counts[i][j] = i * 100u + j;
+    }
+  }
+  if (names[0][0] != 0) return 40;
+  if (names[3][7] != 31) return 41;
+  if (counts[0][0] != 0) return 42;
+  if (counts[2][3] != 203) return 43;
+  if (names[2] != &names[2][0]) return 44;
+  if (row_sum(names[1]) != 92) return 45;
+  if (names[1] + 8 != names[2]) return 46;
   return 0;
 }

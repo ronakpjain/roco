@@ -610,7 +610,11 @@ class Codegen {
           }
         }
         generate_address(expression, function);
-        load(expression.type);
+        // A subscript with an array type is a row of a multidimensional
+        // array: its value is the row address, so there is nothing to load.
+        if (expression.type->kind != TypeKind::Array) {
+          load(expression.type);
+        }
         return;
       case ExprKind::Cast:
         generate_expression(*expression.lhs, function, need_value);
@@ -1496,8 +1500,10 @@ class Codegen {
       return;
     }
 
-    const TypePtr left_type = expression.lhs->type;
-    const TypePtr right_type = expression.rhs->type;
+    // Decay at the type level so row addresses from multidimensional
+    // subscripts scale by their element size in pointer arithmetic.
+    const TypePtr left_type = decay(expression.lhs->type);
+    const TypePtr right_type = decay(expression.rhs->type);
     const bool pointer_arith =
         (expression.binary == BinaryOp::Add ||
          expression.binary == BinaryOp::Sub) &&

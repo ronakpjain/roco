@@ -943,9 +943,9 @@ class Parser {
     expression->lhs = decay_expression(std::move(condition));
     expression->rhs = decay_expression(std::move(yes));
     expression->third = decay_expression(std::move(no));
-    expression->type = expression->rhs->type->kind == TypeKind::Void
-                           ? expression->third->type
-                           : expression->rhs->type;
+    expression->type = decay(expression->rhs->type->kind == TypeKind::Void
+                                 ? expression->third->type
+                                 : expression->rhs->type);
     return expression;
   }
 
@@ -1341,7 +1341,12 @@ class Parser {
   }
 
   ExprPtr decay_expression(ExprPtr expression) {
-    if (expression->type->kind == TypeKind::Array) {
+    // A subscript into a multidimensional array keeps its array type.
+    // The backend generates the row address directly from the un-decayed
+    // row size, so rewriting the node to a pointer here would silently
+    // scale later address arithmetic by four and load through it.
+    if (expression->type->kind == TypeKind::Array &&
+        expression->kind != ExprKind::Index) {
       expression->type = pointer_to(expression->type->base);
       expression->lvalue = false;
     }
@@ -1358,8 +1363,10 @@ class Parser {
     expression->lhs = std::move(left);
     expression->rhs = std::move(right);
 
-    TypePtr left_type = expression->lhs->type;
-    TypePtr right_type = expression->rhs->type;
+    // Decay at the type level: an un-decayed multidimensional subscript
+    // acts as its row pointer in pointer arithmetic and comparisons.
+    TypePtr left_type = decay(expression->lhs->type);
+    TypePtr right_type = decay(expression->rhs->type);
 
     switch (operation) {
       case BinaryOp::Add:
@@ -1430,13 +1437,17 @@ class Parser {
   ExprPtr make_index(ExprPtr base, ExprPtr index) {
     base = decay_expression(std::move(base));
     index = decay_expression(std::move(index));
-    if (!is_pointer(base->type) || !is_integer(index->type)) {
+    // The base may be an un-decayed subscript into a multidimensional
+    // array; decay at the type level so the row type survives for the
+    // backend's address scaling.
+    TypePtr base_type = decay(base->type);
+    if (base_type->kind != TypeKind::Pointer || !is_integer(index->type)) {
       fail(base->token, "subscript requires a pointer and an integer");
     }
     auto expression = std::make_unique<Expr>();
     expression->kind = ExprKind::Index;
     expression->token = base->token;
-    expression->type = base->type->base;
+    expression->type = base_type->base;
     expression->lvalue = true;
     expression->lhs = std::move(base);
     expression->rhs = std::move(index);

@@ -157,6 +157,38 @@ class Codegen {
     }
   }
 
+  static bool has_call(const Expr& expression) {
+    if (expression.kind == ExprKind::Call) {
+      return true;
+    }
+    if (expression.lhs && has_call(*expression.lhs)) return true;
+    if (expression.rhs && has_call(*expression.rhs)) return true;
+    if (expression.third && has_call(*expression.third)) return true;
+    for (const auto& argument : expression.args) {
+      if (has_call(*argument)) return true;
+    }
+    return false;
+  }
+
+  static bool has_call(const Stmt& statement) {
+    if (statement.expr && has_call(*statement.expr)) return true;
+    if (statement.inc && has_call(*statement.inc)) return true;
+    if (statement.init && has_call(*statement.init)) return true;
+    if (statement.then_stmt && has_call(*statement.then_stmt)) return true;
+    if (statement.else_stmt && has_call(*statement.else_stmt)) return true;
+    if (statement.body && has_call(*statement.body)) return true;
+    for (const auto& child : statement.statements) {
+      if (has_call(*child)) return true;
+    }
+    for (const auto& declaration : statement.declarations) {
+      if (declaration->init && has_call(*declaration->init)) return true;
+      for (const auto& element : declaration->init_list) {
+        if (has_call(*element)) return true;
+      }
+    }
+    return false;
+  }
+
   void generate_function(const Function& function) {
     temp_stack_.clear();
     local_registers_ = optimizing(OptimizationLevel::O1)
@@ -168,10 +200,13 @@ class Codegen {
     }
     emit("  .type " + function.name + ", @function");
     emit(function.name + ":");
+    const bool leaf = !has_call(*function.body);
     const int save_size =
         (16 + 4 * local_registers_.used + 15) & ~15;
     emit("  addi sp, sp, -" + std::to_string(save_size));
-    emit("  sw ra, 12(sp)");
+    if (!leaf) {
+      emit("  sw ra, 12(sp)");
+    }
     emit("  sw s0, 8(sp)");
     emit("  sw s1, 4(sp)");
     emit("  mv s0, sp");
@@ -206,7 +241,9 @@ class Codegen {
     }
     emit(return_label_ + ":");
     emit("  mv sp, s0");
-    emit("  lw ra, 12(sp)");
+    if (!leaf) {
+      emit("  lw ra, 12(sp)");
+    }
     for (int slot = 0; slot < local_registers_.used; ++slot) {
       emit("  lw " + LocalRegisterPlan::register_name(slot) + ", " +
            std::to_string(16 + 4 * slot) + "(sp)");
@@ -866,9 +903,26 @@ class Codegen {
       if (expression.lhs->kind == ExprKind::Var &&
           expression.lhs->local != nullptr &&
           expression.lhs->local->type->kind != TypeKind::Array) {
-        generate_expression(*expression.rhs, function);
         const std::string reg =
             local_register_name(expression.lhs->local);
+        if (!reg.empty() && !need_value) {
+          const std::string rhs_register =
+              simple_register_local(*expression.rhs);
+          if (!rhs_register.empty()) {
+            if (rhs_register != reg) {
+              emit("  mv " + reg + ", " + rhs_register);
+            }
+            convert_register(expression.lhs->type, reg);
+            return;
+          }
+          std::int64_t constant = 0;
+          if (constant_int(*expression.rhs, constant)) {
+            emit("  li " + reg + ", " + std::to_string(constant));
+            convert_register(expression.lhs->type, reg);
+            return;
+          }
+        }
+        generate_expression(*expression.rhs, function);
         if (reg.empty()) {
           store_to(expression.lhs->type, "s0",
                    expression.lhs->local->offset);

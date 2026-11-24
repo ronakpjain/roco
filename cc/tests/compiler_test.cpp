@@ -327,6 +327,29 @@ TEST(CompilerTest, AlignsSharedGlobalsToTheCacheLine) {
   EXPECT_NO_THROW(roco::assemble(aligned, "compiler-output.S"));
 }
 
+TEST(CompilerTest, OmitsReturnAddressSaveInLeafFunctions) {
+  const std::string assembly = compile(R"(
+    int leaf(int value) { return value + 1; }
+  )");
+  EXPECT_EQ(assembly.find("sw ra"), std::string::npos);
+  EXPECT_EQ(assembly.find("lw ra"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
+TEST(CompilerTest, StoresDiscardedRegisterAssignmentsDirectly) {
+  const std::string assembly = compile(R"(
+    int choose(void) {
+      int value = 0;
+      value = 1;
+      value = 2;
+      return value + value + value;
+    }
+  )", roco::OptimizationLevel::O1);
+  EXPECT_NE(assembly.find("li s2, 2"), std::string::npos);
+  EXPECT_EQ(assembly.find("li a0, 2\n  mv s2, a0"), std::string::npos);
+  EXPECT_NO_THROW(roco::assemble(assembly, "compiler-output.S"));
+}
+
 TEST(CompilerTest, DropsDeadExpressionResultsAtO1) {
   const char* decrement = "int f(int x) { while (x) x--; return x; }\n";
   const char* discard = "int f(int x, int y) { x + y; return x; }\n";

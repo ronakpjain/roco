@@ -4,6 +4,7 @@
 /// @brief Stack-machine RV32 assembly generation for the supported C subset.
 
 #include "compiler/ast.hpp"
+#include "compiler/regalloc.hpp"
 #include "compiler/types.hpp"
 
 #include "roco/diagnostic.hpp"

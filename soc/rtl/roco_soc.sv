@@ -716,6 +716,10 @@ module roco_soc #(
   roco_cpu #(
       .HART_ID(1)
   ) u_cpu1 (
+`ifdef ROCO_SOC_GPR_FORMAL
+      .rvfi_gpr_watch_addr(f_gpr_watch_addr),
+      .rvfi_gpr_watch_value(),
+`endif
       .clk(clk),
       .rst(core1_rst),
       .boot_addr(hart1_boot_addr),
